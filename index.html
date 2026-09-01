@@ -130,8 +130,9 @@
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="new">Nouvelle</button>
-    <button class="tab-btn" data-tab="hist">Historique</button>
-    <button class="tab-btn" data-tab="exit">Sortie</button>
+    <button class="tab-btn" data-tab="hist">CDE en stock</button>
+    <button class="tab-btn" data-tab="exit">Scan sortie</button>
+    <button class="tab-btn" data-tab="archive">CDE sortie</button>
     <button class="tab-btn" data-tab="base">Base</button>
   </nav>
 
@@ -257,10 +258,10 @@
     </div>
   </section>
 
-  <!-- ===== TAB: HISTORIQUE ===== -->
+  <!-- ===== TAB: HISTORIQUE (CDE en stock) ===== -->
   <section id="tab-hist" style="display:none;">
     <div class="card">
-      <h2>Réceptions enregistrées</h2>
+      <h2>Commandes en stock</h2>
       <div class="field" style="margin-bottom:12px;">
         <input type="text" id="histSearch" placeholder="Rechercher : n° étiquette, client, fournisseur...">
       </div>
@@ -268,7 +269,7 @@
     </div>
   </section>
 
-  <!-- ===== TAB: SORTIE ===== -->
+  <!-- ===== TAB: SORTIE (scan) ===== -->
   <section id="tab-exit" style="display:none;">
     <div class="card">
       <h2>Scanner une sortie (caméra)</h2>
@@ -298,6 +299,38 @@
     <div class="card">
       <h2>Sorties en cours</h2>
       <div id="exitSessions"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: ARCHIVE (CDE sortie) ===== -->
+  <section id="tab-archive" style="display:none;">
+    <div class="card">
+      <h2>Liste A4 des commandes sorties</h2>
+      <p class="hint" style="margin:0 0 10px;">Choisis un mois (raccourci) ou une période précise, puis génère le PDF.</p>
+      <div class="field">
+        <label for="archMonth">Mois</label>
+        <input type="month" id="archMonth">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="archFrom">Du</label>
+          <input type="date" id="archFrom">
+        </div>
+        <div class="field">
+          <label for="archTo">Au</label>
+          <input type="date" id="archTo">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnArchivePdf">Générer le PDF A4</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Commandes sorties</h2>
+      <div class="field" style="margin-bottom:12px;">
+        <input type="text" id="archiveSearch" placeholder="Rechercher : n° étiquette, client...">
+      </div>
+      <div id="archiveList"></div>
     </div>
   </section>
 
@@ -594,8 +627,16 @@ function updatePreview(){
   document.getElementById('btnPdf').textContent = 'Télécharger PDF ('+n+' étiquette'+(n>1?'s':'')+')';
 }
 
+var UPPERCASE_FIELDS = ['f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-support'];
 ['f-date','f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-poids','f-colis','f-palettes','f-vrac','f-support'].forEach(function(id){
-  document.getElementById(id).addEventListener('input', updatePreview);
+  document.getElementById(id).addEventListener('input', function(e){
+    if(UPPERCASE_FIELDS.indexOf(id) >= 0){
+      var pos = e.target.selectionStart;
+      e.target.value = e.target.value.toUpperCase();
+      try{ e.target.setSelectionRange(pos, pos); }catch(err){}
+    }
+    updatePreview();
+  });
 });
 
 function todayISO(){
@@ -690,6 +731,7 @@ document.getElementById('btnSave').addEventListener('click', async function(){
     var existing = await getReceptionRecord(id);
     existingSavedAt = existing ? existing.savedAt : null;
     if(existing && existing.data && existing.data.exitedAt){ d.exitedAt = existing.data.exitedAt; }
+    if(existing && existing.data && existing.data.exitStats){ d.exitStats = existing.data.exitStats; }
   }
   var record = { id: id, savedAt: existingSavedAt || new Date().toISOString(), data: d };
   if(isEdit) record.updatedAt = new Date().toISOString();
@@ -697,10 +739,12 @@ document.getElementById('btnSave').addEventListener('click', async function(){
 
   var entry = { id: id, date: d.date, client: d.client, fournisseur: d.fournisseur, transporteur: d.transporteur, savedAt: record.savedAt, labelNumber: labelNumber };
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
+  if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
   if(idx>=0){ state.historyIndex[idx] = entry; } else { state.historyIndex.unshift(entry); }
   await saveHistoryIndex();
   renderHistory();
+  renderArchiveList();
 
   if(isEdit){
     banner('Réception '+labelNumber+' mise à jour');
@@ -937,7 +981,8 @@ function generateExitPdf(d, stats){
 function renderHistory(){
   var el = document.getElementById('histList');
   var q = (document.getElementById('histSearch').value || '').trim().toLowerCase();
-  var items = state.historyIndex;
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt; });
+  var totalInStock = items.length;
   if(q){
     items = items.filter(function(h){
       return (h.labelNumber||'').toLowerCase().indexOf(q)>=0 ||
@@ -947,23 +992,20 @@ function renderHistory(){
     });
   }
   if(!items.length){
-    el.innerHTML = '<div class="empty">'+(state.historyIndex.length?'Aucun résultat':'Aucune réception enregistrée pour le moment')+'</div>';
+    el.innerHTML = '<div class="empty">'+(totalInStock?'Aucun résultat':'Aucune commande en stock pour le moment')+'</div>';
     return;
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var days = daysSince(h.date);
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
-    var exitBadge = h.exitedAt ? ('<div class="sub" style="color:var(--accent);font-weight:600;">Sortie le '+fmtDate(h.exitedAt.slice(0,10))+'</div>') : '';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+escapeHtml(h.client||'—')+'</span><span class="date">'+fmtDate(h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+'</div>'+
-      exitBadge+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
         '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
-        (h.exitedAt ? '<button class="btn accent" data-act="pdfexit">PDF sortie</button>' : '')+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
       '</div>'+
       '<div class="reprint-list" id="reprint-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
@@ -1001,8 +1043,6 @@ function renderHistory(){
       });
       container.style.display = 'block';
     });
-    var pdfExitBtn = item.querySelector('[data-act="pdfexit"]');
-    if(pdfExitBtn) pdfExitBtn.addEventListener('click', function(){ reprintExitPdf(labelNumber); });
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
       await deleteReceptionRecord(id);
       state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
@@ -1013,6 +1053,154 @@ function renderHistory(){
   });
 }
 document.getElementById('histSearch').addEventListener('input', renderHistory);
+
+// ---------- CDE sortie (archive + liste A4) ----------
+function renderArchiveList(){
+  var el = document.getElementById('archiveList');
+  if(!el) return;
+  var q = (document.getElementById('archiveSearch').value || '').trim().toLowerCase();
+  var from = document.getElementById('archFrom').value;
+  var to = document.getElementById('archTo').value;
+  var items = state.historyIndex.filter(function(h){ return !!h.exitedAt; });
+  var totalExited = items.length;
+  if(from || to){
+    items = items.filter(function(h){
+      var exitDate = h.exitedAt.slice(0,10);
+      if(from && exitDate < from) return false;
+      if(to && exitDate > to) return false;
+      return true;
+    });
+  }
+  if(q){
+    items = items.filter(function(h){
+      return (h.labelNumber||'').toLowerCase().indexOf(q)>=0 ||
+        (h.client||'').toLowerCase().indexOf(q)>=0 ||
+        (h.fournisseur||'').toLowerCase().indexOf(q)>=0 ||
+        (h.transporteur||'').toLowerCase().indexOf(q)>=0;
+    });
+  }
+  items = items.slice().sort(function(a,b){ return (b.exitedAt||'').localeCompare(a.exitedAt||''); });
+
+  if(!items.length){
+    el.innerHTML = '<div class="empty">'+(totalExited?'Aucune commande sortie pour ces critères':'Aucune commande sortie pour le moment')+'</div>';
+    return;
+  }
+  el.innerHTML = items.map(function(h){
+    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
+    var detail = 'Entrée '+fmtDate(h.date)+(h.exitDaysStored!=null?' · '+h.exitDaysStored+' j de stockage':'')+(h.exitTotalLabels?' · '+h.exitTotalLabels+' étiquette(s)':'');
+    return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+escapeHtml(h.client||'—')+'</span><span class="date">Sortie '+fmtDate(h.exitedAt.slice(0,10))+'</span></div>'+
+      '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
+      '<div class="sub" style="color:var(--ink-soft);">'+detail+'</div>'+
+      '<div class="actions">'+
+        '<button class="btn accent" data-act="pdfexit">PDF sortie</button>'+
+      '</div></div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
+    var labelNumber = item.getAttribute('data-labelnumber');
+    item.querySelector('[data-act="pdfexit"]').addEventListener('click', function(){ reprintExitPdf(labelNumber); });
+  });
+}
+document.getElementById('archiveSearch').addEventListener('input', renderArchiveList);
+document.getElementById('archFrom').addEventListener('input', renderArchiveList);
+document.getElementById('archTo').addEventListener('input', renderArchiveList);
+document.getElementById('archMonth').addEventListener('change', function(){
+  var val = this.value; // "YYYY-MM"
+  if(!val) return;
+  var parts = val.split('-');
+  var y = parseInt(parts[0],10), m = parseInt(parts[1],10);
+  var first = new Date(y, m-1, 1);
+  var last = new Date(y, m, 0);
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  document.getElementById('archFrom').value = first.getFullYear()+'-'+pad(first.getMonth()+1)+'-'+pad(first.getDate());
+  document.getElementById('archTo').value = last.getFullYear()+'-'+pad(last.getMonth()+1)+'-'+pad(last.getDate());
+  renderArchiveList();
+});
+
+function generateArchivePdf(){
+  var from = document.getElementById('archFrom').value;
+  var to = document.getElementById('archTo').value;
+  var items = state.historyIndex.filter(function(h){ return !!h.exitedAt; });
+  if(from || to){
+    items = items.filter(function(h){
+      var exitDate = h.exitedAt.slice(0,10);
+      if(from && exitDate < from) return false;
+      if(to && exitDate > to) return false;
+      return true;
+    });
+  }
+  items = items.slice().sort(function(a,b){ return (a.exitedAt||'').localeCompare(b.exitedAt||''); });
+  if(!items.length){ banner('Aucune commande sortie sur cette période'); return; }
+
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  var H = 297, marginX = 14, y = 18;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(0,0,0);
+  doc.text('Commandes sorties', marginX, y);
+  y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  var periodLabel = (from||to) ? ('Période : '+(from?fmtDate(from):'…')+' au '+(to?fmtDate(to):'…')) : 'Toutes périodes';
+  doc.text(periodLabel, marginX, y);
+  y += 9;
+
+  var cols = [
+    { label:'N° étiquette', w:28 },
+    { label:'Client', w:52 },
+    { label:'Date entrée', w:24 },
+    { label:'Date sortie', w:24 },
+    { label:'Jours stock.', w:22 },
+    { label:'Nb étiq.', w:20 }
+  ];
+  var tableW = cols.reduce(function(s,c){ return s+c.w; }, 0);
+
+  function drawHeader(){
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
+    var x = marginX;
+    cols.forEach(function(c){ doc.text(c.label, x, y); x += c.w; });
+    y += 2;
+    doc.setDrawColor(0,0,0); doc.setLineWidth(0.3);
+    doc.line(marginX, y, marginX+tableW, y);
+    y += 5;
+  }
+  drawHeader();
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(0,0,0);
+  items.forEach(function(h){
+    if(y > H - 20){
+      doc.addPage();
+      y = 18;
+      drawHeader();
+    }
+    var rowVals = [
+      h.labelNumber || '-',
+      h.client || '-',
+      fmtDate(h.date),
+      fmtDate(h.exitedAt.slice(0,10)),
+      (h.exitDaysStored!=null ? h.exitDaysStored+' j' : '-'),
+      String(h.exitTotalLabels || '-')
+    ];
+    var x = marginX;
+    cols.forEach(function(c, idx){
+      var lines = doc.splitTextToSize(String(rowVals[idx]), c.w-2);
+      doc.text(lines[0] || '', x, y);
+      x += c.w;
+    });
+    y += 6;
+  });
+
+  y += 5;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.2);
+  doc.line(marginX, y-3, marginX+tableW, y-3);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.text('Total : '+items.length+' commande(s) sortie(s)', marginX, y);
+
+  var fname = 'commandes_sorties'+(from?'_du_'+from:'')+(to?'_au_'+to:'')+'.pdf';
+  doc.save(fname);
+  banner(items.length+' commande(s) — PDF A4 téléchargé');
+}
+document.getElementById('btnArchivePdf').addEventListener('click', generateArchivePdf);
 
 function fillForm(d){
   document.getElementById('f-labelnumber').value = d.labelNumber || '';
@@ -1032,8 +1220,13 @@ function fillForm(d){
 
 // ---------- add base entries manually ----------
 function wireAdd(btnId, inputId, kind){
+  var input = document.getElementById(inputId);
+  input.addEventListener('input', function(e){
+    var pos = e.target.selectionStart;
+    e.target.value = e.target.value.toUpperCase();
+    try{ e.target.setSelectionRange(pos, pos); }catch(err){}
+  });
   document.getElementById(btnId).addEventListener('click', async function(){
-    var input = document.getElementById(inputId);
     var nom = input.value.trim();
     if(!nom) return;
     await ensureBaseEntry(kind, nom);
@@ -1275,14 +1468,17 @@ async function validateExit(labelNumber){
   rec.data.exitStats = stats; // conservé pour pouvoir retélécharger le PDF de sortie plus tard
   await saveReceptionRecord(hEntry.id, rec);
   hEntry.exitedAt = rec.data.exitedAt;
+  hEntry.exitDaysStored = daysStored;
+  hEntry.exitTotalLabels = totalLabels;
   await saveHistoryIndex();
 
   clearExitSession(labelNumber);
   await renderExitSessions();
   renderHistory();
+  renderArchiveList();
 
   generateExitPdf(rec.data, stats);
-  banner('Sortie validée pour '+labelNumber);
+  banner('Sortie validée pour '+labelNumber+' — déplacée vers CDE sortie');
 }
 
 async function reprintExitPdf(labelNumber){
@@ -1400,12 +1596,13 @@ document.getElementById('btnScanStop').addEventListener('click', stopScan);
 
 // ---------- tabs ----------
 function switchTab(name){
-  ['new','hist','exit','base'].forEach(function(t){
+  ['new','hist','exit','archive','base'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
     btn.classList.toggle('active', btn.getAttribute('data-tab')===name);
   });
+  if(name!=='exit'){ stopScan(); }
   if(name==='exit'){
     if(!cameraAvailable()){
       document.getElementById('scanUnavailable').style.display = 'block';
@@ -1413,9 +1610,9 @@ function switchTab(name){
     }
     rehydrateExitSessions();
     renderExitSessions();
-  } else {
-    stopScan();
   }
+  if(name==='hist'){ renderHistory(); }
+  if(name==='archive'){ renderArchiveList(); }
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
@@ -1443,14 +1640,41 @@ async function migrateLabelNumbers(){
   await saveHistoryIndex();
 }
 
+// migration : reconstitue les stats de sortie (jours de stockage, nb étiquettes) pour les commandes
+// déjà sorties avant l'ajout de l'onglet "CDE sortie"
+async function migrateArchiveStats(){
+  var missing = state.historyIndex.filter(function(h){ return h.exitedAt && h.exitDaysStored==null; });
+  if(!missing.length) return;
+  for(var i=0;i<missing.length;i++){
+    var h = missing[i];
+    var rec = await getReceptionRecord(h.id);
+    if(rec && rec.data){
+      if(rec.data.exitStats){
+        h.exitDaysStored = rec.data.exitStats.daysStored;
+        h.exitTotalLabels = rec.data.exitStats.totalLabels;
+      } else {
+        var totalLabels = computeLabels(rec.data).length;
+        var daysStored = daysSince(rec.data.date);
+        h.exitDaysStored = daysStored;
+        h.exitTotalLabels = totalLabels;
+        rec.data.exitStats = { totalLabels: totalLabels, daysStored: daysStored, exitDateStr: fmtDate(h.exitedAt.slice(0,10)) };
+        await saveReceptionRecord(h.id, rec);
+      }
+    }
+  }
+  await saveHistoryIndex();
+}
+
 // ---------- init ----------
 (async function init(){
   await loadBase();
   await loadHistoryIndex();
   await migrateLabelNumbers();
+  await migrateArchiveStats();
   refreshDatalists();
   renderBaseLists();
   renderHistory();
+  renderArchiveList();
   resetForm();
 })();
 
