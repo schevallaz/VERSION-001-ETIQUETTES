@@ -843,6 +843,17 @@ function generatePdf(d){
   banner(labels.length+' étiquette(s) générée(s) — PDF téléchargé');
 }
 
+// réimpression d'une seule étiquette physique (ex: une palette dont l'étiquette s'est déchirée)
+function generateSingleLabelPdf(d, meta){
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: [100, 150], orientation: 'portrait' });
+  var qrDataUrl = buildQrDataUrl(d, meta);
+  drawLabelPage(doc, d, qrDataUrl, meta);
+  var suffix = (meta && meta.itemId) || 'U1';
+  doc.save('etiquette_'+d.labelNumber+'_'+suffix+'.pdf');
+  banner('Étiquette '+(meta && meta.posLabel ? meta.posLabel : suffix)+' réimprimée');
+}
+
 // ---------- PDF "SORTIE DE COMMANDE" ----------
 function qrTextExit(d, stats){
   return 'SORTIE STLS '+(d.labelNumber||'')+'\n'+
@@ -950,10 +961,13 @@ function renderHistory(){
       exitBadge+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
-        '<button class="btn ghost" data-act="pdf">PDF</button>'+
+        '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
+        '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
         (h.exitedAt ? '<button class="btn accent" data-act="pdfexit">PDF sortie</button>' : '')+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
-      '</div></div>';
+      '</div>'+
+      '<div class="reprint-list" id="reprint-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '</div>';
   }).join('');
 
   Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
@@ -968,6 +982,24 @@ function renderHistory(){
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
       generatePdf(rec.data);
+    });
+    item.querySelector('[data-act="reprint"]').addEventListener('click', async function(){
+      var container = document.getElementById('reprint-'+id);
+      if(container.style.display === 'block'){ container.style.display = 'none'; return; }
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      var labelItems = computeLabels(rec.data);
+      container.innerHTML = '<div class="hint" style="margin-bottom:6px;">Choisis l\'étiquette à réimprimer :</div>' +
+        labelItems.map(function(meta, idx){
+          return '<button class="btn ghost" data-idx="'+idx+'" style="width:auto;display:inline-block;margin:0 6px 6px 0;padding:7px 11px;font-size:12.5px;">'+(meta.posLabel || 'Étiquette unique')+'</button>';
+        }).join('');
+      Array.prototype.forEach.call(container.querySelectorAll('button[data-idx]'), function(btn){
+        btn.addEventListener('click', function(){
+          var idx = parseInt(btn.getAttribute('data-idx'),10);
+          generateSingleLabelPdf(rec.data, labelItems[idx]);
+        });
+      });
+      container.style.display = 'block';
     });
     var pdfExitBtn = item.querySelector('[data-act="pdfexit"]');
     if(pdfExitBtn) pdfExitBtn.addEventListener('click', function(){ reprintExitPdf(labelNumber); });
