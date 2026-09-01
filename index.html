@@ -944,19 +944,21 @@ function renderHistory(){
     var days = daysSince(h.date);
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
     var exitBadge = h.exitedAt ? ('<div class="sub" style="color:var(--accent);font-weight:600;">Sortie le '+fmtDate(h.exitedAt.slice(0,10))+'</div>') : '';
-    return '<div class="hist-item" data-id="'+h.id+'">'+
+    return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+escapeHtml(h.client||'—')+'</span><span class="date">'+fmtDate(h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+'</div>'+
       exitBadge+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF</button>'+
+        (h.exitedAt ? '<button class="btn accent" data-act="pdfexit">PDF sortie</button>' : '')+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
       '</div></div>';
   }).join('');
 
   Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
     var id = item.getAttribute('data-id');
+    var labelNumber = item.getAttribute('data-labelnumber');
     item.querySelector('[data-act="edit"]').addEventListener('click', async function(){
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
@@ -967,6 +969,8 @@ function renderHistory(){
       if(!rec){ banner('Introuvable'); return; }
       generatePdf(rec.data);
     });
+    var pdfExitBtn = item.querySelector('[data-act="pdfexit"]');
+    if(pdfExitBtn) pdfExitBtn.addEventListener('click', function(){ reprintExitPdf(labelNumber); });
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
       await deleteReceptionRecord(id);
       state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
@@ -1233,8 +1237,10 @@ async function validateExit(labelNumber){
   var totalLabels = computeLabels(rec.data).length;
   var daysStored = daysSince(rec.data.date);
   var exitDateStr = fmtDate(todayISO());
+  var stats = { totalLabels: totalLabels, daysStored: daysStored, exitDateStr: exitDateStr };
 
   rec.data.exitedAt = new Date().toISOString();
+  rec.data.exitStats = stats; // conservé pour pouvoir retélécharger le PDF de sortie plus tard
   await saveReceptionRecord(hEntry.id, rec);
   hEntry.exitedAt = rec.data.exitedAt;
   await saveHistoryIndex();
@@ -1243,8 +1249,16 @@ async function validateExit(labelNumber){
   await renderExitSessions();
   renderHistory();
 
-  generateExitPdf(rec.data, { totalLabels: totalLabels, daysStored: daysStored, exitDateStr: exitDateStr });
+  generateExitPdf(rec.data, stats);
   banner('Sortie validée pour '+labelNumber);
+}
+
+async function reprintExitPdf(labelNumber){
+  var hEntry = state.historyIndex.find(function(h){ return h.labelNumber===labelNumber; });
+  if(!hEntry){ banner('Introuvable'); return; }
+  var rec = await getReceptionRecord(hEntry.id);
+  if(!rec || !rec.data.exitStats){ banner('Aucune sortie enregistrée pour cette référence'); return; }
+  generateExitPdf(rec.data, rec.data.exitStats);
 }
 
 // ---------- saisie manuelle (sans caméra) ----------
