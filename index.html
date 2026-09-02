@@ -7,6 +7,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --ink:#1c1c1a; --ink-soft:#5f5e5a; --line:#dcdad2; --line-strong:#b4b2a9;
@@ -405,7 +407,32 @@ function nextCode(list, prefix, field){
   return prefix+num;
 }
 
-// ---------- storage (localStorage : fonctionne en local, hors-ligne, sans dépendance) ----------
+// ---------- Firebase / Firestore : synchronisation entre appareils ----------
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c",
+  measurementId: "G-2M8ENNG05B"
+};
+var db = null;
+var fsAvailable = false;
+try{
+  if(window.firebase){
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    fsAvailable = true;
+  }
+}catch(e){ console.error('Firebase init error', e); fsAvailable = false; }
+
+var configDocRef = fsAvailable ? db.collection('stls_depot').doc('config') : null;
+var receptionsColRef = fsAvailable ? configDocRef.collection('receptions') : null;
+
+function fsReady(){ return fsAvailable && !!db; }
+
+// ---------- storage (Firestore = source de vérité partagée ; localStorage = cache de secours hors-ligne) ----------
 var LS_PREFIX = 'stls_etiquettes_';
 
 function lsGet(key){
@@ -418,46 +445,145 @@ function lsSet(key, value){
   try{
     window.localStorage.setItem(LS_PREFIX+key, value);
     return true;
-  }catch(e){ console.error('storage error', e); banner('Sauvegarde locale impossible (stockage plein ou bloqué)'); return false; }
+  }catch(e){ console.error('storage error', e); return false; }
 }
 function lsDelete(key){
   try{ window.localStorage.removeItem(LS_PREFIX+key); }catch(e){}
 }
 
 async function loadBase(){
+  if(fsReady()){
+    try{
+      var snap = await configDocRef.get();
+      if(snap.exists && snap.data().clients){
+        state.base = { clients: snap.data().clients||[], fournisseurs: snap.data().fournisseurs||[], transporteurs: snap.data().transporteurs||[] };
+        lsSet('base-data', JSON.stringify(state.base));
+        watchBase();
+        return;
+      }
+    }catch(e){ console.error('Firestore loadBase error', e); }
+  }
+  // pas encore de données dans le cloud : on part du cache local (ou des valeurs par défaut), puis on le pousse en ligne
   var raw = lsGet('base-data');
   if(raw){
-    try{ state.base = JSON.parse(raw); return; }catch(e){}
+    try{ state.base = JSON.parse(raw); }catch(e){ state.base = null; }
   }
-  state.base = {
-    clients: DEFAULT_CLIENTS.slice(),
-    fournisseurs: DEFAULT_FOURNISSEURS.slice(),
-    transporteurs: DEFAULT_TRANSPORTEURS.slice()
-  };
+  if(!state.base){
+    state.base = {
+      clients: DEFAULT_CLIENTS.slice(),
+      fournisseurs: DEFAULT_FOURNISSEURS.slice(),
+      transporteurs: DEFAULT_TRANSPORTEURS.slice()
+    };
+  }
   await saveBase();
+  watchBase();
 }
 
 async function saveBase(){
   lsSet('base-data', JSON.stringify(state.base));
+  if(fsReady()){
+    try{ await configDocRef.set(state.base, { merge: true }); }catch(e){ console.error('Firestore saveBase error', e); }
+  }
+}
+
+var baseWatchStarted = false;
+function watchBase(){
+  if(!fsReady() || baseWatchStarted) return;
+  baseWatchStarted = true;
+  configDocRef.onSnapshot(function(snap){
+    if(!snap.exists) return;
+    var d = snap.data();
+    if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
+    state.base = { clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[] };
+    lsSet('base-data', JSON.stringify(state.base));
+    refreshDatalists();
+    renderBaseLists();
+  }, function(err){ console.error('Firestore base watch error', err); });
 }
 
 async function loadHistoryIndex(){
   var raw = lsGet('receptions-index');
   if(raw){
-    try{ state.historyIndex = JSON.parse(raw); return; }catch(e){}
+    try{ state.historyIndex = JSON.parse(raw); }catch(e){ state.historyIndex = []; }
+  } else {
+    state.historyIndex = [];
   }
-  state.historyIndex = [];
+  await migrateLocalReceptionsToCloud();
+  watchReceptions();
+}
+
+// première synchro : si le cloud est vide mais qu'il y a déjà des réceptions locales sur cet appareil,
+// on les pousse en ligne pour ne rien perdre (ce poste devient la source initiale du cloud)
+async function migrateLocalReceptionsToCloud(){
+  if(!fsReady()) return;
+  try{
+    var snap = await receptionsColRef.limit(1).get();
+    if(!snap.empty) return; // le cloud a déjà des données, rien à migrer
+  }catch(e){ console.error('Firestore check empty error', e); return; }
+
+  var raw = lsGet('receptions-index');
+  if(!raw) return;
+  var localIndex = [];
+  try{ localIndex = JSON.parse(raw); }catch(e){ return; }
+  if(!localIndex.length) return;
+
+  for(var i=0;i<localIndex.length;i++){
+    var id = localIndex[i].id;
+    var recRaw = lsGet('reception:'+id);
+    if(recRaw){
+      try{ await receptionsColRef.doc(id).set(JSON.parse(recRaw)); }
+      catch(e){ console.error('migration record error', e); }
+    }
+  }
 }
 
 async function saveHistoryIndex(){
+  // avec Firestore, l'écoute en direct des réceptions fait autorité ; on garde juste un cache local hors-ligne
   lsSet('receptions-index', JSON.stringify(state.historyIndex));
+}
+
+function recordToIndexEntry(rec){
+  var d = rec.data || {};
+  var entry = {
+    id: rec.id, date: d.date, client: d.client, contremarque: d.contremarque,
+    fournisseur: d.fournisseur, transporteur: d.transporteur,
+    savedAt: rec.savedAt, labelNumber: d.labelNumber
+  };
+  if(d.exitedAt) entry.exitedAt = d.exitedAt;
+  if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
+  return entry;
+}
+
+var receptionsWatchStarted = false;
+function watchReceptions(){
+  if(!fsReady() || receptionsWatchStarted) return;
+  receptionsWatchStarted = true;
+  receptionsColRef.onSnapshot(function(qsnap){
+    var items = [];
+    qsnap.forEach(function(doc){ items.push(recordToIndexEntry(doc.data())); });
+    items.sort(function(a,b){ return (b.savedAt||'').localeCompare(a.savedAt||''); });
+    state.historyIndex = items;
+    lsSet('receptions-index', JSON.stringify(items));
+    renderHistory();
+    renderArchiveList();
+    renderExitSessions();
+  }, function(err){ console.error('Firestore receptions watch error', err); });
 }
 
 async function saveReceptionRecord(id, record){
   lsSet('reception:'+id, JSON.stringify(record));
+  if(fsReady()){
+    try{ await receptionsColRef.doc(id).set(record); }catch(e){ console.error('Firestore saveReceptionRecord error', e); }
+  }
 }
 
 async function getReceptionRecord(id){
+  if(fsReady()){
+    try{
+      var snap = await receptionsColRef.doc(id).get();
+      if(snap.exists){ lsSet('reception:'+id, JSON.stringify(snap.data())); return snap.data(); }
+    }catch(e){ console.error('Firestore getReceptionRecord error', e); }
+  }
   var raw = lsGet('reception:'+id);
   if(raw){
     try{ return JSON.parse(raw); }catch(e){}
@@ -467,6 +593,9 @@ async function getReceptionRecord(id){
 
 async function deleteReceptionRecord(id){
   lsDelete('reception:'+id);
+  if(fsReady()){
+    try{ await receptionsColRef.doc(id).delete(); }catch(e){ console.error('Firestore deleteReceptionRecord error', e); }
+  }
 }
 
 // ---------- datalist / base rendering ----------
@@ -682,13 +811,26 @@ async function ensureBaseEntry(kind, nom){
   }
 }
 
-// ---------- numéro d'étiquette unique ----------
-function nextLabelNumber(){
+// ---------- numéro d'étiquette unique (compteur atomique partagé via Firestore quand disponible) ----------
+async function nextLabelNumber(){
+  if(fsReady()){
+    try{
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var current = (snap.exists && snap.data().labelCounter) || 0;
+        var next = current + 1;
+        tx.set(configDocRef, { labelCounter: next }, { merge: true });
+        return next;
+      });
+      lsSet('label-counter', String(n));
+      return 'R'+String(n).padStart(6,'0');
+    }catch(e){ console.error('Firestore nextLabelNumber error', e); }
+  }
   var raw = lsGet('label-counter');
-  var n = raw ? parseInt(raw,10) : 0;
-  n = n + 1;
-  lsSet('label-counter', String(n));
-  return 'R'+String(n).padStart(6,'0');
+  var n2 = raw ? parseInt(raw,10) : 0;
+  n2 = n2 + 1;
+  lsSet('label-counter', String(n2));
+  return 'R'+String(n2).padStart(6,'0');
 }
 
 // ---------- mode édition ----------
@@ -722,7 +864,7 @@ document.getElementById('btnSave').addEventListener('click', async function(){
 
   var isEdit = !!state.editingId;
   var id = isEdit ? state.editingId : (Date.now().toString(36)+Math.random().toString(36).slice(2,6));
-  var labelNumber = d.labelNumber || nextLabelNumber();
+  var labelNumber = d.labelNumber || (await nextLabelNumber());
   d.labelNumber = labelNumber;
   document.getElementById('f-labelnumber').value = labelNumber;
 
@@ -737,7 +879,7 @@ document.getElementById('btnSave').addEventListener('click', async function(){
   if(isEdit) record.updatedAt = new Date().toISOString();
   await saveReceptionRecord(id, record);
 
-  var entry = { id: id, date: d.date, client: d.client, fournisseur: d.fournisseur, transporteur: d.transporteur, savedAt: record.savedAt, labelNumber: labelNumber };
+  var entry = { id: id, date: d.date, client: d.client, contremarque: d.contremarque, fournisseur: d.fournisseur, transporteur: d.transporteur, savedAt: record.savedAt, labelNumber: labelNumber };
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
@@ -789,12 +931,15 @@ function pdfLabelBlock(doc, W, x, y, k, v){
   var lines = doc.splitTextToSize(String(v), W/2-8);
   doc.text(lines, x, y+5);
 }
-function pdfLabelBlockBig(doc, W, x, y, k, v, size){
-  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
-  doc.text(k, x, y);
+// version centrée, police plus grande — utilisée pour les champs "chiffres clés" (colis, palettes, vrac, poids...)
+function pdfLabelBlockBig(doc, cellLeft, cellRight, y, k, v, size){
+  var cx = (cellLeft+cellRight)/2;
+  var w = (cellRight-cellLeft)-4;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(60,60,60);
+  doc.text(k, cx, y, { align: 'center' });
   doc.setFont('helvetica','bold'); doc.setFontSize(size); doc.setTextColor(0,0,0);
-  var lines = doc.splitTextToSize(String(v), W/2-8);
-  doc.text(lines, x, y+7);
+  var lines = doc.splitTextToSize(String(v), w);
+  doc.text(lines, cx, y+9, { align: 'center' });
 }
 
 function drawLabelPage(doc, d, qrDataUrl, meta){
@@ -856,15 +1001,15 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
 
   var leftMid = qY0 + (qY1-qY0)/2;
   doc.line(2, leftMid, W/2, leftMid);
-  pdfLabelBlockBig(doc, W, 4, qY0+7, 'NB COLIS / SUPPORT', d.support || '-', 11);
-  pdfLabelBlockBig(doc, W, 4, leftMid+7, 'POIDS TOTAL', (d.poids?d.poids+' kg':'-'), 13);
+  pdfLabelBlockBig(doc, 2, W/2, qY0+8, 'NB COLIS / SUPPORT', d.support || '-', 14);
+  pdfLabelBlockBig(doc, 2, W/2, leftMid+8, 'POIDS TOTAL', (d.poids?d.poids+' kg':'-'), 16);
 
   var rH = (qY1-qY0)/3;
   doc.line(W/2, qY0+rH, W-2, qY0+rH);
   doc.line(W/2, qY0+2*rH, W-2, qY0+2*rH);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+7, 'NB COLIS TOTAL', d.colis || '-', 15);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+rH+7, 'NB PALETTE(S)', d.palettes || '-', 13);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+2*rH+7, 'NB COLIS VRAC', d.vrac || '-', 13);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+8, 'NB COLIS TOTAL', d.colis || '-', 18);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+rH+8, 'NB PALETTE(S)', d.palettes || '-', 16);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+2*rH+8, 'NB COLIS VRAC', d.vrac || '-', 16);
 }
 
 function generatePdf(d){
@@ -963,8 +1108,8 @@ function drawExitLabelPage(doc, d, stats, qrDataUrl){
 
   var qY0 = y, qY1 = H-2;
   doc.line(W/2, qY0, W/2, qY1);
-  pdfLabelBlockBig(doc, W, 4, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+9, 'ETIQUETTES SORTIES', String(stats.totalLabels), 20);
+  pdfLabelBlockBig(doc, 2, W/2, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+9, 'ETIQUETTES SORTIES', String(stats.totalLabels), 20);
 }
 
 function generateExitPdf(d, stats){
@@ -999,8 +1144,9 @@ function renderHistory(){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var days = daysSince(h.date);
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
-      '<div class="hd"><span class="nom">'+numBadge+escapeHtml(h.client||'—')+'</span><span class="date">'+fmtDate(h.date)+'</span></div>'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">'+fmtDate(h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
@@ -1246,8 +1392,8 @@ async function exportData(){
   var records = {};
   for(var i=0;i<state.historyIndex.length;i++){
     var id = state.historyIndex[i].id;
-    var raw = lsGet('reception:'+id);
-    if(raw){ records[id] = JSON.parse(raw); }
+    var rec = await getReceptionRecord(id);
+    if(rec){ records[id] = rec; }
   }
   var bundle = {
     app: 'etiquettes-stls',
@@ -1300,25 +1446,29 @@ async function importData(bundle){
   var addedRecords = 0;
   var incomingIndex = bundle.historyIndex || [];
   var incomingRecords = bundle.records || {};
-  incomingIndex.forEach(function(h){
+  for(var i=0;i<incomingIndex.length;i++){
+    var h = incomingIndex[i];
     var alreadyThere = state.historyIndex.some(function(x){ return x.id === h.id; });
     if(!alreadyThere && incomingRecords[h.id]){
-      state.historyIndex.push(h);
-      lsSet('reception:'+h.id, JSON.stringify(incomingRecords[h.id]));
+      await saveReceptionRecord(h.id, incomingRecords[h.id]);
+      if(!fsReady()){ state.historyIndex.push(recordToIndexEntry(incomingRecords[h.id])); }
       addedRecords++;
     }
-  });
-  state.historyIndex.sort(function(a,b){ return (b.savedAt||'').localeCompare(a.savedAt||''); });
-  await saveHistoryIndex();
-  bumpLabelCounterFromRecords(incomingRecords);
+  }
+  if(!fsReady()){
+    state.historyIndex.sort(function(a,b){ return (b.savedAt||'').localeCompare(a.savedAt||''); });
+    await saveHistoryIndex();
+  }
+  await bumpLabelCounterFromRecords(incomingRecords);
 
   refreshDatalists();
   renderBaseLists();
   renderHistory();
+  renderArchiveList();
   banner('Import terminé : +'+addedClients+' clients, +'+addedFourn+' fourn., +'+addedTransp+' transp., +'+addedRecords+' réceptions');
 }
 
-function bumpLabelCounterFromRecords(records){
+async function bumpLabelCounterFromRecords(records){
   var raw = lsGet('label-counter');
   var maxN = raw ? parseInt(raw,10) : 0;
   Object.keys(records||{}).forEach(function(id){
@@ -1330,6 +1480,15 @@ function bumpLabelCounterFromRecords(records){
     }
   });
   lsSet('label-counter', String(maxN));
+  if(fsReady()){
+    try{
+      await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var current = (snap.exists && snap.data().labelCounter) || 0;
+        if(maxN > current){ tx.set(configDocRef, { labelCounter: maxN }, { merge: true }); }
+      });
+    }catch(e){ console.error('Firestore bumpLabelCounterFromRecords error', e); }
+  }
 }
 
 document.getElementById('btnExport').addEventListener('click', exportData);
@@ -1629,7 +1788,7 @@ async function migrateLabelNumbers(){
   missing.sort(function(a,b){ return (a.savedAt||'').localeCompare(b.savedAt||''); });
   for(var i=0;i<missing.length;i++){
     var h = missing[i];
-    var num = nextLabelNumber();
+    var num = await nextLabelNumber();
     h.labelNumber = num;
     var rec = await getReceptionRecord(h.id);
     if(rec){
@@ -1665,12 +1824,26 @@ async function migrateArchiveStats(){
   await saveHistoryIndex();
 }
 
+// migration : récupère la contremarque dans l'index (pour l'affichage "Client - Contremarque")
+// pour les commandes enregistrées avant ce champ
+async function migrateContremarque(){
+  var missing = state.historyIndex.filter(function(h){ return h.contremarque===undefined; });
+  if(!missing.length) return;
+  for(var i=0;i<missing.length;i++){
+    var h = missing[i];
+    var rec = await getReceptionRecord(h.id);
+    h.contremarque = (rec && rec.data && rec.data.contremarque) || '';
+  }
+  await saveHistoryIndex();
+}
+
 // ---------- init ----------
 (async function init(){
   await loadBase();
   await loadHistoryIndex();
   await migrateLabelNumbers();
   await migrateArchiveStats();
+  await migrateContremarque();
   refreshDatalists();
   renderBaseLists();
   renderHistory();
