@@ -931,12 +931,15 @@ function pdfLabelBlock(doc, W, x, y, k, v){
   var lines = doc.splitTextToSize(String(v), W/2-8);
   doc.text(lines, x, y+5);
 }
-function pdfLabelBlockBig(doc, W, x, y, k, v, size){
-  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
-  doc.text(k, x, y);
+// version centrée, police plus grande — utilisée pour les champs "chiffres clés" (colis, palettes, vrac, poids...)
+function pdfLabelBlockBig(doc, cellLeft, cellRight, y, k, v, size){
+  var cx = (cellLeft+cellRight)/2;
+  var w = (cellRight-cellLeft)-4;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(60,60,60);
+  doc.text(k, cx, y, { align: 'center' });
   doc.setFont('helvetica','bold'); doc.setFontSize(size); doc.setTextColor(0,0,0);
-  var lines = doc.splitTextToSize(String(v), W/2-8);
-  doc.text(lines, x, y+7);
+  var lines = doc.splitTextToSize(String(v), w);
+  doc.text(lines, cx, y+9, { align: 'center' });
 }
 
 function drawLabelPage(doc, d, qrDataUrl, meta){
@@ -998,15 +1001,15 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
 
   var leftMid = qY0 + (qY1-qY0)/2;
   doc.line(2, leftMid, W/2, leftMid);
-  pdfLabelBlockBig(doc, W, 4, qY0+7, 'NB COLIS / SUPPORT', d.support || '-', 11);
-  pdfLabelBlockBig(doc, W, 4, leftMid+7, 'POIDS TOTAL', (d.poids?d.poids+' kg':'-'), 13);
+  pdfLabelBlockBig(doc, 2, W/2, qY0+8, 'NB COLIS / SUPPORT', d.support || '-', 14);
+  pdfLabelBlockBig(doc, 2, W/2, leftMid+8, 'POIDS TOTAL', (d.poids?d.poids+' kg':'-'), 16);
 
   var rH = (qY1-qY0)/3;
   doc.line(W/2, qY0+rH, W-2, qY0+rH);
   doc.line(W/2, qY0+2*rH, W-2, qY0+2*rH);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+7, 'NB COLIS TOTAL', d.colis || '-', 15);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+rH+7, 'NB PALETTE(S)', d.palettes || '-', 13);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+2*rH+7, 'NB COLIS VRAC', d.vrac || '-', 13);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+8, 'NB COLIS TOTAL', d.colis || '-', 18);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+rH+8, 'NB PALETTE(S)', d.palettes || '-', 16);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+2*rH+8, 'NB COLIS VRAC', d.vrac || '-', 16);
 }
 
 function generatePdf(d){
@@ -1105,8 +1108,8 @@ function drawExitLabelPage(doc, d, stats, qrDataUrl){
 
   var qY0 = y, qY1 = H-2;
   doc.line(W/2, qY0, W/2, qY1);
-  pdfLabelBlockBig(doc, W, 4, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+9, 'ETIQUETTES SORTIES', String(stats.totalLabels), 20);
+  pdfLabelBlockBig(doc, 2, W/2, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
+  pdfLabelBlockBig(doc, W/2, W-2, qY0+9, 'ETIQUETTES SORTIES', String(stats.totalLabels), 20);
 }
 
 function generateExitPdf(d, stats){
