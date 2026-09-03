@@ -124,7 +124,33 @@
 </style>
 </head>
 <body>
-<div id="qrLandingOverlay" style="display:none;position:fixed;inset:0;background:rgba(20,20,18,0.6);z-index:50;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;">
+<div id="accessGateOverlay" style="display:flex;position:fixed;inset:0;background:var(--bg);z-index:55;align-items:center;justify-content:center;padding:20px 12px;">
+  <div class="card" style="max-width:360px;width:100%;">
+    <div id="accessStep1">
+      <h2 style="margin-bottom:6px;">Code d'accès</h2>
+      <p class="hint" style="margin:0 0 14px;">Saisis ton code personnel, ou le code d'accès initial si c'est ta première connexion sur cet appareil.</p>
+      <div class="field">
+        <input type="text" id="accessCodeInput" placeholder="Code" maxlength="6" style="text-align:center;font-size:20px;letter-spacing:2px;">
+      </div>
+      <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnAccessSubmit" style="width:100%;">Valider</button>
+      </div>
+    </div>
+    <div id="accessStep2" style="display:none;">
+      <h2 style="margin-bottom:6px;">Personnalise ton accès</h2>
+      <p class="hint" style="margin:0 0 14px;">Première connexion : choisis ton prénom (5 caractères max). Il deviendra ton code personnel pour la prochaine fois.</p>
+      <div class="field">
+        <input type="text" id="accessNameInput" placeholder="Prénom" maxlength="5" style="text-align:center;font-size:20px;letter-spacing:2px;text-transform:uppercase;">
+      </div>
+      <div id="accessNameError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnAccessNameSubmit" style="width:100%;">Valider</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="qrLandingOverlay" style="display:none;position:fixed;inset:0;background:rgba(20,20,18,0.6);z-index:60;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;">
   <div class="card" style="max-width:420px;width:100%;margin-top:20px;">
     <h2 id="qrLandingLabelNumber" style="margin-bottom:10px;"></h2>
     <div id="qrLandingBody"></div>
@@ -246,6 +272,9 @@
             </div>
           </div>
           <div class="contremarque"><b id="p-contremarque">—</b></div>
+          <div class="midrow">
+            <div class="cell" style="flex:1;"><div class="k">Emplacement dépôt</div><div class="v" id="p-emplacement" style="font-size:15px;">—</div></div>
+          </div>
           <div class="midrow">
             <div class="cell"><div class="k">Date réception</div><div class="v" id="p-date">—</div></div>
             <div class="cell"><div class="k">Fournisseur</div><div class="v" id="p-fournisseur">—</div></div>
@@ -399,8 +428,32 @@
         <button class="btn primary" id="add-emplacement-btn" style="width:auto;">Ajouter</button>
       </div>
       <div class="btn-row">
-        <button class="btn accent" id="btnPrintEmplacement" style="width:100%;">Imprimer l'étiquette (paysage)</button>
+        <button class="btn accent" id="btnPrintEmplacement" style="width:100%;">Imprimer cette étiquette (unique)</button>
       </div>
+      <h2 style="margin-top:20px;">Impression en masse</h2>
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn ghost" id="btnSelectAllEmp">Tout cocher</button>
+        <button class="btn ghost" id="btnSelectNoneEmp">Tout décocher</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnPrintEmpBatch" style="width:100%;">Imprimer la sélection (lot, paysage)</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Sécurité — accès à l'application</h2>
+      <p class="hint" id="secIdentityLine" style="margin:0 0 14px;"></p>
+      <div class="field">
+        <label for="secCurrentCode">Code administrateur actuel</label>
+        <input type="text" id="secCurrentCode" placeholder="Code actuel" maxlength="6">
+      </div>
+      <div class="field">
+        <label for="secNewCode">Nouveau code administrateur</label>
+        <input type="text" id="secNewCode" placeholder="Nouveau code" maxlength="6">
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnChangeMasterCode" style="width:100%;">Changer le code administrateur</button>
+      </div>
+      <div id="secChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
   </section>
 </div>
@@ -417,6 +470,7 @@ var DEFAULT_EMPLACEMENTS = ["AA-01-01", "AA-02-01", "AA-03-01", "AA-04-01", "AA-
 
 var state = {
   base: { clients: [], fournisseurs: [], transporteurs: [], emplacements: [] },
+  security: { masterCode: '2013', userCodes: [] },
   historyIndex: [],
   editingId: null
 };
@@ -483,13 +537,23 @@ function lsDelete(key){
   try{ window.localStorage.removeItem(LS_PREFIX+key); }catch(e){}
 }
 
+// évite le flash de l'appli avant le contrôle d'accès : si cet appareil est déjà déverrouillé, on cache
+// tout de suite l'écran de code (avant même le chargement des données)
+if(lsGet('access-unlocked')){
+  var _gateEl = document.getElementById('accessGateOverlay');
+  if(_gateEl) _gateEl.style.display = 'none';
+}
+
 async function loadBase(){
   if(fsReady()){
     try{
       var snap = await configDocRef.get();
       if(snap.exists && snap.data().clients){
-        state.base = { clients: snap.data().clients||[], fournisseurs: snap.data().fournisseurs||[], transporteurs: snap.data().transporteurs||[], emplacements: snap.data().emplacements||DEFAULT_EMPLACEMENTS.slice() };
+        var d0 = snap.data();
+        state.base = { clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice() };
+        state.security = d0.security || { masterCode: '2013', userCodes: [] };
         lsSet('base-data', JSON.stringify(state.base));
+        lsSet('security-data', JSON.stringify(state.security));
         watchBase();
         return;
       }
@@ -509,7 +573,12 @@ async function loadBase(){
     };
   }
   if(!state.base.emplacements){ state.base.emplacements = DEFAULT_EMPLACEMENTS.slice(); }
+  var secRaw = lsGet('security-data');
+  if(secRaw){
+    try{ state.security = JSON.parse(secRaw); }catch(e){}
+  }
   await saveBase();
+  await saveSecurity();
   watchBase();
 }
 
@@ -517,6 +586,13 @@ async function saveBase(){
   lsSet('base-data', JSON.stringify(state.base));
   if(fsReady()){
     try{ await configDocRef.set(state.base, { merge: true }); }catch(e){ console.error('Firestore saveBase error', e); }
+  }
+}
+
+async function saveSecurity(){
+  lsSet('security-data', JSON.stringify(state.security));
+  if(fsReady()){
+    try{ await configDocRef.set({ security: state.security }, { merge: true }); }catch(e){ console.error('Firestore saveSecurity error', e); }
   }
 }
 
@@ -529,6 +605,7 @@ function watchBase(){
     var d = snap.data();
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
     state.base = { clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[] };
+    if(d.security){ state.security = d.security; lsSet('security-data', JSON.stringify(state.security)); updateSecurityIdentityLine(); }
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
     renderBaseLists();
@@ -731,9 +808,11 @@ function renderEmplacementsList(){
   var arr = state.base.emplacements || [];
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
   el.innerHTML = arr.map(function(e, idx){
-    return '<div class="base-row"><span>'+escapeHtml(e)+'</span><button data-idx="'+idx+'">Suppr.</button></div>';
+    return '<div class="base-row"><span style="display:flex;align-items:center;gap:9px;">'+
+      '<input type="checkbox" class="emp-check" data-val="'+escapeHtml(e)+'" style="width:17px;height:17px;flex-shrink:0;">'+
+      escapeHtml(e)+'</span><button data-idx="'+idx+'">Suppr.</button></div>';
   }).join('');
-  Array.prototype.forEach.call(el.querySelectorAll('button'), function(btn){
+  Array.prototype.forEach.call(el.querySelectorAll('button[data-idx]'), function(btn){
     btn.addEventListener('click', function(){
       state.base.emplacements.splice(parseInt(btn.getAttribute('data-idx'),10),1);
       saveBase(); renderEmplacementsList(); refreshDatalists();
@@ -853,6 +932,7 @@ function updatePreview(){
   document.getElementById('p-nrecep').textContent = d.nrecep || '—';
   document.getElementById('p-transporteur').textContent = d.transporteur || '—';
   document.getElementById('p-support').textContent = d.support || '—';
+  document.getElementById('p-emplacement').textContent = d.emplacement || '—';
   document.getElementById('p-poids').textContent = d.poids ? (d.poids+' kg') : '—';
   document.getElementById('p-colis').textContent = d.colis || '—';
   document.getElementById('p-palettes').textContent = d.palettes || '—';
@@ -1103,6 +1183,14 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
   var cmLines = doc.splitTextToSize(d.contremarque || '-', W-16);
   doc.text(cmLines, W/2, y + cmH/2 + (cmLines.length>1?-2:1.5), { align:'center' });
   y += cmH;
+
+  var empH = 11;
+  doc.line(2, y+empH, W-2, y+empH);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
+  doc.text('EMPLACEMENT', 4, y+4.5);
+  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(0,0,0);
+  doc.text(d.emplacement || '-', W-4, y+8.5, { align: 'right' });
+  y += empH;
 
   var rowH = 16;
   doc.line(2, y+rowH, W-2, y+rowH);
@@ -1603,16 +1691,32 @@ document.getElementById('add-emplacement-btn').addEventListener('click', async f
   banner('Emplacement ajouté');
 });
 
-function generateEmplacementPdf(code){
-  var jsPDF = window.jspdf.jsPDF;
-  var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
+function drawEmplacementPage(doc, code){
   var W = 150, H = 100;
   doc.setDrawColor(0,0,0); doc.setLineWidth(0.5);
   doc.rect(3,3,W-6,H-6);
   doc.setFont('helvetica','bold'); doc.setFontSize(54); doc.setTextColor(0,0,0);
   doc.text(code, W/2, H/2+8, { align: 'center' });
+}
+
+function generateEmplacementPdf(code){
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
+  drawEmplacementPage(doc, code);
   doc.save('emplacement_'+code+'.pdf');
   banner('Étiquette emplacement '+code+' téléchargée');
+}
+
+function generateEmplacementBatchPdf(codes){
+  if(!codes.length){ banner('Coche au moins un emplacement à imprimer'); return; }
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
+  codes.forEach(function(code, idx){
+    if(idx>0) doc.addPage([150,100], 'landscape');
+    drawEmplacementPage(doc, code);
+  });
+  doc.save('emplacements_lot_'+codes.length+'.pdf');
+  banner(codes.length+' étiquette(s) emplacement — PDF téléchargé');
 }
 
 document.getElementById('btnPrintEmplacement').addEventListener('click', function(){
@@ -1621,6 +1725,17 @@ document.getElementById('btnPrintEmplacement').addEventListener('click', functio
   if(!val){ banner('Saisis un emplacement à imprimer'); return; }
   if(!EMPLACEMENT_RE.test(val)){ banner('Format attendu : AA-01-01'); return; }
   generateEmplacementPdf(val);
+});
+
+document.getElementById('btnSelectAllEmp').addEventListener('click', function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.emp-check'), function(cb){ cb.checked = true; });
+});
+document.getElementById('btnSelectNoneEmp').addEventListener('click', function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.emp-check'), function(cb){ cb.checked = false; });
+});
+document.getElementById('btnPrintEmpBatch').addEventListener('click', function(){
+  var codes = Array.prototype.map.call(document.querySelectorAll('.emp-check:checked'), function(cb){ return cb.getAttribute('data-val'); });
+  generateEmplacementBatchPdf(codes);
 });
 
 // ---------- export / import (transfert entre appareils) ----------
@@ -2071,6 +2186,17 @@ async function migrateArchiveStats(){
 // ---------- écran d'accueil affiché quand on scanne un QR d'étiquette avec l'appareil photo classique ----------
 function showQrLanding(rec){
   var d = rec.data || {};
+
+  if(d.exitedAt){
+    // commande déjà sortie : aucune info interne affichée à qui scanne l'étiquette après coup
+    document.getElementById('qrLandingLabelNumber').textContent = d.labelNumber || '';
+    document.getElementById('qrLandingBody').innerHTML =
+      '<div style="text-align:center;padding:22px 4px;color:var(--ink-soft);font-size:15px;font-weight:600;">'+
+      'Cette commande est sortie du dépôt.</div>';
+    document.getElementById('qrLandingOverlay').style.display = 'flex';
+    return;
+  }
+
   var params = new URLSearchParams(location.search);
   var itemId = params.get('item');
   var posLabel = '';
@@ -2081,10 +2207,8 @@ function showQrLanding(rec){
   document.getElementById('qrLandingLabelNumber').textContent = (d.labelNumber||'')+(posLabel?' — '+posLabel:'');
 
   var days = daysSince(d.date);
-  var exitedLine = d.exitedAt ? ('<div style="color:var(--accent);font-weight:600;margin-bottom:8px;">Sortie le '+fmtDate(d.exitedAt.slice(0,10))+'</div>') : '';
 
   document.getElementById('qrLandingBody').innerHTML =
-    exitedLine +
     '<div style="font-size:19px;font-weight:700;margin-bottom:2px;">'+escapeHtml(d.client||'-')+(d.contremarque?' - '+escapeHtml(d.contremarque):'')+'</div>'+
     '<div class="hint" style="margin-bottom:14px;">Code client '+escapeHtml(d.clientCode||'-')+'</div>'+
     '<div style="background:var(--accent-light);border-radius:10px;padding:14px;text-align:center;margin-bottom:14px;">'+
@@ -2130,6 +2254,96 @@ async function tryShowQrLanding(){
   banner('Réception '+rParam+' introuvable');
 }
 
+// ---------- contrôle d'accès : code administrateur (2013 par défaut) + codes personnels ----------
+function isUnlocked(){ return !!lsGet('access-unlocked'); }
+function currentIdentity(){ return lsGet('access-identity') || ''; }
+
+function updateSecurityIdentityLine(){
+  var el = document.getElementById('secIdentityLine');
+  if(!el) return;
+  var id = currentIdentity();
+  el.textContent = id ? ('Connecté sur cet appareil en tant que : '+id) : '';
+}
+
+function showAccessGate(){
+  document.getElementById('accessGateOverlay').style.display = 'flex';
+  document.getElementById('accessStep1').style.display = 'block';
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessCodeInput').value = '';
+  document.getElementById('accessGateError').style.display = 'none';
+  setTimeout(function(){ document.getElementById('accessCodeInput').focus(); }, 50);
+}
+function hideAccessGate(){
+  document.getElementById('accessGateOverlay').style.display = 'none';
+}
+async function afterUnlock(){
+  hideAccessGate();
+  updateSecurityIdentityLine();
+  tryShowQrLanding();
+}
+
+document.getElementById('btnAccessSubmit').addEventListener('click', function(){
+  var val = document.getElementById('accessCodeInput').value.trim();
+  var err = document.getElementById('accessGateError');
+  err.style.display = 'none';
+  if(!val) return;
+  if(val.toUpperCase() === (state.security.masterCode||'').toUpperCase()){
+    document.getElementById('accessStep1').style.display = 'none';
+    document.getElementById('accessStep2').style.display = 'block';
+    document.getElementById('accessNameInput').value = '';
+    document.getElementById('accessNameError').style.display = 'none';
+    setTimeout(function(){ document.getElementById('accessNameInput').focus(); }, 50);
+    return;
+  }
+  var match = (state.security.userCodes||[]).find(function(u){ return u.toUpperCase()===val.toUpperCase(); });
+  if(match){
+    lsSet('access-unlocked','1');
+    lsSet('access-identity', match);
+    afterUnlock();
+    return;
+  }
+  err.textContent = 'Code invalide';
+  err.style.display = 'block';
+});
+document.getElementById('accessCodeInput').addEventListener('keydown', function(e){
+  if(e.key==='Enter'){ document.getElementById('btnAccessSubmit').click(); }
+});
+
+document.getElementById('btnAccessNameSubmit').addEventListener('click', async function(){
+  var name = document.getElementById('accessNameInput').value.trim().toUpperCase().slice(0,5);
+  var err = document.getElementById('accessNameError');
+  err.style.display = 'none';
+  if(!name){ err.textContent = 'Saisis ton prénom'; err.style.display='block'; return; }
+  if(!state.security.userCodes) state.security.userCodes = [];
+  if(state.security.userCodes.indexOf(name)>=0){ err.textContent = 'Ce prénom est déjà utilisé, choisis-en un autre'; err.style.display='block'; return; }
+  state.security.userCodes.push(name);
+  await saveSecurity();
+  lsSet('access-unlocked','1');
+  lsSet('access-identity', name);
+  afterUnlock();
+});
+document.getElementById('accessNameInput').addEventListener('keydown', function(e){
+  if(e.key==='Enter'){ document.getElementById('btnAccessNameSubmit').click(); }
+});
+
+document.getElementById('btnChangeMasterCode').addEventListener('click', async function(){
+  var cur = document.getElementById('secCurrentCode').value.trim();
+  var next = document.getElementById('secNewCode').value.trim();
+  var msg = document.getElementById('secChangeMsg');
+  if(cur.toUpperCase() !== (state.security.masterCode||'').toUpperCase()){
+    msg.textContent = 'Code administrateur actuel incorrect';
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  if(!next){ msg.textContent = 'Saisis un nouveau code'; msg.style.color = 'var(--danger)'; return; }
+  state.security.masterCode = next.toUpperCase();
+  await saveSecurity();
+  document.getElementById('secCurrentCode').value = '';
+  document.getElementById('secNewCode').value = '';
+  msg.textContent = 'Code administrateur mis à jour';
+  msg.style.color = 'var(--accent)';
+});
+
 // migration : récupère la contremarque dans l'index (pour l'affichage "Client - Contremarque")
 // pour les commandes enregistrées avant ce champ
 async function migrateContremarque(){
@@ -2145,8 +2359,14 @@ async function migrateContremarque(){
 
 // ---------- init ----------
 (async function init(){
-  tryShowQrLanding(); // ne bloque pas le chargement normal de l'appli
   await loadBase();
+  if(isUnlocked()){
+    hideAccessGate();
+    updateSecurityIdentityLine();
+  } else {
+    showAccessGate(); // reste affiché tant que le code n'est pas validé
+  }
+  tryShowQrLanding(); // toujours affiché si on arrive via un scan d'étiquette, même sans être connecté (lecture seule)
   await loadHistoryIndex();
   await migrateLabelNumbers();
   await migrateArchiveStats();
