@@ -1107,6 +1107,25 @@ document.getElementById('btnPdf').addEventListener('click', function(){
 });
 
 // ---------- PDF generation ----------
+// téléchargement robuste (évite le blocage Chrome mobile sur les liens data: trop volumineux
+// que jsPDF utilise parfois en interne via doc.save())
+function downloadPdf(doc, filename){
+  try{
+    var blob = doc.output('blob');
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }catch(e){
+    console.error('downloadPdf error', e);
+    banner('Le téléchargement du PDF a échoué');
+  }
+}
+
 function buildQrImageFromText(text){
   var temp = document.createElement('div');
   temp.style.position = 'absolute'; temp.style.left = '-9999px'; temp.style.top = '-9999px';
@@ -1237,7 +1256,7 @@ function generatePdf(d){
   });
 
   var fname = 'etiquette_'+d.labelNumber+'.pdf';
-  doc.save(fname);
+  downloadPdf(doc, fname);
   banner(labels.length+' étiquette(s) générée(s) — PDF téléchargé');
 }
 
@@ -1248,7 +1267,7 @@ function generateSingleLabelPdf(d, meta){
   var qrDataUrl = buildQrDataUrl(d, meta);
   drawLabelPage(doc, d, qrDataUrl, meta);
   var suffix = (meta && meta.itemId) || 'U1';
-  doc.save('etiquette_'+d.labelNumber+'_'+suffix+'.pdf');
+  downloadPdf(doc, 'etiquette_'+d.labelNumber+'_'+suffix+'.pdf');
   banner('Étiquette '+(meta && meta.posLabel ? meta.posLabel : suffix)+' réimprimée');
 }
 
@@ -1326,7 +1345,7 @@ function generateExitPdf(d, stats){
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({ unit: 'mm', format: [100, 150], orientation: 'portrait' });
   drawExitLabelPage(doc, d, stats, qrDataUrl);
-  doc.save('sortie_'+(d.labelNumber||'commande')+'.pdf');
+  downloadPdf(doc, 'sortie_'+(d.labelNumber||'commande')+'.pdf');
   banner('Étiquette de sortie téléchargée — '+stats.daysStored+' j de stockage');
 }
 
@@ -1553,7 +1572,7 @@ function generateArchivePdf(){
   doc.text('Total : '+items.length+' commande(s) sortie(s)', marginX, y);
 
   var fname = 'commandes_sorties'+(from?'_du_'+from:'')+(to?'_au_'+to:'')+'.pdf';
-  doc.save(fname);
+  downloadPdf(doc, fname);
   banner(items.length+' commande(s) — PDF A4 téléchargé');
 }
 document.getElementById('btnArchivePdf').addEventListener('click', generateArchivePdf);
@@ -1621,7 +1640,7 @@ function generateInventoryPdf(){
   doc.setFont('helvetica','bold'); doc.setFontSize(10);
   doc.text('Total : '+items.length+' commande(s) en stock', marginX, y);
 
-  doc.save('inventaire_'+todayISO()+'.pdf');
+  downloadPdf(doc, 'inventaire_'+todayISO()+'.pdf');
   banner(items.length+' commande(s) — inventaire PDF téléchargé');
 }
 document.getElementById('btnInventaire').addEventListener('click', generateInventoryPdf);
@@ -1703,7 +1722,7 @@ function generateEmplacementPdf(code){
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
   drawEmplacementPage(doc, code);
-  doc.save('emplacement_'+code+'.pdf');
+  downloadPdf(doc, 'emplacement_'+code+'.pdf');
   banner('Étiquette emplacement '+code+' téléchargée');
 }
 
@@ -1715,7 +1734,7 @@ function generateEmplacementBatchPdf(codes){
     if(idx>0) doc.addPage([150,100], 'landscape');
     drawEmplacementPage(doc, code);
   });
-  doc.save('emplacements_lot_'+codes.length+'.pdf');
+  downloadPdf(doc, 'emplacements_lot_'+codes.length+'.pdf');
   banner(codes.length+' étiquette(s) emplacement — PDF téléchargé');
 }
 
