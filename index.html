@@ -309,15 +309,30 @@
   <section id="tab-hist" style="display:none;">
     <div class="card">
       <h2>Ranger une commande</h2>
-      <p class="hint" style="margin:0 0 10px;">Scanne (douchette QR/code-barres) ou tape le n° étiquette, puis scanne ou tape l'emplacement. Fonctionne aussi avec un lecteur de code-barres USB/Bluetooth (il se comporte comme un clavier).</p>
-      <div class="addrow" style="margin-top:0;">
+      <p class="hint" id="rangerStepHint" style="margin:0 0 10px;">Scanne l'étiquette de la palette/colis à ranger (ou tape son n°), puis scanne l'étiquette de son emplacement.</p>
+      <div id="rangerScanUnavailable" class="hint" style="display:none;margin-bottom:10px;">Scan caméra indisponible ici (nécessite un hébergement en HTTPS). Utilise la saisie manuelle ci-dessous.</div>
+      <div id="rangerScanWrap" style="display:none;margin-bottom:10px;">
+        <video id="rangerScanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000;display:block;"></video>
+      </div>
+      <canvas id="rangerScanCanvas" style="display:none;"></canvas>
+      <div class="btn-row">
+        <button class="btn primary" id="btnRangerScanStart">Démarrer le scanner</button>
+        <button class="btn ghost" id="btnRangerScanStop" style="display:none;">Arrêter</button>
+      </div>
+
+      <div class="addrow" style="margin-top:12px;">
         <input type="text" id="rangerLabelInput" placeholder="N° étiquette (ex. R000123)">
         <button class="btn primary" id="btnRangerLoad" style="width:auto;">Charger</button>
       </div>
       <div class="hint" id="rangerSelected" style="margin-top:8px;"></div>
-      <div class="addrow" id="rangerEmpRow" style="display:none;margin-top:10px;">
-        <input type="text" id="rangerEmpInput" placeholder="AA-01-01" maxlength="8">
-        <button class="btn accent" id="btnRangerSave" style="width:auto;">Valider</button>
+      <div id="rangerItemsList" style="margin-top:8px;"></div>
+
+      <div id="rangerEmpRow" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">
+        <div class="hint" id="rangerActiveItemLabel" style="margin-bottom:8px;font-weight:600;color:var(--ink);"></div>
+        <div class="addrow">
+          <input type="text" id="rangerEmpInput" placeholder="AA-01-01" maxlength="8">
+          <button class="btn accent" id="btnRangerSave" style="width:auto;">Valider</button>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -727,9 +742,15 @@ function recordToIndexEntry(rec){
   var d = rec.data || {};
   var entry = {
     id: rec.id, date: d.date, client: d.client, contremarque: d.contremarque,
-    fournisseur: d.fournisseur, transporteur: d.transporteur, emplacement: d.emplacement,
+    fournisseur: d.fournisseur, transporteur: d.transporteur,
     savedAt: rec.savedAt, labelNumber: d.labelNumber
   };
+  // résumé des emplacements : chaque étiquette (palette/colis) peut avoir son propre emplacement
+  var emps = d.emplacements || {};
+  var uniqueEmps = [];
+  Object.keys(emps).forEach(function(k){ if(emps[k] && uniqueEmps.indexOf(emps[k])<0) uniqueEmps.push(emps[k]); });
+  if(uniqueEmps.length){ entry.emplacement = uniqueEmps.sort().join(', '); }
+  else if(d.emplacement){ entry.emplacement = d.emplacement; }
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   return entry;
@@ -1091,14 +1112,21 @@ document.getElementById('btnSave').addEventListener('click', async function(){
     existingSavedAt = existing ? existing.savedAt : null;
     if(existing && existing.data && existing.data.exitedAt){ d.exitedAt = existing.data.exitedAt; }
     if(existing && existing.data && existing.data.exitStats){ d.exitStats = existing.data.exitStats; }
+    if(existing && existing.data && existing.data.emplacements){ d.emplacements = existing.data.emplacements; }
+  }
+  // le champ "Emplacement dépôt" du formulaire sert de valeur par défaut pour chaque étiquette
+  // (palette/colis) qui n'a pas encore d'emplacement propre assigné via "Ranger une commande"
+  if(d.emplacement){
+    if(!d.emplacements) d.emplacements = {};
+    computeLabels(d).forEach(function(meta){
+      if(!d.emplacements[meta.itemId]){ d.emplacements[meta.itemId] = d.emplacement; }
+    });
   }
   var record = { id: id, savedAt: existingSavedAt || new Date().toISOString(), data: d };
   if(isEdit) record.updatedAt = new Date().toISOString();
   await saveReceptionRecord(id, record);
 
-  var entry = { id: id, date: d.date, client: d.client, contremarque: d.contremarque, fournisseur: d.fournisseur, transporteur: d.transporteur, emplacement: d.emplacement, savedAt: record.savedAt, labelNumber: labelNumber };
-  if(d.exitedAt) entry.exitedAt = d.exitedAt;
-  if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
+  var entry = recordToIndexEntry(record);
   var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
   if(idx>=0){ state.historyIndex[idx] = entry; } else { state.historyIndex.unshift(entry); }
   await saveHistoryIndex();
@@ -1222,7 +1250,8 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
   doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
   doc.text('EMPLACEMENT', 4, y+4);
   doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(0,0,0);
-  doc.text(d.emplacement || '-', W-4, y+7.5, { align: 'right' });
+  var empValue = (d.emplacements && meta && d.emplacements[meta.itemId]) || d.emplacement || '-';
+  doc.text(empValue, W-4, y+7.5, { align: 'right' });
   y += empH;
 
   var rowH = 16;
@@ -1659,23 +1688,63 @@ function generateInventoryPdf(){
 }
 document.getElementById('btnInventaire').addEventListener('click', generateInventoryPdf);
 
-// ---------- Ranger une commande (scan/saisie de l'emplacement, met à jour la commande) ----------
+// ---------- Ranger une commande : emplacement PAR étiquette individuelle (palette/colis), avec scan caméra ----------
 var rangerReceptionId = null;
+var rangerRecordCache = null;
+var rangerActiveItemId = null;
+
+async function rangerLoadReception(ln, presetItemId){
+  ln = (ln||'').trim().toUpperCase();
+  if(!ln) return;
+  var hEntry = state.historyIndex.find(function(h){ return (h.labelNumber||'').toUpperCase()===ln; });
+  if(!hEntry){ banner('Réception '+ln+' introuvable'); return; }
+  var rec = await getReceptionRecord(hEntry.id);
+  if(!rec){ banner('Introuvable'); return; }
+  rangerReceptionId = hEntry.id;
+  rangerRecordCache = rec;
+  rangerActiveItemId = null;
+  document.getElementById('rangerLabelInput').value = ln;
+  document.getElementById('rangerSelected').textContent = 'Commande : '+ln+' — '+(rec.data.client||'')+(rec.data.contremarque?' - '+rec.data.contremarque:'');
+  document.getElementById('rangerEmpRow').style.display = 'none';
+  renderRangerItems();
+  if(presetItemId){ selectRangerItem(presetItemId); }
+}
+
+function renderRangerItems(){
+  var el = document.getElementById('rangerItemsList');
+  if(!rangerRecordCache){ el.innerHTML = ''; return; }
+  var d = rangerRecordCache.data;
+  var items = computeLabels(d);
+  var emplacements = d.emplacements || {};
+  el.innerHTML = items.map(function(meta){
+    var current = emplacements[meta.itemId] || '';
+    return '<div class="base-row"><span>'+(meta.posLabel||'Étiquette unique')+
+      (current ? ' <b style="color:var(--accent);">→ '+escapeHtml(current)+'</b>' : ' <span style="color:var(--ink-soft);">non rangé</span>')+
+      '</span><button data-itemid="'+meta.itemId+'" style="background:none;border:none;color:var(--accent);font-weight:600;font-size:12.5px;cursor:pointer;">'+(current?'Modifier':'Ranger')+'</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('button[data-itemid]'), function(btn){
+    btn.addEventListener('click', function(){ selectRangerItem(btn.getAttribute('data-itemid')); });
+  });
+}
+
+function selectRangerItem(itemId){
+  rangerActiveItemId = itemId;
+  var d = rangerRecordCache.data;
+  var meta = computeLabels(d).find(function(m){ return m.itemId===itemId; });
+  document.getElementById('rangerEmpRow').style.display = 'block';
+  document.getElementById('rangerActiveItemLabel').textContent = 'Emplacement pour : '+(meta?meta.posLabel:itemId);
+  var current = (d.emplacements||{})[itemId] || '';
+  var empInput = document.getElementById('rangerEmpInput');
+  empInput.value = current;
+  empInput.focus();
+  document.getElementById('rangerStepHint').textContent = 'Étape 2 : scanne l\'étiquette de l\'emplacement (ou tape-le).';
+}
 
 document.getElementById('rangerLabelInput').addEventListener('keydown', function(e){
   if(e.key==='Enter'){ e.preventDefault(); document.getElementById('btnRangerLoad').click(); }
 });
 document.getElementById('btnRangerLoad').addEventListener('click', function(){
-  var ln = document.getElementById('rangerLabelInput').value.trim().toUpperCase();
-  if(!ln) return;
-  var hEntry = state.historyIndex.find(function(h){ return (h.labelNumber||'').toUpperCase()===ln; });
-  if(!hEntry){ banner('Réception '+ln+' introuvable'); return; }
-  rangerReceptionId = hEntry.id;
-  document.getElementById('rangerSelected').textContent = 'Commande sélectionnée : '+hEntry.labelNumber+' — '+(hEntry.client||'');
-  document.getElementById('rangerEmpRow').style.display = 'flex';
-  var empInput = document.getElementById('rangerEmpInput');
-  empInput.value = '';
-  empInput.focus();
+  rangerLoadReception(document.getElementById('rangerLabelInput').value);
 });
 
 document.getElementById('rangerEmpInput').addEventListener('input', function(e){
@@ -1691,29 +1760,101 @@ document.getElementById('rangerEmpInput').addEventListener('keydown', function(e
 
 document.getElementById('btnRangerSave').addEventListener('click', async function(){
   var code = document.getElementById('rangerEmpInput').value.trim();
-  if(!rangerReceptionId){ banner('Charge d\'abord une commande'); return; }
+  if(!rangerReceptionId || !rangerActiveItemId){ banner('Sélectionne d\'abord une étiquette à ranger'); return; }
   if(!EMPLACEMENT_RE.test(code)){ banner('Format attendu : AA-01-01'); return; }
 
-  var rec = await getReceptionRecord(rangerReceptionId);
-  if(!rec){ banner('Introuvable'); return; }
-  rec.data.emplacement = code;
+  var rec = rangerRecordCache;
+  if(!rec.data.emplacements) rec.data.emplacements = {};
+  rec.data.emplacements[rangerActiveItemId] = code;
   await saveReceptionRecord(rangerReceptionId, rec);
   await ensureEmplacementEntry(code);
   await saveBase();
   refreshDatalists();
 
   var idx = state.historyIndex.findIndex(function(h){ return h.id===rangerReceptionId; });
-  if(idx>=0){ state.historyIndex[idx].emplacement = code; }
+  if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
   renderHistory();
 
-  banner('Emplacement '+code+' enregistré pour '+(rec.data.labelNumber||''));
+  banner('Emplacement '+code+' enregistré');
 
-  rangerReceptionId = null;
-  document.getElementById('rangerLabelInput').value = '';
-  document.getElementById('rangerSelected').textContent = '';
+  rangerActiveItemId = null;
   document.getElementById('rangerEmpRow').style.display = 'none';
-  document.getElementById('rangerLabelInput').focus();
+  document.getElementById('rangerStepHint').textContent = "Scanne l'étiquette de la palette/colis à ranger (ou tape son n°), puis scanne l'étiquette de son emplacement.";
+  renderRangerItems();
 });
+
+// ---- scanner caméra du module "Ranger" (générique : étape 1 = étiquette commande, étape 2 = étiquette emplacement) ----
+var rangerScanStream = null;
+var rangerScanRAF = null;
+var rangerLastScan = { text: null, time: 0 };
+
+async function startRangerScan(){
+  try{
+    rangerScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  }catch(e){
+    banner("Impossible d'accéder à la caméra");
+    return;
+  }
+  var video = document.getElementById('rangerScanVideo');
+  video.srcObject = rangerScanStream;
+  await video.play();
+  document.getElementById('rangerScanWrap').style.display = 'block';
+  document.getElementById('btnRangerScanStart').style.display = 'none';
+  document.getElementById('btnRangerScanStop').style.display = '';
+  rangerScanLoop();
+}
+function stopRangerScan(){
+  if(rangerScanRAF){ cancelAnimationFrame(rangerScanRAF); rangerScanRAF = null; }
+  if(rangerScanStream){ rangerScanStream.getTracks().forEach(function(t){ t.stop(); }); rangerScanStream = null; }
+  document.getElementById('rangerScanWrap').style.display = 'none';
+  document.getElementById('btnRangerScanStart').style.display = '';
+  document.getElementById('btnRangerScanStop').style.display = 'none';
+}
+function rangerScanLoop(){
+  var video = document.getElementById('rangerScanVideo');
+  var canvas = document.getElementById('rangerScanCanvas');
+  if(video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth){
+    var w = 420;
+    var h = Math.round(video.videoHeight * (w/video.videoWidth)) || 320;
+    canvas.width = w; canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, w, h);
+    var imgData = ctx.getImageData(0,0,w,h);
+    var code = null;
+    try{ code = window.jsQR(imgData.data, w, h); }catch(e){}
+    if(code && code.data){
+      var now = Date.now();
+      if(code.data !== rangerLastScan.text || (now - rangerLastScan.time) > 2000){
+        rangerLastScan = { text: code.data, time: now };
+        handleRangerScan(code.data);
+      }
+    }
+  }
+  rangerScanRAF = requestAnimationFrame(rangerScanLoop);
+}
+function handleRangerScan(text){
+  if(!rangerReceptionId || !rangerActiveItemId){
+    // étape 1 : on attend l'étiquette d'une commande (QR contenant ?r=...&item=...)
+    try{
+      var url = new URL(text);
+      var ln = url.searchParams.get('r');
+      var itemId = url.searchParams.get('item');
+      if(ln){ rangerLoadReception(ln, itemId); return; }
+    }catch(e){}
+    banner('QR non reconnu (pas une étiquette de commande)');
+  } else {
+    // étape 2 : on attend l'étiquette d'un emplacement (QR "LOC|AA-01-01")
+    var m = text.match(/LOC\|([A-Za-z0-9]{2}-[A-Za-z0-9]{2}-[A-Za-z0-9]{2})/);
+    if(m){
+      document.getElementById('rangerEmpInput').value = m[1].toUpperCase();
+      document.getElementById('btnRangerSave').click();
+      return;
+    }
+    banner('QR non reconnu (pas une étiquette emplacement)');
+  }
+}
+document.getElementById('btnRangerScanStart').addEventListener('click', startRangerScan);
+document.getElementById('btnRangerScanStop').addEventListener('click', stopRangerScan);
 
 function fillForm(d){
   document.getElementById('f-labelnumber').value = d.labelNumber || '';
@@ -2018,7 +2159,11 @@ async function renderExitSessions(){
       var hEntry = state.historyIndex.find(function(h){ return h.labelNumber===labelNumber; });
       if(hEntry){
         var rec = await getReceptionRecord(hEntry.id);
-        if(rec){ sess.total = computeLabels(rec.data).length; }
+        if(rec){
+          sess.total = computeLabels(rec.data).length;
+          sess.itemsMeta = computeLabels(rec.data);
+          sess.emplacements = rec.data.emplacements || {};
+        }
       }
     }
   }
@@ -2033,13 +2178,18 @@ async function renderExitSessions(){
     var clientName = hEntry ? hEntry.client : '?';
     var total = sess.total || '?';
     var complete = sess.total && sess.scanned.length >= sess.total;
-    var badges = sess.scanned.map(function(id){
-      return '<span style="display:inline-block;background:var(--accent-light);color:var(--accent);border-radius:6px;padding:2px 7px;margin:2px 4px 2px 0;font-size:11.5px;font-weight:600;">'+escapeHtml(id)+'</span>';
+    var itemsList = (sess.itemsMeta||[]).map(function(meta){
+      var scanned = sess.scanned.indexOf(meta.itemId) >= 0;
+      var loc = (sess.emplacements||{})[meta.itemId];
+      return '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12.5px;">'+
+        '<span>'+(scanned?'✅':'⬜')+' '+(meta.posLabel||meta.itemId)+'</span>'+
+        '<span style="color:var(--ink-soft);font-weight:600;">'+(loc?escapeHtml(loc):'—')+'</span>'+
+      '</div>';
     }).join('');
     return '<div class="hist-item" data-labelnumber="'+labelNumber+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml(labelNumber)+' — '+escapeHtml(clientName||'?')+'</span></div>'+
       '<div class="sub">Progression : '+sess.scanned.length+' / '+total+' étiquette(s) scannée(s)</div>'+
-      '<div style="margin-top:6px;">'+badges+'</div>'+
+      '<div style="margin-top:6px;border-top:1px solid var(--line);padding-top:6px;">'+itemsList+'</div>'+
       '<div class="actions">'+
         (complete ? '<button class="btn accent" data-act="validate">Valider la sortie</button>' : '') +
         '<button class="btn danger" data-act="cancel">Annuler</button>'+
@@ -2216,6 +2366,7 @@ function switchTab(name){
     btn.classList.toggle('active', btn.getAttribute('data-tab')===name);
   });
   if(name!=='exit'){ stopScan(); }
+  if(name!=='hist'){ stopRangerScan(); }
   if(name==='exit'){
     if(!cameraAvailable()){
       document.getElementById('scanUnavailable').style.display = 'block';
@@ -2224,7 +2375,13 @@ function switchTab(name){
     rehydrateExitSessions();
     renderExitSessions();
   }
-  if(name==='hist'){ renderHistory(); }
+  if(name==='hist'){
+    if(!cameraAvailable()){
+      document.getElementById('rangerScanUnavailable').style.display = 'block';
+      document.getElementById('btnRangerScanStart').style.display = 'none';
+    }
+    renderHistory();
+  }
   if(name==='archive'){ renderArchiveList(); }
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
