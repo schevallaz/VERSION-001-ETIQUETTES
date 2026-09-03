@@ -308,6 +308,19 @@
   <!-- ===== TAB: HISTORIQUE (CDE en stock) ===== -->
   <section id="tab-hist" style="display:none;">
     <div class="card">
+      <h2>Ranger une commande</h2>
+      <p class="hint" style="margin:0 0 10px;">Scanne (douchette QR/code-barres) ou tape le n° étiquette, puis scanne ou tape l'emplacement. Fonctionne aussi avec un lecteur de code-barres USB/Bluetooth (il se comporte comme un clavier).</p>
+      <div class="addrow" style="margin-top:0;">
+        <input type="text" id="rangerLabelInput" placeholder="N° étiquette (ex. R000123)">
+        <button class="btn primary" id="btnRangerLoad" style="width:auto;">Charger</button>
+      </div>
+      <div class="hint" id="rangerSelected" style="margin-top:8px;"></div>
+      <div class="addrow" id="rangerEmpRow" style="display:none;margin-top:10px;">
+        <input type="text" id="rangerEmpInput" placeholder="AA-01-01" maxlength="8">
+        <button class="btn accent" id="btnRangerSave" style="width:auto;">Valider</button>
+      </div>
+    </div>
+    <div class="card">
       <h2>Commandes en stock</h2>
       <div class="field" style="margin-bottom:12px;">
         <input type="text" id="histSearch" placeholder="Rechercher : n° étiquette, client, fournisseur...">
@@ -1154,12 +1167,13 @@ function pdfLabelBlock(doc, W, x, y, k, v){
   var lines = doc.splitTextToSize(String(v), W/2-8);
   doc.text(lines, x, y+5);
 }
-function pdfLabelBlockBig(doc, W, x, y, k, v, size){
+function pdfLabelBlockBig(doc, W, x, y, k, v, size, valueOffset){
+  valueOffset = valueOffset || 7;
   doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
   doc.text(k, x, y);
   doc.setFont('helvetica','bold'); doc.setFontSize(size); doc.setTextColor(0,0,0);
   var lines = doc.splitTextToSize(String(v), W/2-8);
-  doc.text(lines, x, y+7);
+  doc.text(lines, x, y+valueOffset);
 }
 
 function drawLabelPage(doc, d, qrDataUrl, meta){
@@ -1203,12 +1217,12 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
   doc.text(cmLines, W/2, y + cmH/2 + (cmLines.length>1?-2:1.5), { align:'center' });
   y += cmH;
 
-  var empH = 11;
+  var empH = 9;
   doc.line(2, y+empH, W-2, y+empH);
   doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
-  doc.text('EMPLACEMENT', 4, y+4.5);
-  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(0,0,0);
-  doc.text(d.emplacement || '-', W-4, y+8.5, { align: 'right' });
+  doc.text('EMPLACEMENT', 4, y+4);
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(0,0,0);
+  doc.text(d.emplacement || '-', W-4, y+7.5, { align: 'right' });
   y += empH;
 
   var rowH = 16;
@@ -1235,9 +1249,9 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
   var rH = (qY1-qY0)/3;
   doc.line(W/2, qY0+rH, W-2, qY0+rH);
   doc.line(W/2, qY0+2*rH, W-2, qY0+2*rH);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+7, 'NB COLIS TOTAL', d.colis || '-', 15);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+rH+7, 'NB PALETTE(S)', d.palettes || '-', 13);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+2*rH+7, 'NB COLIS VRAC', d.vrac || '-', 13);
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+5, 'NB COLIS TOTAL', d.colis || '-', 13, 6);
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+rH+5, 'NB PALETTE(S)', d.palettes || '-', 11, 6);
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+2*rH+5, 'NB COLIS VRAC', d.vrac || '-', 11, 6);
 }
 
 function generatePdf(d){
@@ -1645,6 +1659,62 @@ function generateInventoryPdf(){
 }
 document.getElementById('btnInventaire').addEventListener('click', generateInventoryPdf);
 
+// ---------- Ranger une commande (scan/saisie de l'emplacement, met à jour la commande) ----------
+var rangerReceptionId = null;
+
+document.getElementById('rangerLabelInput').addEventListener('keydown', function(e){
+  if(e.key==='Enter'){ e.preventDefault(); document.getElementById('btnRangerLoad').click(); }
+});
+document.getElementById('btnRangerLoad').addEventListener('click', function(){
+  var ln = document.getElementById('rangerLabelInput').value.trim().toUpperCase();
+  if(!ln) return;
+  var hEntry = state.historyIndex.find(function(h){ return (h.labelNumber||'').toUpperCase()===ln; });
+  if(!hEntry){ banner('Réception '+ln+' introuvable'); return; }
+  rangerReceptionId = hEntry.id;
+  document.getElementById('rangerSelected').textContent = 'Commande sélectionnée : '+hEntry.labelNumber+' — '+(hEntry.client||'');
+  document.getElementById('rangerEmpRow').style.display = 'flex';
+  var empInput = document.getElementById('rangerEmpInput');
+  empInput.value = '';
+  empInput.focus();
+});
+
+document.getElementById('rangerEmpInput').addEventListener('input', function(e){
+  // accepte un scan direct du QR emplacement (contient "LOC|AA-01-01") ou une saisie manuelle masquée
+  var raw = e.target.value;
+  var m = raw.match(/LOC\|([A-Za-z0-9]{2}-[A-Za-z0-9]{2}-[A-Za-z0-9]{2})/);
+  if(m){ e.target.value = m[1].toUpperCase(); return; }
+  e.target.value = formatEmplacementInput(raw);
+});
+document.getElementById('rangerEmpInput').addEventListener('keydown', function(e){
+  if(e.key==='Enter'){ e.preventDefault(); document.getElementById('btnRangerSave').click(); }
+});
+
+document.getElementById('btnRangerSave').addEventListener('click', async function(){
+  var code = document.getElementById('rangerEmpInput').value.trim();
+  if(!rangerReceptionId){ banner('Charge d\'abord une commande'); return; }
+  if(!EMPLACEMENT_RE.test(code)){ banner('Format attendu : AA-01-01'); return; }
+
+  var rec = await getReceptionRecord(rangerReceptionId);
+  if(!rec){ banner('Introuvable'); return; }
+  rec.data.emplacement = code;
+  await saveReceptionRecord(rangerReceptionId, rec);
+  await ensureEmplacementEntry(code);
+  await saveBase();
+  refreshDatalists();
+
+  var idx = state.historyIndex.findIndex(function(h){ return h.id===rangerReceptionId; });
+  if(idx>=0){ state.historyIndex[idx].emplacement = code; }
+  renderHistory();
+
+  banner('Emplacement '+code+' enregistré pour '+(rec.data.labelNumber||''));
+
+  rangerReceptionId = null;
+  document.getElementById('rangerLabelInput').value = '';
+  document.getElementById('rangerSelected').textContent = '';
+  document.getElementById('rangerEmpRow').style.display = 'none';
+  document.getElementById('rangerLabelInput').focus();
+});
+
 function fillForm(d){
   document.getElementById('f-labelnumber').value = d.labelNumber || '';
   document.getElementById('f-date').value = d.date || '';
@@ -1710,18 +1780,23 @@ document.getElementById('add-emplacement-btn').addEventListener('click', async f
   banner('Emplacement ajouté');
 });
 
-function drawEmplacementPage(doc, code){
+function drawEmplacementPage(doc, code, qrDataUrl){
   var W = 150, H = 100;
   doc.setDrawColor(0,0,0); doc.setLineWidth(0.5);
   doc.rect(3,3,W-6,H-6);
-  doc.setFont('helvetica','bold'); doc.setFontSize(54); doc.setTextColor(0,0,0);
-  doc.text(code, W/2, H/2+8, { align: 'center' });
+  if(qrDataUrl){
+    var qrSize = 32;
+    doc.addImage(qrDataUrl, 'PNG', 9, (H-qrSize)/2, qrSize, qrSize);
+  }
+  doc.setFont('helvetica','bold'); doc.setFontSize(46); doc.setTextColor(0,0,0);
+  doc.text(code, W/2+14, H/2+7, { align: 'center' });
 }
 
 function generateEmplacementPdf(code){
+  var qrDataUrl = buildQrImageFromText('LOC|'+code);
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
-  drawEmplacementPage(doc, code);
+  drawEmplacementPage(doc, code, qrDataUrl);
   downloadPdf(doc, 'emplacement_'+code+'.pdf');
   banner('Étiquette emplacement '+code+' téléchargée');
 }
@@ -1732,7 +1807,8 @@ function generateEmplacementBatchPdf(codes){
   var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
   codes.forEach(function(code, idx){
     if(idx>0) doc.addPage([150,100], 'landscape');
-    drawEmplacementPage(doc, code);
+    var qrDataUrl = buildQrImageFromText('LOC|'+code);
+    drawEmplacementPage(doc, code, qrDataUrl);
   });
   downloadPdf(doc, 'emplacements_lot_'+codes.length+'.pdf');
   banner(codes.length+' étiquette(s) emplacement — PDF téléchargé');
