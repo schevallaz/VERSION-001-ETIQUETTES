@@ -124,6 +124,15 @@
 </style>
 </head>
 <body>
+<div id="qrLandingOverlay" style="display:none;position:fixed;inset:0;background:rgba(20,20,18,0.6);z-index:50;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;">
+  <div class="card" style="max-width:420px;width:100%;margin-top:20px;">
+    <h2 id="qrLandingLabelNumber" style="margin-bottom:10px;"></h2>
+    <div id="qrLandingBody"></div>
+    <div class="btn-row">
+      <button class="btn primary" id="btnCloseLanding" style="width:100%;">Ouvrir l'application</button>
+    </div>
+  </div>
+</div>
 <div class="app">
   <header class="top">
     <h1>Étiquettes dépôt STLS</h1>
@@ -216,6 +225,13 @@
         <label for="f-support">Nb de colis par support</label>
         <input type="text" id="f-support" placeholder="Ex. 4 colis / palette">
       </div>
+
+      <div class="field">
+        <label for="f-emplacement">Emplacement dépôt</label>
+        <input list="dl-emplacements" id="f-emplacement" placeholder="AA-01-01" maxlength="8">
+        <datalist id="dl-emplacements"></datalist>
+        <div class="hint">Format obligatoire : AA-01-01</div>
+      </div>
     </div>
 
     <div class="card">
@@ -266,6 +282,9 @@
       <h2>Commandes en stock</h2>
       <div class="field" style="margin-bottom:12px;">
         <input type="text" id="histSearch" placeholder="Rechercher : n° étiquette, client, fournisseur...">
+      </div>
+      <div class="btn-row" style="margin-top:0;margin-bottom:14px;">
+        <button class="btn accent" id="btnInventaire">INVENTAIRE (PDF A4)</button>
       </div>
       <div id="histList"></div>
     </div>
@@ -371,6 +390,18 @@
         <button class="btn primary" id="add-transporteur-btn" style="width:auto;">Ajouter</button>
       </div>
     </div>
+    <div class="card">
+      <h2>Emplacements dépôt (<span id="cnt-emplacements">0</span>)</h2>
+      <div class="base-list" id="listEmplacements"></div>
+      <p class="hint" style="margin:10px 0 0;">Format obligatoire : AA-01-01</p>
+      <div class="addrow">
+        <input type="text" id="emplacement-input" placeholder="AA-01-01" maxlength="8">
+        <button class="btn primary" id="add-emplacement-btn" style="width:auto;">Ajouter</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnPrintEmplacement" style="width:100%;">Imprimer l'étiquette (paysage)</button>
+      </div>
+    </div>
   </section>
 </div>
 
@@ -382,9 +413,10 @@
 var DEFAULT_CLIENTS = [{"code": "CL00006", "nom": "_"}, {"code": "CL00156", "nom": "60POURCENT"}, {"code": "CL00142", "nom": "A.BEL.DECO CUISINE"}, {"code": "CL00077", "nom": "A2DIS"}, {"code": "CL00029", "nom": "ABC TRANSPORT CONFIANCE"}, {"code": "CL00144", "nom": "ACOLYNE"}, {"code": "CL00013", "nom": "ALVES DOS SANTOS BRUNO"}, {"code": "CL00079", "nom": "ANALYSIS EXPERTISE"}, {"code": "CL00047", "nom": "APPRO SUD ENVIRONNEMENT"}, {"code": "CL00093", "nom": "Art Déco Fenêtres"}, {"code": "CL00087", "nom": "ART on the MOVE"}, {"code": "CL00081", "nom": "ARTLICES"}, {"code": "CL00026", "nom": "ASO CONCEPT"}, {"code": "CL00054", "nom": "ATELIER SO CONCEPT"}, {"code": "CL00039", "nom": "AVALLET Sylvette"}, {"code": "CL00064", "nom": "AZUR CUISINES"}, {"code": "CL00145", "nom": "BALDANO CUISINES"}, {"code": "CL00125", "nom": "BARELIER Robert"}, {"code": "CL00088", "nom": "BETA DISTRIBUTION"}, {"code": "CL00119", "nom": "BLANC FLORIAN"}, {"code": "CL00073", "nom": "BNG"}, {"code": "CL00099", "nom": "BoConcept WAGRAM"}, {"code": "CL00147", "nom": "BoisetBen"}, {"code": "CL00131", "nom": "BONAVE CLAIRE"}, {"code": "CL00097", "nom": "BOVA AUBAGNE"}, {"code": "CL00134", "nom": "BULLY Frédéric"}, {"code": "CL00063", "nom": "CASALYS"}, {"code": "CL00115", "nom": "CHALEAT MARIE-CHARLOTTE"}, {"code": "CL00020", "nom": "ChateauForm"}, {"code": "CL00114", "nom": "CHIAVERINI RENE"}, {"code": "CL00084", "nom": "CL DESIGN ET DECORATION"}, {"code": "CL00075", "nom": "COMASUD - POINT P ST MAXIMIN"}, {"code": "CL00059", "nom": "COOKIMAX"}, {"code": "CL00105", "nom": "CUISINE HIDALGO"}, {"code": "CL00030", "nom": "CUISINELLA - SASU MARS"}, {"code": "CL00149", "nom": "DANDOIS"}, {"code": "CL00005", "nom": "de Hyères"}, {"code": "CL00076", "nom": "DEBONTE MONSIEUR MEUBLE"}, {"code": "CL00034", "nom": "DEKOBOUTIQUE"}, {"code": "CL00055", "nom": "DELEFOSSE LENS"}, {"code": "CL00086", "nom": "DEVOSBOIS"}, {"code": "CL00002", "nom": "DISTRILAP GEMENOS"}, {"code": "CL00044", "nom": "DISTRILAP TOULON"}, {"code": "CL00043", "nom": "DPZ ENVIRONNEMENT"}, {"code": "CL00019", "nom": "ECO MENAGER DISTRIBUTION"}, {"code": "CL00060", "nom": "E-CONCEPT 13"}, {"code": "CL00053", "nom": "EDIM - Convertible Center"}, {"code": "CL00058", "nom": "EFR CUISINES"}, {"code": "CL00098", "nom": "ELECTRIQUE WAVE"}, {"code": "CL00069", "nom": "ESTEBE Y."}, {"code": "CL00022", "nom": "ETAT D'ESPRIT"}, {"code": "CL00066", "nom": "EURASUN"}, {"code": "CL00052", "nom": "FAMILLE DECOMIS"}, {"code": "CL00051", "nom": "Fast Lease - ASR Méditerranée"}, {"code": "CL00070", "nom": "FRADIN ANTOINE"}, {"code": "CL00129", "nom": "GARAGE DE LA PLAINE"}, {"code": "CL00074", "nom": "GERBINO GRASSE"}, {"code": "CL00010", "nom": "GTD"}, {"code": "CL00012", "nom": "HEPPNER - SOCIETE DE TRANSPORTS"}, {"code": "CL00143", "nom": "HOME KITCHEN"}, {"code": "CL00062", "nom": "Horizon Méditerranée Hermès"}, {"code": "CL00124", "nom": "HORS PISTES"}, {"code": "CL00096", "nom": "ICI TRAVAUX"}, {"code": "CL00016", "nom": "INEO INDUSTRIE ,SERVICES ET INFRASTRUCTURES"}, {"code": "CL00017", "nom": "INEO LOGISTIQUE"}, {"code": "CL00140", "nom": "INVESTISSIMO"}, {"code": "CL00068", "nom": "J.A.D.E Espaces Verts"}, {"code": "CL00025", "nom": "JLC BOOKINK"}, {"code": "CL00056", "nom": "KUHN"}, {"code": "CL00108", "nom": "KUHN"}, {"code": "CL00048", "nom": "La Fabrik Fourdrain"}, {"code": "CL00061", "nom": "LA HALLE AU SOMMEIL LE PUY LITERIE ET CANAPE"}, {"code": "CL00082", "nom": "LAPEYRE"}, {"code": "CL00078", "nom": "LE MEUBLE SAVOYARD"}, {"code": "CL00072", "nom": "LISSALDE FRANCOIS"}, {"code": "CL00033", "nom": "LITAMAX"}, {"code": "CL00104", "nom": "LYCEE MAURICE JANETTI"}, {"code": "CL00137", "nom": "M et MME CACHIN"}, {"code": "CL00102", "nom": "M LEGOADEC"}, {"code": "CL00154", "nom": "M WAGNER JOSEPH"}, {"code": "CL00132", "nom": "MADAME BERGE"}, {"code": "CL00150", "nom": "MAINDRON EURO TOITURE"}, {"code": "CL00080", "nom": "MAISON FDM.CROZATIER"}, {"code": "CL00011", "nom": "Maître Eric Ayaidia"}, {"code": "CL00009", "nom": "MATTOUT"}, {"code": "CL00040", "nom": "MAXEL"}, {"code": "CL00001", "nom": "MDA St Maximin"}, {"code": "CL00094", "nom": "MENUISERIE GAGLIARDI"}, {"code": "CL00092", "nom": "MEUBLES MASSIMELLI"}, {"code": "CL00065", "nom": "MG PROVENCE"}, {"code": "CL00083", "nom": "MIKAPLOMB-ELEC"}, {"code": "CL00036", "nom": "Mme CAROLINE CAYOL"}, {"code": "CL00155", "nom": "MME RENOUX ET M PICHERY"}, {"code": "CL00045", "nom": "Monsieur Meuble"}, {"code": "CL00103", "nom": "MOZZI DESIGN"}, {"code": "CL00021", "nom": "NexeCom"}, {"code": "CL00057", "nom": "Nicole et Jean Claude BAUDENS"}, {"code": "CL00141", "nom": "NOSTRA MAS"}, {"code": "CL00027", "nom": "NUANCES CONCEPT"}, {"code": "CL00100", "nom": "OLB"}, {"code": "CL00151", "nom": "Ondine de Rothschild"}, {"code": "CL00101", "nom": "OPENED MIND JPA"}, {"code": "CL00157", "nom": "PACA AUTOMOBILE"}, {"code": "CL00049", "nom": "PACA BOIS"}, {"code": "CL00116", "nom": "PACA SUD REGULATION"}, {"code": "CL00123", "nom": "PARQUET FRANCE DESIGN"}, {"code": "CL00041", "nom": "PATRIMONIS CONSEIL"}, {"code": "CL00148", "nom": "PERNETTE JEAN-LOUIS"}, {"code": "CL00122", "nom": "Porte des calanques"}, {"code": "CL00018", "nom": "PRAD CUISINELLA"}, {"code": "CL00128", "nom": "RB HABITAT"}, {"code": "CL00135", "nom": "RENOBAT P.A.C.A."}, {"code": "CL00107", "nom": "RVLP"}, {"code": "CL00038", "nom": "SADELLI Kamel"}, {"code": "CL00106", "nom": "SAINT MACLOU LA VALENTINE"}, {"code": "CL00028", "nom": "SARL L.S.C."}, {"code": "CL00042", "nom": "SARL MOBI MAX"}, {"code": "CL00024", "nom": "SARL MOBILITE CONCEPT"}, {"code": "CL00085", "nom": "SARL TRANSMAT"}, {"code": "CL00111", "nom": "SAS DYN'R"}, {"code": "CL00071", "nom": "SAS MEUBLES DU LITTORAL"}, {"code": "CL00067", "nom": "SAS MEUBLES DU LITTORAL LATTES"}, {"code": "CL00126", "nom": "SATEC COURTIERS EN ASSURANCES"}, {"code": "CL00037", "nom": "SAV SUD LAPEYRE"}, {"code": "CL00153", "nom": "SCI ATF"}, {"code": "CL00050", "nom": "SCI DOMAINE DES SELVES"}, {"code": "CL00095", "nom": "SD MAX - BUT COSY SAINT MAXIMIN"}, {"code": "CL00032", "nom": "SECNAZI Thierry"}, {"code": "CL00015", "nom": "Société Technique d'Etudes Ferroviaires"}, {"code": "CL00035", "nom": "SONICA"}, {"code": "CL00090", "nom": "SUPER HERAUT"}, {"code": "CL00089", "nom": "TAPIS SAINT MACLOU"}, {"code": "CL00008", "nom": "THIEBAUD"}, {"code": "CL00023", "nom": "Trafilog"}, {"code": "CL00014", "nom": "TRAFILOG CHARTRES"}, {"code": "CL00007", "nom": "TRANSPORT ALAINE"}, {"code": "CL00110", "nom": "Transports GERSTLAUER"}, {"code": "CL00136", "nom": "TRANSPORTS GONDRAND annemasse"}, {"code": "CL00031", "nom": "Vincent Caroline"}, {"code": "CL00004", "nom": "VINCI AUTOROUTES - Direction de la clientèle et des services"}, {"code": "CL00091", "nom": "VINS & VIGNOBLES DIFFUSION"}, {"code": "CL00138", "nom": "VOLTZ HERVE"}, {"code": "CL00152", "nom": "WALTER Jacques"}];
 var DEFAULT_FOURNISSEURS = [{"nom": "SACHSEN", "code": "F00001"}, {"nom": "NOVA CUCCINA", "code": "F00002"}, {"nom": "ARAN", "code": "F00003"}, {"nom": "VERGES", "code": "F00004"}, {"nom": "COGER", "code": "F00005"}, {"nom": "ECO MENAGER", "code": "F00006"}, {"nom": "MIELE", "code": "F00007"}];
 var DEFAULT_TRANSPORTEURS = [{"nom": "BT", "code": "T00001"}, {"nom": "GUGEL", "code": "T00002"}, {"nom": "TME", "code": "T00003"}, {"nom": "DPD", "code": "T00004"}, {"nom": "CHRONOPOST", "code": "T00005"}, {"nom": "COJER", "code": "T00006"}];
+var DEFAULT_EMPLACEMENTS = ["AA-01-01", "AA-02-01", "AA-03-01", "AA-04-01", "AA-05-01", "AA-06-01", "AA-07-01", "AA-08-01", "AA-09-01", "AA-10-01", "AA-11-01", "AA-12-01", "BB-01-01", "BB-02-01", "BB-03-01", "BB-04-01", "BB-05-01", "BB-06-01", "BB-07-01", "BB-08-01", "BB-09-01", "BB-10-01", "BB-11-01", "BB-12-01", "CC-01-01", "CC-02-01", "CC-03-01", "CC-04-01", "CC-05-01", "CC-06-01", "CC-07-01", "CC-08-01", "CC-09-01", "CC-10-01", "CC-11-01", "CC-12-01", "DD-01-01", "DD-02-01", "DD-03-01", "DD-04-01", "DD-05-01", "DD-06-01", "DD-07-01", "DD-08-01", "DD-09-01", "DD-10-01", "DD-11-01", "DD-12-01", "EE-01-01", "EE-02-01", "EE-03-01", "EE-04-01", "EE-05-01", "EE-06-01", "EE-07-01", "EE-08-01", "EE-09-01", "EE-10-01", "EE-11-01", "EE-12-01", "AA-01-02", "AA-02-02", "AA-03-02", "AA-04-02", "AA-05-02", "AA-06-02", "AA-07-02", "AA-08-02", "AA-09-02", "AA-10-02", "AA-11-02", "AA-12-02", "BB-01-02", "BB-02-02", "BB-03-02", "BB-04-02", "BB-05-02", "BB-06-02", "BB-07-02", "BB-08-02", "BB-09-02", "BB-10-02", "BB-11-02", "BB-12-02", "CC-01-02", "CC-02-02", "CC-03-02", "CC-04-02", "CC-05-02", "CC-06-02", "CC-07-02", "CC-08-02", "CC-09-02", "CC-10-02", "CC-11-02", "CC-12-02", "DD-01-02", "DD-02-02", "DD-03-02", "DD-04-02", "DD-05-02", "DD-06-02", "DD-07-02", "DD-08-02", "DD-09-02", "DD-10-02", "DD-11-02", "DD-12-02", "EE-01-02", "EE-02-02", "EE-03-02", "EE-04-02", "EE-05-02", "EE-06-02", "EE-07-02", "EE-08-02", "EE-09-02", "EE-10-02", "EE-11-02", "EE-12-02"];
 
 var state = {
-  base: { clients: [], fournisseurs: [], transporteurs: [] },
+  base: { clients: [], fournisseurs: [], transporteurs: [], emplacements: [] },
   historyIndex: [],
   editingId: null
 };
@@ -456,7 +488,7 @@ async function loadBase(){
     try{
       var snap = await configDocRef.get();
       if(snap.exists && snap.data().clients){
-        state.base = { clients: snap.data().clients||[], fournisseurs: snap.data().fournisseurs||[], transporteurs: snap.data().transporteurs||[] };
+        state.base = { clients: snap.data().clients||[], fournisseurs: snap.data().fournisseurs||[], transporteurs: snap.data().transporteurs||[], emplacements: snap.data().emplacements||DEFAULT_EMPLACEMENTS.slice() };
         lsSet('base-data', JSON.stringify(state.base));
         watchBase();
         return;
@@ -472,9 +504,11 @@ async function loadBase(){
     state.base = {
       clients: DEFAULT_CLIENTS.slice(),
       fournisseurs: DEFAULT_FOURNISSEURS.slice(),
-      transporteurs: DEFAULT_TRANSPORTEURS.slice()
+      transporteurs: DEFAULT_TRANSPORTEURS.slice(),
+      emplacements: DEFAULT_EMPLACEMENTS.slice()
     };
   }
+  if(!state.base.emplacements){ state.base.emplacements = DEFAULT_EMPLACEMENTS.slice(); }
   await saveBase();
   watchBase();
 }
@@ -494,7 +528,7 @@ function watchBase(){
     if(!snap.exists) return;
     var d = snap.data();
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
-    state.base = { clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[] };
+    state.base = { clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[] };
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
     renderBaseLists();
@@ -509,6 +543,7 @@ async function loadHistoryIndex(){
     state.historyIndex = [];
   }
   await migrateLocalReceptionsToCloud();
+  await ensureLabelCounterAtLeastLocalMax();
   watchReceptions();
 }
 
@@ -537,6 +572,62 @@ async function migrateLocalReceptionsToCloud(){
   }
 }
 
+// corrige le compteur de numéros d'étiquette : le cloud doit toujours être au moins aussi haut que
+// le plus grand numéro déjà connu localement (rattrape le décalage causé par le passage à Firestore,
+// et se répare tout seul si jamais un poste avait un temps de retard)
+async function ensureLabelCounterAtLeastLocalMax(){
+  if(!fsReady()) return;
+  var maxN = 0;
+  var raw = lsGet('label-counter');
+  if(raw){ var n = parseInt(raw,10); if(!isNaN(n) && n>maxN) maxN = n; }
+  var idxRaw = lsGet('receptions-index');
+  if(idxRaw){
+    try{
+      JSON.parse(idxRaw).forEach(function(h){
+        var m = (h.labelNumber||'').match(/(\d+)/);
+        if(m){ var v = parseInt(m[1],10); if(v>maxN) maxN = v; }
+      });
+    }catch(e){}
+  }
+  if(maxN<=0) return;
+  try{
+    await db.runTransaction(async function(tx){
+      var s = await tx.get(configDocRef);
+      var current = (s.exists && s.data().labelCounter) || 0;
+      if(maxN > current){ tx.set(configDocRef, { labelCounter: maxN }, { merge: true }); }
+    });
+  }catch(e){ console.error('ensureLabelCounterAtLeastLocalMax error', e); }
+}
+
+// répare d'éventuels doublons de n° d'étiquette (ex: causés par le décalage de compteur ci-dessus) :
+// garde le plus ancien enregistrement tel quel, réattribue un nouveau numéro aux suivants
+var duplicatesChecked = false;
+async function repairDuplicateLabelNumbers(){
+  if(!fsReady() || duplicatesChecked) return;
+  duplicatesChecked = true;
+  var byNumber = {};
+  state.historyIndex.forEach(function(h){
+    if(!h.labelNumber) return;
+    (byNumber[h.labelNumber] = byNumber[h.labelNumber] || []).push(h);
+  });
+  var dupKeys = Object.keys(byNumber).filter(function(k){ return byNumber[k].length>1; });
+  if(!dupKeys.length) return;
+  var fixedCount = 0;
+  for(var i=0;i<dupKeys.length;i++){
+    var group = byNumber[dupKeys[i]].slice().sort(function(a,b){ return (a.savedAt||'').localeCompare(b.savedAt||''); });
+    for(var j=1;j<group.length;j++){
+      var h = group[j];
+      var rec = await getReceptionRecord(h.id);
+      if(!rec) continue;
+      var newNum = await nextLabelNumber();
+      rec.data.labelNumber = newNum;
+      await saveReceptionRecord(h.id, rec);
+      fixedCount++;
+    }
+  }
+  if(fixedCount){ banner(fixedCount+' doublon(s) de n° d\'étiquette corrigé(s)'); }
+}
+
 async function saveHistoryIndex(){
   // avec Firestore, l'écoute en direct des réceptions fait autorité ; on garde juste un cache local hors-ligne
   lsSet('receptions-index', JSON.stringify(state.historyIndex));
@@ -546,7 +637,7 @@ function recordToIndexEntry(rec){
   var d = rec.data || {};
   var entry = {
     id: rec.id, date: d.date, client: d.client, contremarque: d.contremarque,
-    fournisseur: d.fournisseur, transporteur: d.transporteur,
+    fournisseur: d.fournisseur, transporteur: d.transporteur, emplacement: d.emplacement,
     savedAt: rec.savedAt, labelNumber: d.labelNumber
   };
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
@@ -567,6 +658,7 @@ function watchReceptions(){
     renderHistory();
     renderArchiveList();
     renderExitSessions();
+    repairDuplicateLabelNumbers();
   }, function(err){ console.error('Firestore receptions watch error', err); });
 }
 
@@ -606,6 +698,8 @@ function refreshDatalists(){
   df.innerHTML = state.base.fournisseurs.map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
   var dt = document.getElementById('dl-transporteurs');
   dt.innerHTML = state.base.transporteurs.map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
+  var de = document.getElementById('dl-emplacements');
+  de.innerHTML = (state.base.emplacements||[]).map(function(e){ return '<option value="'+escapeHtml(e)+'">'; }).join('');
 }
 
 function escapeHtml(s){
@@ -618,6 +712,7 @@ function renderBaseLists(){
   document.getElementById('cnt-clients').textContent = state.base.clients.length;
   document.getElementById('cnt-fournisseurs').textContent = state.base.fournisseurs.length;
   document.getElementById('cnt-transporteurs').textContent = state.base.transporteurs.length;
+  document.getElementById('cnt-emplacements').textContent = (state.base.emplacements||[]).length;
 
   renderOneBaseList('listClients', state.base.clients, 'nom', 'code', function(idx){
     state.base.clients.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
@@ -627,6 +722,22 @@ function renderBaseLists(){
   });
   renderOneBaseList('listTransporteurs', state.base.transporteurs, 'nom', 'code', function(idx){
     state.base.transporteurs.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
+  });
+  renderEmplacementsList();
+}
+
+function renderEmplacementsList(){
+  var el = document.getElementById('listEmplacements');
+  var arr = state.base.emplacements || [];
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
+  el.innerHTML = arr.map(function(e, idx){
+    return '<div class="base-row"><span>'+escapeHtml(e)+'</span><button data-idx="'+idx+'">Suppr.</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('button'), function(btn){
+    btn.addEventListener('click', function(){
+      state.base.emplacements.splice(parseInt(btn.getAttribute('data-idx'),10),1);
+      saveBase(); renderEmplacementsList(); refreshDatalists();
+    });
   });
 }
 
@@ -659,7 +770,8 @@ function getForm(){
     colis: document.getElementById('f-colis').value.trim(),
     palettes: document.getElementById('f-palettes').value.trim(),
     vrac: document.getElementById('f-vrac').value.trim(),
-    support: document.getElementById('f-support').value.trim()
+    support: document.getElementById('f-support').value.trim(),
+    emplacement: document.getElementById('f-emplacement').value.trim()
   };
 }
 
@@ -668,6 +780,17 @@ function fmtDate(iso){
   var p = iso.split('-');
   if(p.length!==3) return iso;
   return p[2]+'/'+p[1]+'/'+p[0];
+}
+
+// format obligatoire des emplacements dépôt : ##-##-## (ex. AA-01-01)
+var EMPLACEMENT_RE = /^[A-Z0-9]{2}-[A-Z0-9]{2}-[A-Z0-9]{2}$/;
+function formatEmplacementInput(raw){
+  var clean = (raw||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+  var parts = [];
+  if(clean.length>0) parts.push(clean.slice(0,2));
+  if(clean.length>2) parts.push(clean.slice(2,4));
+  if(clean.length>4) parts.push(clean.slice(4,6));
+  return parts.join('-');
 }
 
 // nombre de jours entre une date ISO (YYYY-MM-DD) et aujourd'hui, calculé au moment de l'appel
@@ -694,27 +817,23 @@ function computeLabels(d){
   return list;
 }
 
-// texte encodé dans le QR d'une étiquette de réception. 1re ligne = format machine (utilisé par le scan de sortie),
-// le reste = lisible par un scanner de téléphone classique.
-function qrText(d, meta){
+// adresse de base de l'appli telle qu'elle est actuellement ouverte (fonctionne quel que soit l'hébergement)
+function appBaseUrl(){
+  return location.origin + location.pathname;
+}
+
+// lien encodé dans le QR d'une étiquette de réception : ouvre l'appli sur une fiche récap de cette étiquette,
+// avec le nombre de jours de stockage calculé en direct à chaque scan (plutôt qu'un texte figé).
+// Beaucoup plus court qu'un pavé de texte => QR bien plus léger à scanner.
+function qrUrl(d, meta){
   meta = meta || {};
-  var days = daysSince(d.date);
-  var totalLabels = computeLabels(d).length;
   var itemId = meta.itemId || 'U1';
-  var machineLine = 'STLS|'+(d.labelNumber||'')+'|'+itemId+'|'+totalLabels;
-  var posLine = meta.posLabel ? (meta.posLabel+'\n') : '';
-  var daysLine = (days!=null) ? ('Jours de stockage (au '+fmtDate(todayISO())+'): '+days+' j\n') : '';
-  return machineLine+'\n'+
-    posLine+
-    'Client: '+d.client+(d.clientCode?' ('+d.clientCode+')':'')+'\n'+
-    'Fournisseur: '+d.fournisseur+'\n'+
-    'Transporteur: '+d.transporteur+'\n'+
-    'Contremarque: '+d.contremarque+'\n'+
-    'Date reception: '+fmtDate(d.date)+'\n'+
-    daysLine+
-    'N. recep BESOFT: '+d.nrecep+'\n'+
-    'Colis total: '+d.colis+' | Palettes: '+d.palettes+' | Vrac: '+d.vrac+'\n'+
-    'Poids total: '+d.poids+' kg';
+  var total = computeLabels(d).length;
+  var params = new URLSearchParams();
+  params.set('r', d.labelNumber || '');
+  params.set('item', itemId);
+  params.set('total', String(total));
+  return appBaseUrl() + '?' + params.toString();
 }
 
 
@@ -744,7 +863,7 @@ function updatePreview(){
   var hasContent = d.client || d.fournisseur || d.transporteur || d.contremarque;
   if(hasContent && window.QRCode){
     try{
-      new QRCode(qrZone, { text: qrText(d, computeLabels(d)[0]), width: 96, height: 96, correctLevel: QRCode.CorrectLevel.M });
+      new QRCode(qrZone, { text: qrUrl(d, computeLabels(d)[0]), width: 96, height: 96, correctLevel: QRCode.CorrectLevel.M });
     }catch(e){}
   }
 
@@ -757,9 +876,13 @@ function updatePreview(){
 }
 
 var UPPERCASE_FIELDS = ['f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-support'];
-['f-date','f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-poids','f-colis','f-palettes','f-vrac','f-support'].forEach(function(id){
+['f-date','f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-poids','f-colis','f-palettes','f-vrac','f-support','f-emplacement'].forEach(function(id){
   document.getElementById(id).addEventListener('input', function(e){
-    if(UPPERCASE_FIELDS.indexOf(id) >= 0){
+    if(id === 'f-emplacement'){
+      e.target.value = formatEmplacementInput(e.target.value);
+      var len = e.target.value.length;
+      try{ e.target.setSelectionRange(len, len); }catch(err){}
+    } else if(UPPERCASE_FIELDS.indexOf(id) >= 0){
       var pos = e.target.selectionStart;
       e.target.value = e.target.value.toUpperCase();
       try{ e.target.setSelectionRange(pos, pos); }catch(err){}
@@ -776,7 +899,7 @@ function todayISO(){
 function resetForm(){
   document.getElementById('f-labelnumber').value = '';
   document.getElementById('f-date').value = todayISO();
-  ['f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-poids','f-colis','f-palettes','f-vrac','f-support'].forEach(function(id){
+  ['f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-poids','f-colis','f-palettes','f-vrac','f-support','f-emplacement'].forEach(function(id){
     document.getElementById(id).value = '';
     document.getElementById(id).classList.remove('invalid');
   });
@@ -859,6 +982,7 @@ document.getElementById('btnSave').addEventListener('click', async function(){
   await ensureBaseEntry('client', d.client);
   await ensureBaseEntry('fournisseur', d.fournisseur);
   await ensureBaseEntry('transporteur', d.transporteur);
+  await ensureEmplacementEntry(d.emplacement);
   await saveBase();
   refreshDatalists();
 
@@ -879,7 +1003,7 @@ document.getElementById('btnSave').addEventListener('click', async function(){
   if(isEdit) record.updatedAt = new Date().toISOString();
   await saveReceptionRecord(id, record);
 
-  var entry = { id: id, date: d.date, client: d.client, contremarque: d.contremarque, fournisseur: d.fournisseur, transporteur: d.transporteur, savedAt: record.savedAt, labelNumber: labelNumber };
+  var entry = { id: id, date: d.date, client: d.client, contremarque: d.contremarque, fournisseur: d.fournisseur, transporteur: d.transporteur, emplacement: d.emplacement, savedAt: record.savedAt, labelNumber: labelNumber };
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
@@ -921,7 +1045,7 @@ function buildQrImageFromText(text){
   return dataUrl;
 }
 function buildQrDataUrl(d, meta){
-  return buildQrImageFromText(qrText(d, meta));
+  return buildQrImageFromText(qrUrl(d, meta));
 }
 
 function pdfLabelBlock(doc, W, x, y, k, v){
@@ -931,15 +1055,12 @@ function pdfLabelBlock(doc, W, x, y, k, v){
   var lines = doc.splitTextToSize(String(v), W/2-8);
   doc.text(lines, x, y+5);
 }
-// version centrée, police plus grande — utilisée pour les champs "chiffres clés" (colis, palettes, vrac, poids...)
-function pdfLabelBlockBig(doc, cellLeft, cellRight, y, k, v, size){
-  var cx = (cellLeft+cellRight)/2;
-  var w = (cellRight-cellLeft)-4;
-  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(60,60,60);
-  doc.text(k, cx, y, { align: 'center' });
+function pdfLabelBlockBig(doc, W, x, y, k, v, size){
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
+  doc.text(k, x, y);
   doc.setFont('helvetica','bold'); doc.setFontSize(size); doc.setTextColor(0,0,0);
-  var lines = doc.splitTextToSize(String(v), w);
-  doc.text(lines, cx, y+9, { align: 'center' });
+  var lines = doc.splitTextToSize(String(v), W/2-8);
+  doc.text(lines, x, y+7);
 }
 
 function drawLabelPage(doc, d, qrDataUrl, meta){
@@ -1001,15 +1122,15 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
 
   var leftMid = qY0 + (qY1-qY0)/2;
   doc.line(2, leftMid, W/2, leftMid);
-  pdfLabelBlockBig(doc, 2, W/2, qY0+8, 'NB COLIS / SUPPORT', d.support || '-', 14);
-  pdfLabelBlockBig(doc, 2, W/2, leftMid+8, 'POIDS TOTAL', (d.poids?d.poids+' kg':'-'), 16);
+  pdfLabelBlockBig(doc, W, 4, qY0+7, 'NB COLIS / SUPPORT', d.support || '-', 11);
+  pdfLabelBlockBig(doc, W, 4, leftMid+7, 'POIDS TOTAL', (d.poids?d.poids+' kg':'-'), 13);
 
   var rH = (qY1-qY0)/3;
   doc.line(W/2, qY0+rH, W-2, qY0+rH);
   doc.line(W/2, qY0+2*rH, W-2, qY0+2*rH);
-  pdfLabelBlockBig(doc, W/2, W-2, qY0+8, 'NB COLIS TOTAL', d.colis || '-', 18);
-  pdfLabelBlockBig(doc, W/2, W-2, qY0+rH+8, 'NB PALETTE(S)', d.palettes || '-', 16);
-  pdfLabelBlockBig(doc, W/2, W-2, qY0+2*rH+8, 'NB COLIS VRAC', d.vrac || '-', 16);
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+7, 'NB COLIS TOTAL', d.colis || '-', 15);
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+rH+7, 'NB PALETTE(S)', d.palettes || '-', 13);
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+2*rH+7, 'NB COLIS VRAC', d.vrac || '-', 13);
 }
 
 function generatePdf(d){
@@ -1108,8 +1229,8 @@ function drawExitLabelPage(doc, d, stats, qrDataUrl){
 
   var qY0 = y, qY1 = H-2;
   doc.line(W/2, qY0, W/2, qY1);
-  pdfLabelBlockBig(doc, 2, W/2, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
-  pdfLabelBlockBig(doc, W/2, W-2, qY0+9, 'ETIQUETTES SORTIES', String(stats.totalLabels), 20);
+  pdfLabelBlockBig(doc, W, 4, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+9, 'ETIQUETTES SORTIES', String(stats.totalLabels), 20);
 }
 
 function generateExitPdf(d, stats){
@@ -1145,9 +1266,10 @@ function renderHistory(){
     var days = daysSince(h.date);
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">'+fmtDate(h.date)+'</span></div>'+
-      '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+'</div>'+
+      '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
@@ -1348,6 +1470,74 @@ function generateArchivePdf(){
 }
 document.getElementById('btnArchivePdf').addEventListener('click', generateArchivePdf);
 
+// ---------- INVENTAIRE (CDE en stock) : liste A4 Client / Contremarque / Date réception / Emplacement ----------
+function generateInventoryPdf(){
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt; });
+  if(!items.length){ banner('Aucune commande en stock'); return; }
+  items = items.slice().sort(function(a,b){
+    var ea = a.emplacement || 'zzz', eb = b.emplacement || 'zzz';
+    if(ea!==eb) return ea.localeCompare(eb);
+    return (a.client||'').localeCompare(b.client||'');
+  });
+
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  var H = 297, marginX = 14, y = 18;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(0,0,0);
+  doc.text('Inventaire — commandes en stock', marginX, y);
+  y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  doc.text('Édité le '+fmtDate(todayISO()), marginX, y);
+  y += 9;
+
+  var cols = [
+    { label:'CLIENT', w:50 },
+    { label:'CONTREMARQUE', w:42 },
+    { label:'DATE DE RECEPTION', w:34 },
+    { label:'EMPLACEMENT', w:36 }
+  ];
+  var tableW = cols.reduce(function(s,c){ return s+c.w; }, 0);
+
+  function drawHeader(){
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
+    var x = marginX;
+    cols.forEach(function(c){ doc.text(c.label, x, y); x += c.w; });
+    y += 2;
+    doc.setDrawColor(0,0,0); doc.setLineWidth(0.3);
+    doc.line(marginX, y, marginX+tableW, y);
+    y += 5;
+  }
+  drawHeader();
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(0,0,0);
+  items.forEach(function(h){
+    if(y > H - 20){
+      doc.addPage();
+      y = 18;
+      drawHeader();
+    }
+    var rowVals = [ h.client || '-', h.contremarque || '-', fmtDate(h.date), h.emplacement || '-' ];
+    var x = marginX;
+    cols.forEach(function(c, idx){
+      var lines = doc.splitTextToSize(String(rowVals[idx]), c.w-2);
+      doc.text(lines[0] || '', x, y);
+      x += c.w;
+    });
+    y += 6;
+  });
+
+  y += 5;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.2);
+  doc.line(marginX, y-3, marginX+tableW, y-3);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.text('Total : '+items.length+' commande(s) en stock', marginX, y);
+
+  doc.save('inventaire_'+todayISO()+'.pdf');
+  banner(items.length+' commande(s) — inventaire PDF téléchargé');
+}
+document.getElementById('btnInventaire').addEventListener('click', generateInventoryPdf);
+
 function fillForm(d){
   document.getElementById('f-labelnumber').value = d.labelNumber || '';
   document.getElementById('f-date').value = d.date || '';
@@ -1361,6 +1551,7 @@ function fillForm(d){
   document.getElementById('f-palettes').value = d.palettes || '';
   document.getElementById('f-vrac').value = d.vrac || '';
   document.getElementById('f-support').value = d.support || '';
+  document.getElementById('f-emplacement').value = d.emplacement || '';
   updatePreview();
 }
 
@@ -1386,6 +1577,51 @@ function wireAdd(btnId, inputId, kind){
 wireAdd('add-client-btn','add-client-nom','client');
 wireAdd('add-fournisseur-btn','add-fournisseur-nom','fournisseur');
 wireAdd('add-transporteur-btn','add-transporteur-nom','transporteur');
+
+// ---------- emplacements dépôt ----------
+document.getElementById('emplacement-input').addEventListener('input', function(e){
+  e.target.value = formatEmplacementInput(e.target.value);
+  var len = e.target.value.length;
+  try{ e.target.setSelectionRange(len, len); }catch(err){}
+});
+
+async function ensureEmplacementEntry(val){
+  if(!val || !EMPLACEMENT_RE.test(val)) return;
+  if(!state.base.emplacements) state.base.emplacements = [];
+  if(state.base.emplacements.indexOf(val)<0){ state.base.emplacements.push(val); }
+}
+
+document.getElementById('add-emplacement-btn').addEventListener('click', async function(){
+  var input = document.getElementById('emplacement-input');
+  var val = input.value.trim();
+  if(!val) return;
+  if(!EMPLACEMENT_RE.test(val)){ banner('Format attendu : AA-01-01'); return; }
+  await ensureEmplacementEntry(val);
+  await saveBase();
+  renderEmplacementsList();
+  refreshDatalists();
+  banner('Emplacement ajouté');
+});
+
+function generateEmplacementPdf(code){
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
+  var W = 150, H = 100;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.5);
+  doc.rect(3,3,W-6,H-6);
+  doc.setFont('helvetica','bold'); doc.setFontSize(54); doc.setTextColor(0,0,0);
+  doc.text(code, W/2, H/2+8, { align: 'center' });
+  doc.save('emplacement_'+code+'.pdf');
+  banner('Étiquette emplacement '+code+' téléchargée');
+}
+
+document.getElementById('btnPrintEmplacement').addEventListener('click', function(){
+  var input = document.getElementById('emplacement-input');
+  var val = input.value.trim();
+  if(!val){ banner('Saisis un emplacement à imprimer'); return; }
+  if(!EMPLACEMENT_RE.test(val)){ banner('Format attendu : AA-01-01'); return; }
+  generateEmplacementPdf(val);
+});
 
 // ---------- export / import (transfert entre appareils) ----------
 async function exportData(){
@@ -1745,9 +1981,17 @@ function scanLoop(){
 }
 
 function handleScannedText(text){
-  var m = text.match(/^STLS\|([^|]+)\|([^|]+)\|(\d+)/);
-  if(!m){ banner('QR non reconnu (pas une étiquette STLS)'); return; }
-  registerScan(m[1], m[2], parseInt(m[3],10));
+  try{
+    var url = new URL(text);
+    var labelNumber = url.searchParams.get('r');
+    var itemId = url.searchParams.get('item');
+    var total = parseInt(url.searchParams.get('total'),10);
+    if(labelNumber && itemId && total){
+      registerScan(labelNumber, itemId, total);
+      return;
+    }
+  }catch(e){}
+  banner('QR non reconnu (pas une étiquette STLS)');
 }
 
 document.getElementById('btnScanStart').addEventListener('click', startScan);
@@ -1824,6 +2068,68 @@ async function migrateArchiveStats(){
   await saveHistoryIndex();
 }
 
+// ---------- écran d'accueil affiché quand on scanne un QR d'étiquette avec l'appareil photo classique ----------
+function showQrLanding(rec){
+  var d = rec.data || {};
+  var params = new URLSearchParams(location.search);
+  var itemId = params.get('item');
+  var posLabel = '';
+  if(itemId){
+    var found = computeLabels(d).find(function(m){ return m.itemId===itemId; });
+    if(found) posLabel = found.posLabel;
+  }
+  document.getElementById('qrLandingLabelNumber').textContent = (d.labelNumber||'')+(posLabel?' — '+posLabel:'');
+
+  var days = daysSince(d.date);
+  var exitedLine = d.exitedAt ? ('<div style="color:var(--accent);font-weight:600;margin-bottom:8px;">Sortie le '+fmtDate(d.exitedAt.slice(0,10))+'</div>') : '';
+
+  document.getElementById('qrLandingBody').innerHTML =
+    exitedLine +
+    '<div style="font-size:19px;font-weight:700;margin-bottom:2px;">'+escapeHtml(d.client||'-')+(d.contremarque?' - '+escapeHtml(d.contremarque):'')+'</div>'+
+    '<div class="hint" style="margin-bottom:14px;">Code client '+escapeHtml(d.clientCode||'-')+'</div>'+
+    '<div style="background:var(--accent-light);border-radius:10px;padding:14px;text-align:center;margin-bottom:14px;">'+
+      '<div class="hint">Jours de stockage (calculé aujourd\'hui)</div>'+
+      '<div style="font-size:32px;font-weight:800;color:var(--accent);">'+(days!=null?days:'-')+' j</div>'+
+    '</div>'+
+    '<div class="sub">Fournisseur : '+escapeHtml(d.fournisseur||'-')+'</div>'+
+    '<div class="sub">Transporteur : '+escapeHtml(d.transporteur||'-')+'</div>'+
+    '<div class="sub">Date de réception : '+fmtDate(d.date)+'</div>'+
+    '<div class="sub">Poids total : '+(d.poids?d.poids+' kg':'-')+'</div>'+
+    '<div class="sub">Nb colis total : '+(d.colis||'-')+' · Palettes : '+(d.palettes||'-')+' · Vrac : '+(d.vrac||'-')+'</div>';
+
+  document.getElementById('qrLandingOverlay').style.display = 'flex';
+}
+document.getElementById('btnCloseLanding').addEventListener('click', function(){
+  document.getElementById('qrLandingOverlay').style.display = 'none';
+  if(window.history && window.history.replaceState){
+    window.history.replaceState({}, '', location.pathname);
+  }
+});
+
+async function tryShowQrLanding(){
+  var params = new URLSearchParams(location.search);
+  var rParam = params.get('r');
+  if(!rParam) return;
+  if(fsReady()){
+    try{
+      var qsnap = await receptionsColRef.where('data.labelNumber','==', rParam).limit(1).get();
+      if(!qsnap.empty){ showQrLanding(qsnap.docs[0].data()); return; }
+    }catch(e){ console.error('tryShowQrLanding query error', e); }
+  }
+  var idxRaw = lsGet('receptions-index');
+  if(idxRaw){
+    try{
+      var idx = JSON.parse(idxRaw);
+      var entry = idx.find(function(h){ return h.labelNumber===rParam; });
+      if(entry){
+        var recRaw = lsGet('reception:'+entry.id);
+        if(recRaw){ showQrLanding(JSON.parse(recRaw)); return; }
+      }
+    }catch(e){}
+  }
+  banner('Réception '+rParam+' introuvable');
+}
+
 // migration : récupère la contremarque dans l'index (pour l'affichage "Client - Contremarque")
 // pour les commandes enregistrées avant ce champ
 async function migrateContremarque(){
@@ -1839,6 +2145,7 @@ async function migrateContremarque(){
 
 // ---------- init ----------
 (async function init(){
+  tryShowQrLanding(); // ne bloque pas le chargement normal de l'appli
   await loadBase();
   await loadHistoryIndex();
   await migrateLabelNumbers();
