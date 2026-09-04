@@ -930,6 +930,37 @@ function computeLabels(d){
   return list;
 }
 
+// résume un ensemble d'itemId (ex: ['P1','P2','V1']) en texte lisible : "2 palette(s) + 1 colis vrac"
+function summarizeItemCounts(itemIds){
+  var p=0, v=0, u=0;
+  (itemIds||[]).forEach(function(id){
+    if(id[0]==='P') p++;
+    else if(id[0]==='V') v++;
+    else u++;
+  });
+  var parts = [];
+  if(p) parts.push(p+' palette'+(p>1?'s':''));
+  if(v) parts.push(v+' colis vrac');
+  if(u) parts.push(u+' étiquette'+(u>1?'s':''));
+  return parts.join(' + ') || '-';
+}
+
+// regroupe les étiquettes d'une réception par emplacement : [{code, itemIds, qtyLabel}, ...] trié par emplacement
+function groupItemsByEmplacement(d){
+  var items = computeLabels(d);
+  var emplacements = d.emplacements || {};
+  var groups = {};
+  items.forEach(function(meta){
+    var code = emplacements[meta.itemId] || d.emplacement || '';
+    var key = code || '(non rangé)';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(meta.itemId);
+  });
+  return Object.keys(groups).sort().map(function(code){
+    return { code: code==='(non rangé)' ? '-' : code, itemIds: groups[code], qtyLabel: summarizeItemCounts(groups[code]) };
+  });
+}
+
 // adresse de base de l'appli telle qu'elle est actuellement ouverte (fonctionne quel que soit l'hébergement)
 function appBaseUrl(){
   return location.origin + location.pathname;
@@ -1380,7 +1411,11 @@ function drawExitLabelPage(doc, d, stats, qrDataUrl){
   var qY0 = y, qY1 = H-2;
   doc.line(W/2, qY0, W/2, qY1);
   pdfLabelBlockBig(doc, W, 4, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+9, 'ETIQUETTES SORTIES', String(stats.totalLabels), 20);
+  var sortieParts = [];
+  if(stats.paletteCount) sortieParts.push(stats.paletteCount+' Palette'+(stats.paletteCount>1?'s':''));
+  if(stats.vracCount) sortieParts.push(stats.vracCount+' Colis vrac');
+  var sortieText = sortieParts.length ? sortieParts.join(' / ') : (stats.totalLabels+' étiquette(s)');
+  pdfLabelBlockBig(doc, W, W/2+4, qY0+7, 'SORTIE', sortieText, 15, 8);
 }
 
 function generateExitPdf(d, stats){
@@ -1394,6 +1429,8 @@ function generateExitPdf(d, stats){
 
 
 // ---------- history ----------
+var walkSessions = {}; // labelNumber -> { groupList: [{code,itemIds,qtyLabel}], stepIndex }
+
 function renderHistory(){
   var el = document.getElementById('histList');
   var q = (document.getElementById('histSearch').value || '').trim().toLowerCase();
@@ -1417,6 +1454,7 @@ function renderHistory(){
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
+    var walkPanel = renderWalkPanel(h.labelNumber);
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">'+fmtDate(h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+'</div>'+
@@ -1424,9 +1462,11 @@ function renderHistory(){
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
         '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
+        '<button class="btn accent" data-act="walk">Sortie de commande</button>'+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
       '</div>'+
       '<div class="reprint-list" id="reprint-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="walk-'+h.labelNumber+'">'+walkPanel+'</div>'+
       '</div>';
   }).join('');
 
@@ -1461,6 +1501,9 @@ function renderHistory(){
       });
       container.style.display = 'block';
     });
+    item.querySelector('[data-act="walk"]').addEventListener('click', function(){
+      startCommandExitWalk(labelNumber, id);
+    });
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
       await deleteReceptionRecord(id);
       state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
@@ -1469,8 +1512,67 @@ function renderHistory(){
       banner('Supprimé');
     });
   });
+
+  // câble les boutons du panneau de sortie guidée (rendu dans le HTML ci-dessus)
+  Array.prototype.forEach.call(el.querySelectorAll('[data-walk-next]'), function(btn){
+    btn.addEventListener('click', function(){ walkNextStep(btn.getAttribute('data-walk-next')); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-walk-cancel]'), function(btn){
+    btn.addEventListener('click', function(){ cancelCommandExitWalk(btn.getAttribute('data-walk-cancel')); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-walk-validate]'), function(btn){
+    btn.addEventListener('click', function(){ validateExit(btn.getAttribute('data-walk-validate')); });
+  });
 }
 document.getElementById('histSearch').addEventListener('input', renderHistory);
+
+// ---------- Sortie de commande guidée par emplacement (depuis "CDE en stock") ----------
+function renderWalkPanel(labelNumber){
+  var w = walkSessions[labelNumber];
+  if(!w) return '';
+  if(w.stepIndex >= w.groupList.length){
+    return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">'+
+      '<div class="hint" style="margin-bottom:8px;color:var(--accent);font-weight:600;">Tous les emplacements sont vidés.</div>'+
+      '<button class="btn accent" data-walk-validate="'+labelNumber+'" style="width:100%;">Valider la sortie</button>'+
+    '</div>';
+  }
+  var step = w.groupList[w.stepIndex];
+  return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">'+
+    '<div class="hint" style="margin-bottom:4px;">Étape '+(w.stepIndex+1)+' / '+w.groupList.length+'</div>'+
+    '<div style="font-size:17px;font-weight:700;margin-bottom:4px;">Va chercher à : '+escapeHtml(step.code)+'</div>'+
+    '<div class="hint" style="margin-bottom:10px;">'+escapeHtml(step.qtyLabel)+'</div>'+
+    '<button class="btn primary" data-walk-next="'+labelNumber+'" style="width:100%;">Emplacement vidé → suivant</button>'+
+    '<button class="btn ghost" data-walk-cancel="'+labelNumber+'" style="width:100%;margin-top:6px;">Annuler cette sortie</button>'+
+  '</div>';
+}
+
+async function startCommandExitWalk(labelNumber, recId){
+  if(walkSessions[labelNumber]) return; // déjà en cours, ne pas repartir de zéro
+  var rec = await getReceptionRecord(recId);
+  if(!rec){ banner('Introuvable'); return; }
+  var groupList = groupItemsByEmplacement(rec.data);
+  walkSessions[labelNumber] = { groupList: groupList, stepIndex: 0 };
+  renderHistory();
+}
+
+async function walkNextStep(labelNumber){
+  var w = walkSessions[labelNumber];
+  if(!w) return;
+  var step = w.groupList[w.stepIndex];
+  var total = w.groupList.reduce(function(s,g){ return s+g.itemIds.length; }, 0);
+  for(var i=0;i<step.itemIds.length;i++){
+    await registerScan(labelNumber, step.itemIds[i], total);
+  }
+  w.stepIndex++;
+  renderHistory();
+}
+
+function cancelCommandExitWalk(labelNumber){
+  delete walkSessions[labelNumber];
+  clearExitSession(labelNumber);
+  renderHistory();
+  banner('Sortie annulée');
+}
 
 // ---------- CDE sortie (archive + liste A4) ----------
 function renderArchiveList(){
@@ -1621,13 +1723,25 @@ function generateArchivePdf(){
 document.getElementById('btnArchivePdf').addEventListener('click', generateArchivePdf);
 
 // ---------- INVENTAIRE (CDE en stock) : liste A4 Client / Contremarque / Date réception / Emplacement ----------
-function generateInventoryPdf(){
+async function generateInventoryPdf(){
   var items = state.historyIndex.filter(function(h){ return !h.exitedAt; });
   if(!items.length){ banner('Aucune commande en stock'); return; }
-  items = items.slice().sort(function(a,b){
-    var ea = a.emplacement || 'zzz', eb = b.emplacement || 'zzz';
-    if(ea!==eb) return ea.localeCompare(eb);
-    return (a.client||'').localeCompare(b.client||'');
+
+  // une ligne par (commande, emplacement) — nécessite le détail complet de chaque commande
+  var rows = [];
+  for(var i=0;i<items.length;i++){
+    var h = items[i];
+    var rec = await getReceptionRecord(h.id);
+    if(!rec) continue;
+    var groups = groupItemsByEmplacement(rec.data);
+    groups.forEach(function(g){
+      rows.push({ client: rec.data.client||'-', contremarque: rec.data.contremarque||'-', emplacement: g.code, qty: g.qtyLabel });
+    });
+  }
+  if(!rows.length){ banner('Aucune commande en stock'); return; }
+  rows.sort(function(a,b){
+    if(a.emplacement !== b.emplacement) return a.emplacement.localeCompare(b.emplacement);
+    return a.client.localeCompare(b.client);
   });
 
   var jsPDF = window.jspdf.jsPDF;
@@ -1642,10 +1756,10 @@ function generateInventoryPdf(){
   y += 9;
 
   var cols = [
-    { label:'CLIENT', w:50 },
+    { label:'CLIENT', w:44 },
     { label:'CONTREMARQUE', w:42 },
-    { label:'DATE DE RECEPTION', w:34 },
-    { label:'EMPLACEMENT', w:36 }
+    { label:'EMPLACEMENT', w:28 },
+    { label:'NB PAL OU COLIS', w:40 }
   ];
   var tableW = cols.reduce(function(s,c){ return s+c.w; }, 0);
 
@@ -1661,13 +1775,13 @@ function generateInventoryPdf(){
   drawHeader();
 
   doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(0,0,0);
-  items.forEach(function(h){
+  rows.forEach(function(r){
     if(y > H - 20){
       doc.addPage();
       y = 18;
       drawHeader();
     }
-    var rowVals = [ h.client || '-', h.contremarque || '-', fmtDate(h.date), h.emplacement || '-' ];
+    var rowVals = [ r.client, r.contremarque, r.emplacement, r.qty ];
     var x = marginX;
     cols.forEach(function(c, idx){
       var lines = doc.splitTextToSize(String(rowVals[idx]), c.w-2);
@@ -1681,10 +1795,10 @@ function generateInventoryPdf(){
   doc.setDrawColor(0,0,0); doc.setLineWidth(0.2);
   doc.line(marginX, y-3, marginX+tableW, y-3);
   doc.setFont('helvetica','bold'); doc.setFontSize(10);
-  doc.text('Total : '+items.length+' commande(s) en stock', marginX, y);
+  doc.text('Total : '+rows.length+' ligne(s) — '+items.length+' commande(s) en stock', marginX, y);
 
   downloadPdf(doc, 'inventaire_'+todayISO()+'.pdf');
-  banner(items.length+' commande(s) — inventaire PDF téléchargé');
+  banner(rows.length+' ligne(s) — inventaire PDF téléchargé');
 }
 document.getElementById('btnInventaire').addEventListener('click', generateInventoryPdf);
 
@@ -2217,7 +2331,9 @@ async function validateExit(labelNumber){
   var totalLabels = computeLabels(rec.data).length;
   var daysStored = daysSince(rec.data.date);
   var exitDateStr = fmtDate(todayISO());
-  var stats = { totalLabels: totalLabels, daysStored: daysStored, exitDateStr: exitDateStr };
+  var paletteCount = parseInt(rec.data.palettes,10)||0;
+  var vracCount = parseInt(rec.data.vrac,10)||0;
+  var stats = { totalLabels: totalLabels, daysStored: daysStored, exitDateStr: exitDateStr, paletteCount: paletteCount, vracCount: vracCount };
 
   rec.data.exitedAt = new Date().toISOString();
   rec.data.exitStats = stats; // conservé pour pouvoir retélécharger le PDF de sortie plus tard
@@ -2228,6 +2344,7 @@ async function validateExit(labelNumber){
   await saveHistoryIndex();
 
   clearExitSession(labelNumber);
+  delete walkSessions[labelNumber];
   await renderExitSessions();
   renderHistory();
   renderArchiveList();
