@@ -480,6 +480,9 @@
     <div class="card">
       <h2>Sécurité — accès à l'application</h2>
       <p class="hint" id="secIdentityLine" style="margin:0 0 14px;"></p>
+      <div class="btn-row" style="margin-top:0;margin-bottom:16px;">
+        <button class="btn danger" id="btnLogout" style="width:100%;">Changer de compte</button>
+      </div>
       <div class="field">
         <label for="secCurrentCode">Code administrateur</label>
         <input type="text" id="secCurrentCode" placeholder="Code administrateur" maxlength="10">
@@ -2804,6 +2807,14 @@ function updateSecurityIdentityLine(){
   var id = currentIdentity();
   el.textContent = id ? ('Connecté sur cet appareil en tant que : '+id+(state.isAdmin?' (administrateur)':'')) : '';
 }
+
+document.getElementById('btnLogout').addEventListener('click', function(){
+  lsDelete('access-unlocked');
+  lsDelete('access-identity');
+  lsDelete('access-is-admin');
+  lsDelete('current-agency');
+  location.reload();
+});
 
 function updateAgencyCodeLine(){
   var el = document.getElementById('agencyCurrentLine');
