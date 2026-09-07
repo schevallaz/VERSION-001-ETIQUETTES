@@ -130,7 +130,7 @@
       <h2 style="margin-bottom:6px;">Code d'accès</h2>
       <p class="hint" style="margin:0 0 14px;">Saisis ton code personnel, ou le code d'accès initial si c'est ta première connexion sur cet appareil.</p>
       <div class="field">
-        <input type="text" id="accessCodeInput" placeholder="Code" maxlength="6" style="text-align:center;font-size:20px;letter-spacing:2px;">
+        <input type="text" id="accessCodeInput" placeholder="Code" maxlength="10" style="text-align:center;font-size:20px;letter-spacing:2px;">
       </div>
       <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
       <div class="btn-row">
@@ -146,6 +146,16 @@
       <div id="accessNameError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
       <div class="btn-row">
         <button class="btn primary" id="btnAccessNameSubmit" style="width:100%;">Valider</button>
+      </div>
+    </div>
+    <div id="accessStep3" style="display:none;">
+      <h2 style="margin-bottom:6px;">Ton agence</h2>
+      <p class="hint" style="margin:0 0 14px;">Choisis l'agence STLS sur laquelle tu travailles.</p>
+      <div class="field">
+        <select id="accessAgencySelect" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnAccessAgencySubmit" style="width:100%;">Valider</button>
       </div>
     </div>
   </div>
@@ -471,17 +481,71 @@
       <h2>Sécurité — accès à l'application</h2>
       <p class="hint" id="secIdentityLine" style="margin:0 0 14px;"></p>
       <div class="field">
-        <label for="secCurrentCode">Code administrateur actuel</label>
-        <input type="text" id="secCurrentCode" placeholder="Code actuel" maxlength="6">
+        <label for="secCurrentCode">Code administrateur</label>
+        <input type="text" id="secCurrentCode" placeholder="Code administrateur" maxlength="10">
       </div>
       <div class="field">
-        <label for="secNewCode">Nouveau code administrateur</label>
-        <input type="text" id="secNewCode" placeholder="Nouveau code" maxlength="6">
+        <label for="secNewCode">Nouveau code équipe (code de bienvenue, ex. 2013)</label>
+        <input type="text" id="secNewCode" placeholder="Nouveau code équipe" maxlength="6">
       </div>
       <div class="btn-row">
-        <button class="btn accent" id="btnChangeMasterCode" style="width:100%;">Changer le code administrateur</button>
+        <button class="btn accent" id="btnChangeMasterCode" style="width:100%;">Changer le code équipe</button>
       </div>
       <div id="secChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
+      <h2>Code administrateur</h2>
+      <p class="hint" style="margin:0 0 12px;">Distinct du code équipe — connu de toi seul, il donne accès à la gestion des agences et à ce panneau.</p>
+      <div class="field">
+        <label for="adminCurrentCode">Code administrateur actuel</label>
+        <input type="text" id="adminCurrentCode" placeholder="Code actuel" maxlength="10">
+      </div>
+      <div class="field">
+        <label for="adminNewCode">Nouveau code administrateur</label>
+        <input type="text" id="adminNewCode" placeholder="Nouveau code" maxlength="10">
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnChangeAdminCode" style="width:100%;">Changer le code administrateur</button>
+      </div>
+      <div id="adminChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
+      <h2>Agences STLS</h2>
+      <p class="hint" id="agencyCurrentLine" style="margin:0 0 14px;"></p>
+      <div class="base-list" id="listAgencies" style="margin-bottom:12px;"></div>
+
+      <div class="field">
+        <label for="agencySwitchSelect">Changer d'agence active (administrateur)</label>
+        <select id="agencySwitchSelect" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSwitchAgency" style="width:100%;">Basculer sur cette agence</button>
+      </div>
+
+      <h2 style="margin-top:20px;">Ajouter une agence (administrateur)</h2>
+      <div class="field">
+        <label for="agencyAdminCode">Code administrateur</label>
+        <input type="text" id="agencyAdminCode" placeholder="Code administrateur" maxlength="10">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="agencyNewCode">Numéro (2 chiffres)</label>
+          <input type="text" id="agencyNewCode" placeholder="83" maxlength="2" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="agencyNewName">Nom de l'agence</label>
+          <input type="text" id="agencyNewName" placeholder="Var">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnAddAgency" style="width:100%;">Ajouter cette agence</button>
+      </div>
+      <div id="agencyChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
+
+      <div class="btn-row" style="margin-top:16px;">
+        <button class="btn primary" id="btnPrintAgencyQr" style="width:100%;">Imprimer l'étiquette d'accueil de l'agence active</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">À afficher dans le dépôt : en la scannant, l'appli démarre directement sur cette agence.</p>
     </div>
   </section>
 </div>
@@ -499,8 +563,14 @@ var DEFAULT_EMPLACEMENTS = ["AA-01-01", "AA-02-01", "AA-03-01", "AA-04-01", "AA-
 var state = {
   base: { clients: [], fournisseurs: [], transporteurs: [], emplacements: [] },
   security: { masterCode: '2013', userCodes: [] },
+  agencyCode: '83',
   historyIndex: [],
-  editingId: null
+  editingId: null,
+  // multi-agences
+  currentAgencyCode: null,
+  isAdmin: false,
+  globalSecurity: { masterCode: '2013', adminCode: 'ADMIN1', users: [] },
+  agenciesList: []
 };
 
 function banner(msg){
@@ -541,10 +611,121 @@ try{
   }
 }catch(e){ console.error('Firebase init error', e); fsAvailable = false; }
 
-var configDocRef = fsAvailable ? db.collection('stls_depot').doc('config') : null;
-var receptionsColRef = fsAvailable ? configDocRef.collection('receptions') : null;
+var configDocRef = null;      // liée à l'agence active une fois choisie (voir setActiveAgency)
+var receptionsColRef = null;  // idem
+var globalDocRef = fsAvailable ? db.collection('stls_depot').doc('global') : null;
+var oldConfigDocRef = fsAvailable ? db.collection('stls_depot').doc('config') : null; // ancien emplacement (avant multi-agences), utilisé pour la migration uniquement
+
+function agencyDocRef(code){ return fsAvailable ? db.collection('stls_depot').doc('agency_'+code) : null; }
+function setActiveAgency(code){
+  state.currentAgencyCode = code;
+  configDocRef = agencyDocRef(code);
+  receptionsColRef = configDocRef ? configDocRef.collection('receptions') : null;
+}
 
 function fsReady(){ return fsAvailable && !!db; }
+
+// ---------- config globale (multi-agences) : code équipe, code administrateur, liste des agences ----------
+async function loadGlobalConfig(){
+  if(fsReady()){
+    try{
+      var snap = await globalDocRef.get();
+      if(snap.exists && snap.data().agenciesList && snap.data().agenciesList.length){
+        var d = snap.data();
+        state.globalSecurity = d.globalSecurity || state.globalSecurity;
+        state.agenciesList = d.agenciesList || [];
+        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList }));
+        return;
+      }
+    }catch(e){ console.error('Firestore loadGlobalConfig error', e); }
+  }
+  // pas encore de config globale dans le cloud : on migre depuis l'ancien système mono-agence (sans rien supprimer)
+  var raw = lsGet('global-config');
+  if(raw){
+    try{
+      var cached = JSON.parse(raw);
+      state.globalSecurity = cached.globalSecurity || state.globalSecurity;
+      state.agenciesList = cached.agenciesList || [];
+    }catch(e){}
+  }
+  if(!state.agenciesList || !state.agenciesList.length){
+    // reprend l'ancien code équipe local s'il existe, et crée l'agence 83 (Var) par défaut
+    var oldSecRaw = lsGet('security-data');
+    var oldMasterCode = '2013';
+    var oldUserNames = [];
+    if(oldSecRaw){
+      try{
+        var oldSec = JSON.parse(oldSecRaw);
+        if(oldSec.masterCode) oldMasterCode = oldSec.masterCode;
+        if(Array.isArray(oldSec.userCodes)) oldUserNames = oldSec.userCodes;
+      }catch(e){}
+    }
+    var oldAgencyRaw = lsGet('agency-code');
+    var defaultCode = (oldAgencyRaw && /^[0-9]{2}$/.test(oldAgencyRaw)) ? oldAgencyRaw : '83';
+    state.globalSecurity = {
+      masterCode: oldMasterCode,
+      adminCode: 'ADMIN1',
+      users: oldUserNames.map(function(n){ return { name: n, agencyCode: defaultCode, isAdmin: false }; })
+    };
+    state.agenciesList = [{ code: defaultCode, name: 'Var' }];
+  }
+  await saveGlobalConfig();
+}
+
+async function saveGlobalConfig(){
+  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList }));
+  if(fsReady()){
+    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList }, { merge: true }); }
+    catch(e){ console.error('Firestore saveGlobalConfig error', e); }
+  }
+}
+
+// migration : copie les données de l'ancien emplacement mono-agence vers agency_{code}, une seule fois,
+// sans jamais supprimer l'ancien (filet de sécurité)
+async function migrateAgencyDataIfNeeded(code){
+  if(!fsReady()) return;
+  var newRef = agencyDocRef(code);
+  try{
+    var newSnap = await newRef.get();
+    if(newSnap.exists && newSnap.data().clients) return; // déjà migré
+  }catch(e){ console.error('Firestore migrateAgencyDataIfNeeded check error', e); return; }
+
+  try{
+    var oldSnap = await oldConfigDocRef.get();
+    if(oldSnap.exists && oldSnap.data().clients){
+      var oldData = oldSnap.data();
+      var toCopy = { clients: oldData.clients||[], fournisseurs: oldData.fournisseurs||[], transporteurs: oldData.transporteurs||[], emplacements: oldData.emplacements||[] };
+      if(oldData.labelCounter) toCopy.labelCounter = oldData.labelCounter;
+      await newRef.set(toCopy, { merge: true });
+
+      var oldReceptionsSnap = await oldConfigDocRef.collection('receptions').get();
+      var batchPromises = [];
+      oldReceptionsSnap.forEach(function(doc){
+        batchPromises.push(newRef.collection('receptions').doc(doc.id).set(doc.data()));
+      });
+      await Promise.all(batchPromises);
+    }
+  }catch(e){ console.error('Firestore migrateAgencyDataIfNeeded copy error', e); }
+}
+
+async function switchToAgency(code){
+  setActiveAgency(code);
+  baseWatchStarted = false;
+  receptionsWatchStarted = false;
+  await migrateAgencyDataIfNeeded(code);
+  await loadBase();
+  await loadHistoryIndex();
+  await migrateLabelNumbers();
+  await migrateArchiveStats();
+  await migrateContremarque();
+  refreshDatalists();
+  renderBaseLists();
+  renderHistory();
+  renderArchiveList();
+  resetForm();
+  updateAgencyCodeLine();
+  renderAgenciesList();
+}
 
 // ---------- storage (Firestore = source de vérité partagée ; localStorage = cache de secours hors-ligne) ----------
 var LS_PREFIX = 'stls_etiquettes_';
@@ -579,9 +760,7 @@ async function loadBase(){
       if(snap.exists && snap.data().clients){
         var d0 = snap.data();
         state.base = { clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice() };
-        state.security = d0.security || { masterCode: '2013', userCodes: [] };
         lsSet('base-data', JSON.stringify(state.base));
-        lsSet('security-data', JSON.stringify(state.security));
         watchBase();
         return;
       }
@@ -601,12 +780,7 @@ async function loadBase(){
     };
   }
   if(!state.base.emplacements){ state.base.emplacements = DEFAULT_EMPLACEMENTS.slice(); }
-  var secRaw = lsGet('security-data');
-  if(secRaw){
-    try{ state.security = JSON.parse(secRaw); }catch(e){}
-  }
   await saveBase();
-  await saveSecurity();
   watchBase();
 }
 
@@ -614,13 +788,6 @@ async function saveBase(){
   lsSet('base-data', JSON.stringify(state.base));
   if(fsReady()){
     try{ await configDocRef.set(state.base, { merge: true }); }catch(e){ console.error('Firestore saveBase error', e); }
-  }
-}
-
-async function saveSecurity(){
-  lsSet('security-data', JSON.stringify(state.security));
-  if(fsReady()){
-    try{ await configDocRef.set({ security: state.security }, { merge: true }); }catch(e){ console.error('Firestore saveSecurity error', e); }
   }
 }
 
@@ -633,7 +800,6 @@ function watchBase(){
     var d = snap.data();
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
     state.base = { clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[] };
-    if(d.security){ state.security = d.security; lsSet('security-data', JSON.stringify(state.security)); updateSecurityIdentityLine(); }
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
     renderBaseLists();
@@ -977,6 +1143,7 @@ function qrUrl(d, meta){
   params.set('r', d.labelNumber || '');
   params.set('item', itemId);
   params.set('total', String(total));
+  if(state.currentAgencyCode) params.set('ag', state.currentAgencyCode);
   return appBaseUrl() + '?' + params.toString();
 }
 
@@ -1243,13 +1410,15 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
 
   var y = 2;
 
-  // bandeau d'en-tête : n° étiquette (gauche) + position palette/vrac (droite)
+  // bandeau d'en-tête : n° étiquette (gauche) + agence (centre) + position palette/vrac (droite)
   var stripH = 7;
   doc.line(2, y+stripH, W-2, y+stripH);
   doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
   doc.text(d.labelNumber || '-', 4, y+4.8);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(90,90,90);
+  doc.text('STLS - Agence '+(state.currentAgencyCode||'83'), W/2, y+4.8, { align: 'center' });
   if(meta && meta.posLabel){
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(0,0,0);
     doc.text(meta.posLabel, W-4, y+4.8, { align: 'right' });
   }
   y += stripH;
@@ -2603,9 +2772,11 @@ async function tryShowQrLanding(){
   var params = new URLSearchParams(location.search);
   var rParam = params.get('r');
   if(!rParam) return;
-  if(fsReady()){
+  var agParam = params.get('ag') || state.currentAgencyCode;
+  if(fsReady() && agParam){
     try{
-      var qsnap = await receptionsColRef.where('data.labelNumber','==', rParam).limit(1).get();
+      var targetReceptionsRef = agencyDocRef(agParam).collection('receptions');
+      var qsnap = await targetReceptionsRef.where('data.labelNumber','==', rParam).limit(1).get();
       if(!qsnap.empty){ showQrLanding(qsnap.docs[0].data()); return; }
     }catch(e){ console.error('tryShowQrLanding query error', e); }
   }
@@ -2623,7 +2794,7 @@ async function tryShowQrLanding(){
   banner('Réception '+rParam+' introuvable');
 }
 
-// ---------- contrôle d'accès : code administrateur (2013 par défaut) + codes personnels ----------
+// ---------- contrôle d'accès : code équipe (onboarding) + code administrateur (agences) + codes personnels ----------
 function isUnlocked(){ return !!lsGet('access-unlocked'); }
 function currentIdentity(){ return lsGet('access-identity') || ''; }
 
@@ -2631,13 +2802,97 @@ function updateSecurityIdentityLine(){
   var el = document.getElementById('secIdentityLine');
   if(!el) return;
   var id = currentIdentity();
-  el.textContent = id ? ('Connecté sur cet appareil en tant que : '+id) : '';
+  el.textContent = id ? ('Connecté sur cet appareil en tant que : '+id+(state.isAdmin?' (administrateur)':'')) : '';
+}
+
+function updateAgencyCodeLine(){
+  var el = document.getElementById('agencyCurrentLine');
+  if(!el) return;
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
+  el.textContent = 'Agence active : STLS - Agence '+(state.currentAgencyCode||'-')+(ag&&ag.name?' — '+ag.name:'');
+}
+
+function renderAgenciesList(){
+  var el = document.getElementById('listAgencies');
+  if(!el) return;
+  var list = state.agenciesList||[];
+  el.innerHTML = list.length ? list.map(function(a){
+    return '<div class="base-row"><span>'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+(a.code===state.currentAgencyCode?' <b style="color:var(--accent);">(active)</b>':'')+'</span></div>';
+  }).join('') : '<div class="empty">Aucune agence enregistrée</div>';
+
+  var sel = document.getElementById('agencySwitchSelect');
+  if(sel){
+    sel.innerHTML = list.map(function(a){ return '<option value="'+escapeHtml(a.code)+'">'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+'</option>'; }).join('');
+    sel.value = state.currentAgencyCode || '';
+  }
+}
+
+document.getElementById('btnSwitchAgency').addEventListener('click', async function(){
+  if(!state.isAdmin){ banner('Réservé à l\'administrateur'); return; }
+  var code = document.getElementById('agencySwitchSelect').value;
+  if(!code || code === state.currentAgencyCode) return;
+  await switchToAgency(code);
+  banner('Agence active : '+code);
+});
+
+document.getElementById('btnAddAgency').addEventListener('click', async function(){
+  var adminCodeInput = document.getElementById('agencyAdminCode').value.trim();
+  var code = document.getElementById('agencyNewCode').value.trim();
+  var name = document.getElementById('agencyNewName').value.trim();
+  var msg = document.getElementById('agencyChangeMsg');
+  if(adminCodeInput.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
+    msg.textContent = 'Code administrateur incorrect'; msg.style.color = 'var(--danger)'; return;
+  }
+  if(!/^[0-9]{2}$/.test(code)){ msg.textContent = 'Le numéro doit être composé de 2 chiffres (ex. 83)'; msg.style.color='var(--danger)'; return; }
+  if(!name){ msg.textContent = 'Saisis un nom d\'agence'; msg.style.color='var(--danger)'; return; }
+  if((state.agenciesList||[]).some(function(a){ return a.code===code; })){
+    msg.textContent = 'Cette agence existe déjà'; msg.style.color='var(--danger)'; return;
+  }
+  state.agenciesList.push({ code: code, name: name });
+  await saveGlobalConfig();
+  renderAgenciesList();
+  document.getElementById('agencyAdminCode').value = '';
+  document.getElementById('agencyNewCode').value = '';
+  document.getElementById('agencyNewName').value = '';
+  msg.textContent = 'Agence ajoutée';
+  msg.style.color = 'var(--accent)';
+});
+
+function generateAgencyWelcomePdf(){
+  var code = state.currentAgencyCode;
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===code; });
+  var url = appBaseUrl() + '?agence=' + code;
+  var qrDataUrl = buildQrImageFromText(url);
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: [150, 100], orientation: 'landscape' });
+  var W = 150, H = 100;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.5);
+  doc.rect(3,3,W-6,H-6);
+  if(qrDataUrl){ doc.addImage(qrDataUrl, 'PNG', 10, (H-40)/2, 40, 40); }
+  doc.setFont('helvetica','bold'); doc.setFontSize(26); doc.setTextColor(0,0,0);
+  doc.text('STLS', W/2+20, H/2-6, { align: 'center' });
+  doc.setFontSize(22);
+  doc.text('Agence '+code, W/2+20, H/2+8, { align: 'center' });
+  if(ag && ag.name){
+    doc.setFont('helvetica','normal'); doc.setFontSize(13); doc.setTextColor(90,90,90);
+    doc.text(ag.name, W/2+20, H/2+18, { align: 'center' });
+  }
+  downloadPdf(doc, 'accueil_agence_'+code+'.pdf');
+  banner('Étiquette d\'accueil agence '+code+' téléchargée');
+}
+document.getElementById('btnPrintAgencyQr').addEventListener('click', generateAgencyWelcomePdf);
+
+function getQrAgencyParam(){
+  var params = new URLSearchParams(location.search);
+  var code = params.get('agence');
+  return (code && /^[0-9]{2}$/.test(code)) ? code : null;
 }
 
 function showAccessGate(){
   document.getElementById('accessGateOverlay').style.display = 'flex';
   document.getElementById('accessStep1').style.display = 'block';
   document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep3').style.display = 'none';
   document.getElementById('accessCodeInput').value = '';
   document.getElementById('accessGateError').style.display = 'none';
   setTimeout(function(){ document.getElementById('accessCodeInput').focus(); }, 50);
@@ -2645,10 +2900,66 @@ function showAccessGate(){
 function hideAccessGate(){
   document.getElementById('accessGateOverlay').style.display = 'none';
 }
-async function afterUnlock(){
+
+async function loadAgencyDataAndShowApp(){
+  await loadBase();
+  await loadHistoryIndex();
+  await migrateLabelNumbers();
+  await migrateArchiveStats();
+  await migrateContremarque();
+  refreshDatalists();
+  renderBaseLists();
+  renderHistory();
+  renderArchiveList();
+  resetForm();
+  renderAgenciesList();
   hideAccessGate();
   updateSecurityIdentityLine();
+  updateAgencyCodeLine();
   tryShowQrLanding();
+}
+
+async function finalizeLogin(name, isAdmin, agencyCode){
+  lsSet('access-unlocked','1');
+  lsSet('access-identity', name);
+  lsSet('access-is-admin', isAdmin ? '1' : '');
+  lsSet('current-agency', agencyCode);
+  state.isAdmin = !!isAdmin;
+  await migrateAgencyDataIfNeeded(agencyCode);
+  setActiveAgency(agencyCode);
+  await loadAgencyDataAndShowApp();
+}
+
+async function registerNewUser(name, agencyCode, isAdmin){
+  if(!state.globalSecurity.users) state.globalSecurity.users = [];
+  state.globalSecurity.users.push({ name: name, agencyCode: agencyCode, isAdmin: !!isAdmin });
+  await saveGlobalConfig();
+  await finalizeLogin(name, isAdmin, agencyCode);
+}
+
+var pendingIsAdmin = false;
+var pendingIsNewUser = false;
+var pendingNeedsUpgrade = false;
+var pendingUserName = null;
+
+function goToNameStep(){
+  document.getElementById('accessStep1').style.display = 'none';
+  document.getElementById('accessStep2').style.display = 'block';
+  document.getElementById('accessStep3').style.display = 'none';
+  document.getElementById('accessNameInput').value = '';
+  document.getElementById('accessNameError').style.display = 'none';
+  setTimeout(function(){ document.getElementById('accessNameInput').focus(); }, 50);
+}
+
+function goToAgencyStep(preselectCode){
+  document.getElementById('accessStep1').style.display = 'none';
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep3').style.display = 'block';
+  var sel = document.getElementById('accessAgencySelect');
+  sel.innerHTML = (state.agenciesList||[]).map(function(a){
+    return '<option value="'+escapeHtml(a.code)+'">'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+'</option>';
+  }).join('');
+  if(preselectCode) sel.value = preselectCode;
 }
 
 document.getElementById('btnAccessSubmit').addEventListener('click', function(){
@@ -2656,19 +2967,25 @@ document.getElementById('btnAccessSubmit').addEventListener('click', function(){
   var err = document.getElementById('accessGateError');
   err.style.display = 'none';
   if(!val) return;
-  if(val.toUpperCase() === (state.security.masterCode||'').toUpperCase()){
-    document.getElementById('accessStep1').style.display = 'none';
-    document.getElementById('accessStep2').style.display = 'block';
-    document.getElementById('accessNameInput').value = '';
-    document.getElementById('accessNameError').style.display = 'none';
-    setTimeout(function(){ document.getElementById('accessNameInput').focus(); }, 50);
+
+  if(val.toUpperCase() === (state.globalSecurity.adminCode||'').toUpperCase()){
+    pendingIsAdmin = true; pendingIsNewUser = true; pendingNeedsUpgrade = false; pendingUserName = null;
+    goToNameStep();
     return;
   }
-  var match = (state.security.userCodes||[]).find(function(u){ return u.toUpperCase()===val.toUpperCase(); });
+  if(val.toUpperCase() === (state.globalSecurity.masterCode||'').toUpperCase()){
+    pendingIsAdmin = false; pendingIsNewUser = true; pendingNeedsUpgrade = false; pendingUserName = null;
+    goToNameStep();
+    return;
+  }
+  var match = (state.globalSecurity.users||[]).find(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
   if(match){
-    lsSet('access-unlocked','1');
-    lsSet('access-identity', match);
-    afterUnlock();
+    if(match.isAdmin){
+      pendingIsAdmin = true; pendingIsNewUser = false; pendingNeedsUpgrade = false; pendingUserName = match.name;
+      goToAgencyStep(getQrAgencyParam() || match.agencyCode);
+      return;
+    }
+    finalizeLogin(match.name, false, getQrAgencyParam() || match.agencyCode);
     return;
   }
   err.textContent = 'Code invalide';
@@ -2678,37 +2995,85 @@ document.getElementById('accessCodeInput').addEventListener('keydown', function(
   if(e.key==='Enter'){ document.getElementById('btnAccessSubmit').click(); }
 });
 
-document.getElementById('btnAccessNameSubmit').addEventListener('click', async function(){
+document.getElementById('btnAccessNameSubmit').addEventListener('click', function(){
   var name = document.getElementById('accessNameInput').value.trim().toUpperCase().slice(0,5);
   var err = document.getElementById('accessNameError');
   err.style.display = 'none';
   if(!name){ err.textContent = 'Saisis ton prénom'; err.style.display='block'; return; }
-  if(!state.security.userCodes) state.security.userCodes = [];
-  if(state.security.userCodes.indexOf(name)>=0){ err.textContent = 'Ce prénom est déjà utilisé, choisis-en un autre'; err.style.display='block'; return; }
-  state.security.userCodes.push(name);
-  await saveSecurity();
-  lsSet('access-unlocked','1');
-  lsSet('access-identity', name);
-  afterUnlock();
+
+  var existing = (state.globalSecurity.users||[]).find(function(u){ return u.name===name; });
+  if(existing && !pendingIsAdmin){
+    err.textContent = 'Ce prénom est déjà utilisé, choisis-en un autre';
+    err.style.display='block';
+    return;
+  }
+  // avec le code administrateur, un prénom déjà existant est promu administrateur plutôt que rejeté
+  pendingNeedsUpgrade = !!(existing && pendingIsAdmin && !existing.isAdmin);
+  pendingIsNewUser = !existing;
+  pendingUserName = name;
+
+  var qrAgency = getQrAgencyParam();
+  if(pendingIsAdmin){
+    goToAgencyStep(qrAgency || (existing && existing.agencyCode)); // l'administrateur choisit toujours son agence
+    return;
+  }
+  if(qrAgency){
+    registerNewUser(name, qrAgency, false);
+    return;
+  }
+  goToAgencyStep(null); // pas d'administrateur, pas de QR : choix de son agence une seule fois
 });
 document.getElementById('accessNameInput').addEventListener('keydown', function(e){
   if(e.key==='Enter'){ document.getElementById('btnAccessNameSubmit').click(); }
+});
+
+document.getElementById('btnAccessAgencySubmit').addEventListener('click', async function(){
+  var code = document.getElementById('accessAgencySelect').value;
+  if(!code) return;
+  if(pendingIsNewUser){
+    await registerNewUser(pendingUserName, code, pendingIsAdmin);
+  } else if(pendingNeedsUpgrade){
+    var u = (state.globalSecurity.users||[]).find(function(x){ return x.name===pendingUserName; });
+    if(u){ u.isAdmin = true; u.agencyCode = code; }
+    await saveGlobalConfig();
+    await finalizeLogin(pendingUserName, true, code);
+  } else {
+    await finalizeLogin(pendingUserName, true, code);
+  }
 });
 
 document.getElementById('btnChangeMasterCode').addEventListener('click', async function(){
   var cur = document.getElementById('secCurrentCode').value.trim();
   var next = document.getElementById('secNewCode').value.trim();
   var msg = document.getElementById('secChangeMsg');
-  if(cur.toUpperCase() !== (state.security.masterCode||'').toUpperCase()){
+  if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
+    msg.textContent = 'Code administrateur incorrect';
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  if(!next){ msg.textContent = 'Saisis un nouveau code équipe'; msg.style.color = 'var(--danger)'; return; }
+  state.globalSecurity.masterCode = next.toUpperCase();
+  await saveGlobalConfig();
+  document.getElementById('secCurrentCode').value = '';
+  document.getElementById('secNewCode').value = '';
+  msg.textContent = 'Code équipe mis à jour';
+  msg.style.color = 'var(--accent)';
+});
+
+document.getElementById('btnChangeAdminCode').addEventListener('click', async function(){
+  var cur = document.getElementById('adminCurrentCode').value.trim();
+  var next = document.getElementById('adminNewCode').value.trim();
+  var msg = document.getElementById('adminChangeMsg');
+  if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur actuel incorrect';
     msg.style.color = 'var(--danger)';
     return;
   }
-  if(!next){ msg.textContent = 'Saisis un nouveau code'; msg.style.color = 'var(--danger)'; return; }
-  state.security.masterCode = next.toUpperCase();
-  await saveSecurity();
-  document.getElementById('secCurrentCode').value = '';
-  document.getElementById('secNewCode').value = '';
+  if(!next){ msg.textContent = 'Saisis un nouveau code administrateur'; msg.style.color = 'var(--danger)'; return; }
+  state.globalSecurity.adminCode = next.toUpperCase();
+  await saveGlobalConfig();
+  document.getElementById('adminCurrentCode').value = '';
+  document.getElementById('adminNewCode').value = '';
   msg.textContent = 'Code administrateur mis à jour';
   msg.style.color = 'var(--accent)';
 });
@@ -2728,23 +3093,26 @@ async function migrateContremarque(){
 
 // ---------- init ----------
 (async function init(){
-  await loadBase();
+  await loadGlobalConfig();
+  renderAgenciesList();
+  tryShowQrLanding(); // fonctionne même sans être connecté, grâce au code agence inclus dans le lien du QR
+
   if(isUnlocked()){
-    hideAccessGate();
-    updateSecurityIdentityLine();
+    state.isAdmin = lsGet('access-is-admin') === '1';
+    var qrAgency = getQrAgencyParam();
+    var savedAgency = lsGet('current-agency');
+    var agencyToUse = qrAgency || savedAgency || (state.agenciesList[0] && state.agenciesList[0].code);
+    if(agencyToUse){
+      lsSet('current-agency', agencyToUse);
+      await migrateAgencyDataIfNeeded(agencyToUse);
+      setActiveAgency(agencyToUse);
+      await loadAgencyDataAndShowApp();
+    } else {
+      showAccessGate();
+    }
   } else {
     showAccessGate(); // reste affiché tant que le code n'est pas validé
   }
-  tryShowQrLanding(); // toujours affiché si on arrive via un scan d'étiquette, même sans être connecté (lecture seule)
-  await loadHistoryIndex();
-  await migrateLabelNumbers();
-  await migrateArchiveStats();
-  await migrateContremarque();
-  refreshDatalists();
-  renderBaseLists();
-  renderHistory();
-  renderArchiveList();
-  resetForm();
 })();
 
 })();
