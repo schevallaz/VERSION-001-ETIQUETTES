@@ -593,13 +593,14 @@ function playBeep(){
     var gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.value = 1000;
+    osc.type = 'square';
+    osc.frequency.value = 880;
     gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+    gain.gain.exponentialRampToValueAtTime(0.9, ctx.currentTime + 0.015);
+    gain.gain.setValueAtTime(0.9, ctx.currentTime + 0.28);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.15);
+    osc.stop(ctx.currentTime + 0.35);
   }catch(e){ console.error('beep error', e); }
 }
 
