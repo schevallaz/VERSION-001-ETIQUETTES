@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Étiquettes dépôt STLS</title>
+<title>Gestion dépôt STLS</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -150,7 +150,7 @@
     </div>
     <div id="accessStep3" style="display:none;">
       <h2 style="margin-bottom:6px;">Ton agence</h2>
-      <p class="hint" style="margin:0 0 14px;">Choisis l'agence STLS sur laquelle tu travailles.</p>
+      <p class="hint" style="margin:0 0 14px;">Choisis l'agence sur laquelle tu travailles.</p>
       <div class="field">
         <select id="accessAgencySelect" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
       </div>
@@ -171,7 +171,7 @@
 </div>
 <div class="app">
   <header class="top">
-    <h1>Étiquettes dépôt STLS</h1>
+    <h1 id="appTitle">Gestion dépôt STLS</h1>
     <p>Réception marchandise → étiquette QR → PDF 100 × 150 mm pour la GK420D</p>
   </header>
 
@@ -565,7 +565,23 @@
       <div id="adminChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
-      <h2>Agences STLS</h2>
+      <h2>Nom de l'application</h2>
+      <p class="hint" id="brandCurrentLine" style="margin:0 0 12px;"></p>
+      <div class="field">
+        <label for="brandAdminCode">Code administrateur</label>
+        <input type="text" id="brandAdminCode" placeholder="Code administrateur" maxlength="10">
+      </div>
+      <div class="field">
+        <label for="brandNewName">Nouveau nom (remplace "STLS")</label>
+        <input type="text" id="brandNewName" placeholder="Ex. STLS" maxlength="20">
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnChangeBrand" style="width:100%;">Changer le nom</button>
+      </div>
+      <div id="brandChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
+      <h2>Agences</h2>
       <p class="hint" id="agencyCurrentLine" style="margin:0 0 14px;"></p>
       <div class="base-list" id="listAgencies" style="margin-bottom:12px;"></div>
 
@@ -625,6 +641,7 @@ var state = {
   currentAgencyCode: null,
   isAdmin: false,
   globalSecurity: { masterCode: '2013', adminCode: 'ADMIN1', users: [] },
+  brandName: 'STLS',
   agenciesList: []
 };
 
@@ -710,7 +727,8 @@ async function loadGlobalConfig(){
         var d = snap.data();
         state.globalSecurity = d.globalSecurity || state.globalSecurity;
         state.agenciesList = d.agenciesList || [];
-        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList }));
+        state.brandName = d.brandName || 'STLS';
+        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, brandName: state.brandName }));
         return;
       }
     }catch(e){ console.error('Firestore loadGlobalConfig error', e); }
@@ -722,6 +740,7 @@ async function loadGlobalConfig(){
       var cached = JSON.parse(raw);
       state.globalSecurity = cached.globalSecurity || state.globalSecurity;
       state.agenciesList = cached.agenciesList || [];
+      state.brandName = cached.brandName || 'STLS';
     }catch(e){}
   }
   if(!state.agenciesList || !state.agenciesList.length){
@@ -749,9 +768,9 @@ async function loadGlobalConfig(){
 }
 
 async function saveGlobalConfig(){
-  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList }));
+  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, brandName: state.brandName }));
   if(fsReady()){
-    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList }, { merge: true }); }
+    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, brandName: state.brandName }, { merge: true }); }
     catch(e){ console.error('Firestore saveGlobalConfig error', e); }
   }
 }
@@ -1569,7 +1588,7 @@ function drawLabelPage(doc, d, qrDataUrl, meta){
   doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
   doc.text(d.labelNumber || '-', 4, y+4.8);
   doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(90,90,90);
-  doc.text('STLS - Agence '+(state.currentAgencyCode||'83'), W/2, y+4.8, { align: 'center' });
+  doc.text((state.brandName||'STLS')+' - Agence '+(state.currentAgencyCode||'83'), W/2, y+4.8, { align: 'center' });
   if(meta && meta.posLabel){
     doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(0,0,0);
     doc.text(meta.posLabel, W-4, y+4.8, { align: 'right' });
@@ -1669,7 +1688,7 @@ function generateSingleLabelPdf(d, meta){
 
 // ---------- PDF "SORTIE DE COMMANDE" ----------
 function qrTextExit(d, stats){
-  return 'SORTIE STLS '+(d.labelNumber||'')+'\n'+
+  return 'SORTIE '+(state.brandName||'STLS')+' '+(d.labelNumber||'')+'\n'+
     'Client: '+d.client+(d.clientCode?' ('+d.clientCode+')':'')+'\n'+
     'Date entree: '+fmtDate(d.date)+'\n'+
     'Date sortie: '+stats.exitDateStr+'\n'+
@@ -2982,7 +3001,7 @@ function handleScannedText(text){
       return;
     }
   }catch(e){}
-  banner('QR non reconnu (pas une étiquette STLS)');
+  banner('QR non reconnu');
 }
 
 document.getElementById('btnScanStart').addEventListener('click', startScan);
@@ -3165,7 +3184,16 @@ function updateAgencyCodeLine(){
   var el = document.getElementById('agencyCurrentLine');
   if(!el) return;
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
-  el.textContent = 'Agence active : STLS - Agence '+(state.currentAgencyCode||'-')+(ag&&ag.name?' — '+ag.name:'');
+  el.textContent = 'Agence active : '+(state.brandName||'STLS')+' - Agence '+(state.currentAgencyCode||'-')+(ag&&ag.name?' — '+ag.name:'');
+}
+
+function updateBrandingUI(){
+  var brand = state.brandName || 'STLS';
+  document.title = 'Gestion dépôt '+brand;
+  var h1 = document.getElementById('appTitle');
+  if(h1) h1.textContent = 'Gestion dépôt '+brand;
+  var line = document.getElementById('brandCurrentLine');
+  if(line) line.textContent = 'Nom actuel : '+brand;
 }
 
 function renderAgenciesList(){
@@ -3226,7 +3254,7 @@ function generateAgencyWelcomePdf(){
   doc.rect(3,3,W-6,H-6);
   if(qrDataUrl){ doc.addImage(qrDataUrl, 'PNG', 10, (H-40)/2, 40, 40); }
   doc.setFont('helvetica','bold'); doc.setFontSize(26); doc.setTextColor(0,0,0);
-  doc.text('STLS', W/2+20, H/2-6, { align: 'center' });
+  doc.text((state.brandName||'STLS'), W/2+20, H/2-6, { align: 'center' });
   doc.setFontSize(22);
   doc.text('Agence '+code, W/2+20, H/2+8, { align: 'center' });
   if(ag && ag.name){
@@ -3436,6 +3464,25 @@ document.getElementById('btnChangeAdminCode').addEventListener('click', async fu
   msg.style.color = 'var(--accent)';
 });
 
+document.getElementById('btnChangeBrand').addEventListener('click', async function(){
+  var cur = document.getElementById('brandAdminCode').value.trim();
+  var next = document.getElementById('brandNewName').value.trim();
+  var msg = document.getElementById('brandChangeMsg');
+  if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
+    msg.textContent = 'Code administrateur incorrect';
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  if(!next){ msg.textContent = 'Saisis un nouveau nom'; msg.style.color = 'var(--danger)'; return; }
+  state.brandName = next;
+  await saveGlobalConfig();
+  updateBrandingUI();
+  document.getElementById('brandAdminCode').value = '';
+  document.getElementById('brandNewName').value = '';
+  msg.textContent = 'Nom mis à jour';
+  msg.style.color = 'var(--accent)';
+});
+
 // migration : récupère la contremarque dans l'index (pour l'affichage "Client - Contremarque")
 // pour les commandes enregistrées avant ce champ
 async function migrateContremarque(){
@@ -3452,6 +3499,7 @@ async function migrateContremarque(){
 // ---------- init ----------
 (async function init(){
   await loadGlobalConfig();
+  updateBrandingUI();
   renderAgenciesList();
   tryShowQrLanding(); // fonctionne même sans être connecté, grâce au code agence inclus dans le lien du QR
 
