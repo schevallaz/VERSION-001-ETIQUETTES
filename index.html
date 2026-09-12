@@ -495,6 +495,9 @@
         <input type="text" id="add-client-nom" placeholder="Nouveau client">
         <button class="btn primary" id="add-client-btn" style="width:auto;">Ajouter</button>
       </div>
+      <div class="field" style="margin-top:8px;">
+        <input type="email" id="add-client-email" placeholder="Adresse mail du client (facultatif — sinon celle de l'agence)">
+      </div>
     </div>
     <div class="card">
       <h2>Fournisseurs (<span id="cnt-fournisseurs">0</span>)</h2>
@@ -631,6 +634,10 @@
           <input type="text" id="agencyNewName" placeholder="Var">
         </div>
       </div>
+      <div class="field">
+        <label for="agencyNewEmail">Adresse mail de l'agence</label>
+        <input type="email" id="agencyNewEmail" placeholder="agence83@stls.fr">
+      </div>
       <div class="btn-row">
         <button class="btn accent" id="btnAddAgency" style="width:100%;">Ajouter cette agence</button>
       </div>
@@ -640,6 +647,21 @@
         <button class="btn primary" id="btnPrintAgencyQr" style="width:100%;">Imprimer l'étiquette d'accueil de l'agence active</button>
       </div>
       <p class="hint" style="margin-top:8px;">À afficher dans le dépôt : en la scannant, l'appli démarre directement sur cette agence.</p>
+    </div>
+    <div class="card">
+      <h2>Modèles d'e-mail</h2>
+      <p class="hint" style="margin:0 0 12px;">Utilise <code>#AGENCE#</code> dans le texte : il sera remplacé par le nom de l'agence active à l'envoi.</p>
+      <div class="field">
+        <label for="emailTemplateReserve">Message — réserve à réception (avec photos)</label>
+        <textarea id="emailTemplateReserve" style="width:100%;min-height:110px;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:13.5px;"></textarea>
+      </div>
+      <div class="field">
+        <label for="emailTemplateReception">Message — documents de réception (standard)</label>
+        <textarea id="emailTemplateReception" style="width:100%;min-height:90px;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:13.5px;"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSaveEmailTemplates" style="width:100%;">Enregistrer les modèles</button>
+      </div>
     </div>
   </section>
 </div>
@@ -653,6 +675,9 @@ var DEFAULT_CLIENTS = [{"code": "CL00006", "nom": "_"}, {"code": "CL00156", "nom
 var DEFAULT_FOURNISSEURS = [{"nom": "SACHSEN", "code": "F00001"}, {"nom": "NOVA CUCCINA", "code": "F00002"}, {"nom": "ARAN", "code": "F00003"}, {"nom": "VERGES", "code": "F00004"}, {"nom": "COGER", "code": "F00005"}, {"nom": "ECO MENAGER", "code": "F00006"}, {"nom": "MIELE", "code": "F00007"}];
 var DEFAULT_TRANSPORTEURS = [{"nom": "BT", "code": "T00001"}, {"nom": "GUGEL", "code": "T00002"}, {"nom": "TME", "code": "T00003"}, {"nom": "DPD", "code": "T00004"}, {"nom": "CHRONOPOST", "code": "T00005"}, {"nom": "COJER", "code": "T00006"}];
 var DEFAULT_EMPLACEMENTS = ["AA-01-01", "AA-02-01", "AA-03-01", "AA-04-01", "AA-05-01", "AA-06-01", "AA-07-01", "AA-08-01", "AA-09-01", "AA-10-01", "AA-11-01", "AA-12-01", "BB-01-01", "BB-02-01", "BB-03-01", "BB-04-01", "BB-05-01", "BB-06-01", "BB-07-01", "BB-08-01", "BB-09-01", "BB-10-01", "BB-11-01", "BB-12-01", "CC-01-01", "CC-02-01", "CC-03-01", "CC-04-01", "CC-05-01", "CC-06-01", "CC-07-01", "CC-08-01", "CC-09-01", "CC-10-01", "CC-11-01", "CC-12-01", "DD-01-01", "DD-02-01", "DD-03-01", "DD-04-01", "DD-05-01", "DD-06-01", "DD-07-01", "DD-08-01", "DD-09-01", "DD-10-01", "DD-11-01", "DD-12-01", "EE-01-01", "EE-02-01", "EE-03-01", "EE-04-01", "EE-05-01", "EE-06-01", "EE-07-01", "EE-08-01", "EE-09-01", "EE-10-01", "EE-11-01", "EE-12-01", "AA-01-02", "AA-02-02", "AA-03-02", "AA-04-02", "AA-05-02", "AA-06-02", "AA-07-02", "AA-08-02", "AA-09-02", "AA-10-02", "AA-11-02", "AA-12-02", "BB-01-02", "BB-02-02", "BB-03-02", "BB-04-02", "BB-05-02", "BB-06-02", "BB-07-02", "BB-08-02", "BB-09-02", "BB-10-02", "BB-11-02", "BB-12-02", "CC-01-02", "CC-02-02", "CC-03-02", "CC-04-02", "CC-05-02", "CC-06-02", "CC-07-02", "CC-08-02", "CC-09-02", "CC-10-02", "CC-11-02", "CC-12-02", "DD-01-02", "DD-02-02", "DD-03-02", "DD-04-02", "DD-05-02", "DD-06-02", "DD-07-02", "DD-08-02", "DD-09-02", "DD-10-02", "DD-11-02", "DD-12-02", "EE-01-02", "EE-02-02", "EE-03-02", "EE-04-02", "EE-05-02", "EE-06-02", "EE-07-02", "EE-08-02", "EE-09-02", "EE-10-02", "EE-11-02", "EE-12-02"];
+
+var DEFAULT_EMAIL_RESERVE = "Bonjour,\n\nPour votre information nous avons reçu une commande ce jour pour votre compte, sur laquelle nous avons émis des réserves à réception. Vous trouverez ci-joint la/les photo(s) des documents ainsi que les photos de la marchandise.\n\nCordialement,\n#AGENCE# — votre partenaire logistique.";
+var DEFAULT_EMAIL_RECEPTION = "Cher client,\n\nVeuillez trouver ci-joint les documents correspondants à la réception effectuée ce jour pour votre compte.\n\nCordialement,\n#AGENCE# — votre partenaire logistique.";
 
 var state = {
   base: { clients: [], fournisseurs: [], transporteurs: [], emplacements: [] },
@@ -848,6 +873,7 @@ async function switchToAgency(code){
   renderArchiveList();
   resetForm();
   updateAgencyCodeLine();
+  updateEmailTemplateFields();
   renderAgenciesList();
 }
 
@@ -883,7 +909,11 @@ async function loadBase(){
       var snap = await configDocRef.get();
       if(snap.exists && snap.data().clients){
         var d0 = snap.data();
-        state.base = { clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice() };
+        state.base = {
+          clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice(),
+          emailTemplateReserve: d0.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
+          emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION
+        };
         lsSet('base-data', JSON.stringify(state.base));
         watchBase();
         return;
@@ -904,6 +934,8 @@ async function loadBase(){
     };
   }
   if(!state.base.emplacements){ state.base.emplacements = DEFAULT_EMPLACEMENTS.slice(); }
+  if(!state.base.emailTemplateReserve){ state.base.emailTemplateReserve = DEFAULT_EMAIL_RESERVE; }
+  if(!state.base.emailTemplateReception){ state.base.emailTemplateReception = DEFAULT_EMAIL_RECEPTION; }
   await saveBase();
   watchBase();
 }
@@ -923,10 +955,15 @@ function watchBase(){
     if(!snap.exists) return;
     var d = snap.data();
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
-    state.base = { clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[] };
+    state.base = {
+      clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[],
+      emailTemplateReserve: d.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
+      emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION
+    };
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
     renderBaseLists();
+    updateEmailTemplateFields();
   }, function(err){ console.error('Firestore base watch error', err); });
 }
 
@@ -1131,9 +1168,7 @@ function renderBaseLists(){
   document.getElementById('cnt-transporteurs').textContent = state.base.transporteurs.length;
   document.getElementById('cnt-emplacements').textContent = (state.base.emplacements||[]).length;
 
-  renderOneBaseList('listClients', state.base.clients, 'nom', 'code', function(idx){
-    state.base.clients.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
-  });
+  renderClientsList();
   renderOneBaseList('listFournisseurs', state.base.fournisseurs, 'nom', 'code', function(idx){
     state.base.fournisseurs.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
   });
@@ -1169,6 +1204,35 @@ function renderOneBaseList(elId, arr, nomField, codeField, onDelete){
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('button'), function(btn){
     btn.addEventListener('click', function(){ onDelete(parseInt(btn.getAttribute('data-idx'),10)); });
+  });
+}
+
+function renderClientsList(){
+  var el = document.getElementById('listClients');
+  var arr = state.base.clients;
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
+  el.innerHTML = arr.map(function(c, idx){
+    return '<div class="base-row" style="flex-direction:column;align-items:stretch;gap:6px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+        '<span>'+escapeHtml(c.nom)+' <span class="code">'+escapeHtml(c.code||'')+'</span></span>'+
+        '<button data-idx="'+idx+'" data-act="delclient">Suppr.</button>'+
+      '</div>'+
+      '<input type="email" data-idx="'+idx+'" data-act="clientemail" value="'+escapeHtml(c.email||'')+'" placeholder="Adresse mail du client" style="padding:7px 9px;border:1px solid var(--line-strong);border-radius:7px;font-size:13px;">'+
+    '</div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="delclient"]'), function(btn){
+    btn.addEventListener('click', function(){
+      state.base.clients.splice(parseInt(btn.getAttribute('data-idx'),10),1);
+      saveBase(); renderBaseLists(); refreshDatalists();
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="clientemail"]'), function(input){
+    input.addEventListener('change', async function(){
+      var idx = parseInt(input.getAttribute('data-idx'),10);
+      state.base.clients[idx].email = input.value.trim();
+      await saveBase();
+      banner('E-mail mis à jour pour '+state.base.clients[idx].nom);
+    });
   });
 }
 
@@ -1418,6 +1482,11 @@ function validate(){
   return ok;
 }
 
+function currentAgencyEmail(){
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
+  return (ag && ag.email) || '';
+}
+
 async function ensureBaseEntry(kind, nom){
   if(!nom) return;
   var arr, prefix, field;
@@ -1427,7 +1496,7 @@ async function ensureBaseEntry(kind, nom){
   var exists = arr.find(function(c){ return c.nom.toLowerCase() === nom.toLowerCase(); });
   if(!exists){
     var code = nextCode(arr, prefix, field);
-    if(kind==='client'){ arr.push({code: code, nom: nom}); }
+    if(kind==='client'){ arr.push({code: code, nom: nom, email: currentAgencyEmail()}); }
     else { arr.push({nom: nom, code: code}); }
   }
 }
@@ -1597,6 +1666,48 @@ function renderReservePreview(id, urls){
   }).join('');
 }
 
+function openReceptionPhotosBox(id){
+  var box = document.getElementById('recphotos-'+id);
+  if(!box) return;
+  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+  getReceptionRecord(id).then(function(rec){
+    var existing = (rec && rec.data && rec.data.receptionPhotos) || [];
+    var photoDataUrls = existing.slice();
+    box.innerHTML =
+      '<div class="hint" style="margin-bottom:8px;">Photos des documents de réception et de la marchandise.</div>'+
+      '<input type="file" id="recPhotosInput-'+id+'" accept="image/*" capture="environment" multiple style="display:block;margin-bottom:10px;">'+
+      '<div id="recPhotosPreview-'+id+'" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>'+
+      '<div class="btn-row">'+
+        '<button class="btn accent" id="recPhotosSave-'+id+'" style="width:100%;">Enregistrer les photos</button>'+
+      '</div>';
+    document.getElementById('recPhotosPreview-'+id).innerHTML = photoDataUrls.map(function(u){
+      return '<img src="'+u+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">';
+    }).join('');
+    box.style.display = 'block';
+
+    document.getElementById('recPhotosInput-'+id).addEventListener('change', async function(e){
+      var files = Array.prototype.slice.call(e.target.files || []);
+      for(var i=0;i<files.length;i++){
+        var dataUrl = await compressImageFile(files[i]);
+        if(dataUrl) photoDataUrls.push(dataUrl);
+      }
+      document.getElementById('recPhotosPreview-'+id).innerHTML = photoDataUrls.map(function(u){
+        return '<img src="'+u+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">';
+      }).join('');
+    });
+
+    document.getElementById('recPhotosSave-'+id).addEventListener('click', async function(){
+      if(!photoDataUrls.length){ banner('Ajoute au moins une photo'); return; }
+      var r = await getReceptionRecord(id);
+      if(!r){ banner('Introuvable'); return; }
+      r.data.receptionPhotos = photoDataUrls;
+      await saveReceptionRecord(id, r);
+      box.style.display = 'none';
+      banner(photoDataUrls.length+' photo(s) de réception enregistrée(s)');
+    });
+  });
+}
+
 function openReserveBox(id, labelNumber){
   var box = document.getElementById('reserve-'+id);
   if(!box) return;
@@ -1675,6 +1786,47 @@ async function getAvarie(avarieId){
   return null;
 }
 
+// ---------- envoi d'e-mail (partage natif avec pièces jointes si possible, repli mailto + téléchargement sinon) ----------
+function buildEmailBody(template){
+  return (template || '').split('#AGENCE#').join(currentAgencyName());
+}
+
+async function shareOrEmailWithPhotos(toEmail, ccEmail, subject, body, photoDataUrls){
+  photoDataUrls = photoDataUrls || [];
+  if(navigator.canShare && photoDataUrls.length){
+    try{
+      var files = await Promise.all(photoDataUrls.map(async function(url, i){
+        var res = await fetch(url);
+        var blob = await res.blob();
+        return new File([blob], 'photo'+(i+1)+'.jpg', { type: 'image/jpeg' });
+      }));
+      if(navigator.canShare({ files: files })){
+        await navigator.share({
+          files: files,
+          title: subject,
+          text: body+'\n\nÀ : '+(toEmail||'(adresse à compléter)')+(ccEmail?'\nCopie : '+ccEmail:'')
+        });
+        return;
+      }
+    }catch(e){ console.error('share error', e); }
+  }
+  // repli : ouvre la messagerie (sans pièce jointe) + télécharge les photos pour les joindre à la main
+  var mailto = 'mailto:'+encodeURIComponent(toEmail||'')+(ccEmail?'?cc='+encodeURIComponent(ccEmail):'?')+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body+(photoDataUrls.length?'\n\n(Photos téléchargées séparément — à joindre manuellement.)':''));
+  window.location.href = mailto;
+  photoDataUrls.forEach(function(url, i){
+    setTimeout(function(){
+      var a = document.createElement('a');
+      a.href = url; a.download = 'photo'+(i+1)+'.jpg';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }, i*400);
+  });
+}
+
+function findClientEmail(clientName){
+  var c = (state.base.clients||[]).find(function(x){ return (x.nom||'').toLowerCase()===(clientName||'').toLowerCase(); });
+  return (c && c.email) || currentAgencyEmail();
+}
+
 async function viewAvaries(id, boxId){
   var box = document.getElementById(boxId||('reserve-'+id));
   if(!box) return;
@@ -1686,6 +1838,9 @@ async function viewAvaries(id, boxId){
     var av = await getAvarie(rec.data.avaries[i]);
     if(av) avaries.push(av);
   }
+  var allPhotos = [];
+  avaries.forEach(function(av){ (av.photos||[]).forEach(function(p){ allPhotos.push(p); }); });
+
   box.innerHTML = '<div class="hint" style="margin-bottom:8px;font-weight:600;">Réserve(s) enregistrée(s)</div>' + avaries.map(function(av){
     var photosHtml = (av.photos||[]).map(function(p){
       return '<a href="'+p+'" target="_blank"><img src="'+p+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);margin:2px 4px 2px 0;"></a>';
@@ -1695,8 +1850,16 @@ async function viewAvaries(id, boxId){
       (av.comment ? '<div style="margin:4px 0;">'+escapeHtml(av.comment)+'</div>' : '')+
       '<div style="display:flex;flex-wrap:wrap;">'+photosHtml+'</div>'+
     '</div>';
-  }).join('');
+  }).join('') +
+  '<button class="btn danger" id="reserveEmailBtn-'+id+'" style="width:100%;">Envoyer par mail au client</button>';
   box.style.display = 'block';
+
+  document.getElementById('reserveEmailBtn-'+id).addEventListener('click', function(){
+    var toEmail = findClientEmail(rec.data.client);
+    var ccEmail = currentAgencyEmail();
+    var body = buildEmailBody(state.base.emailTemplateReserve || DEFAULT_EMAIL_RESERVE);
+    shareOrEmailWithPhotos(toEmail, ccEmail, 'Réserve à réception — '+(rec.data.labelNumber||''), body, allPhotos);
+  });
 }
 
 function buildQrImageFromText(text){
@@ -2574,8 +2737,11 @@ function renderToRangeList(){
       '<div class="actions">'+
         '<button class="btn accent" data-act="load">Ranger cette commande</button>'+
         '<button class="btn ghost" data-act="unreceive">Remettre en attente</button>'+
+        '<button class="btn ghost" data-act="photos">📷 Photos réception</button>'+
+        '<button class="btn ghost" data-act="mailreception">Envoyer mail</button>'+
       '</div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="recphotos-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '</div>';
   }).join('');
 
@@ -2583,6 +2749,27 @@ function renderToRangeList(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       viewAvaries(btn.getAttribute('data-id'), 'reserve-view-'+btn.getAttribute('data-id'));
+    });
+  });
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="photos"]'), function(btn){
+    var item = btn.closest('.hist-item');
+    var id = item.getAttribute('data-id');
+    btn.addEventListener('click', function(){ openReceptionPhotosBox(id); });
+  });
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="mailreception"]'), function(btn){
+    var item = btn.closest('.hist-item');
+    var id = item.getAttribute('data-id');
+    btn.addEventListener('click', async function(){
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      var photos = rec.data.receptionPhotos || [];
+      if(!photos.length){ banner('Prends d\'abord des photos de réception'); return; }
+      var toEmail = findClientEmail(rec.data.client);
+      var ccEmail = currentAgencyEmail();
+      var body = buildEmailBody(state.base.emailTemplateReception || DEFAULT_EMAIL_RECEPTION);
+      shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(rec.data.labelNumber||''), body, photos);
     });
   });
 
@@ -2819,7 +3006,32 @@ function wireAdd(btnId, inputId, kind){
     banner('Ajouté à la base');
   });
 }
-wireAdd('add-client-btn','add-client-nom','client');
+
+document.getElementById('add-client-nom').addEventListener('input', function(e){
+  var pos = e.target.selectionStart;
+  e.target.value = e.target.value.toUpperCase();
+  try{ e.target.setSelectionRange(pos, pos); }catch(err){}
+});
+document.getElementById('add-client-btn').addEventListener('click', async function(){
+  var nomInput = document.getElementById('add-client-nom');
+  var emailInput = document.getElementById('add-client-email');
+  var nom = nomInput.value.trim();
+  if(!nom) return;
+  var exists = state.base.clients.find(function(c){ return c.nom.toLowerCase() === nom.toLowerCase(); });
+  if(!exists){
+    var code = nextCode(state.base.clients, 'CL', 'code');
+    state.base.clients.push({ code: code, nom: nom, email: emailInput.value.trim() || currentAgencyEmail() });
+  } else if(emailInput.value.trim()){
+    exists.email = emailInput.value.trim();
+  }
+  await saveBase();
+  nomInput.value = '';
+  emailInput.value = '';
+  renderBaseLists();
+  refreshDatalists();
+  banner('Ajouté à la base');
+});
+
 wireAdd('add-fournisseur-btn','add-fournisseur-nom','fournisseur');
 wireAdd('add-transporteur-btn','add-transporteur-nom','transporteur');
 
@@ -3470,6 +3682,25 @@ function updateAgencyCodeLine(){
   el.textContent = 'Agence active : '+(state.brandName||'STLS')+' - Agence '+(state.currentAgencyCode||'-')+(ag&&ag.name?' — '+ag.name:'');
 }
 
+function currentAgencyName(){
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
+  return (ag && ag.name) ? (state.brandName||'STLS')+' '+ag.name : (state.brandName||'STLS');
+}
+
+function updateEmailTemplateFields(){
+  var r = document.getElementById('emailTemplateReserve');
+  var c = document.getElementById('emailTemplateReception');
+  if(r) r.value = state.base.emailTemplateReserve || DEFAULT_EMAIL_RESERVE;
+  if(c) c.value = state.base.emailTemplateReception || DEFAULT_EMAIL_RECEPTION;
+}
+
+document.getElementById('btnSaveEmailTemplates').addEventListener('click', async function(){
+  state.base.emailTemplateReserve = document.getElementById('emailTemplateReserve').value;
+  state.base.emailTemplateReception = document.getElementById('emailTemplateReception').value;
+  await saveBase();
+  banner('Modèles d\'e-mail enregistrés');
+});
+
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
   document.title = 'Gestion dépôt '+brand;
@@ -3484,7 +3715,7 @@ function renderAgenciesList(){
   if(!el) return;
   var list = state.agenciesList||[];
   el.innerHTML = list.length ? list.map(function(a){
-    return '<div class="base-row"><span>'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+(a.code===state.currentAgencyCode?' <b style="color:var(--accent);">(active)</b>':'')+'</span></div>';
+    return '<div class="base-row"><span>'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+(a.email?' · '+escapeHtml(a.email):'')+(a.code===state.currentAgencyCode?' <b style="color:var(--accent);">(active)</b>':'')+'</span></div>';
   }).join('') : '<div class="empty">Aucune agence enregistrée</div>';
 
   var sel = document.getElementById('agencySwitchSelect');
@@ -3506,6 +3737,7 @@ document.getElementById('btnAddAgency').addEventListener('click', async function
   var adminCodeInput = document.getElementById('agencyAdminCode').value.trim();
   var code = document.getElementById('agencyNewCode').value.trim();
   var name = document.getElementById('agencyNewName').value.trim();
+  var email = document.getElementById('agencyNewEmail').value.trim();
   var msg = document.getElementById('agencyChangeMsg');
   if(adminCodeInput.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur incorrect'; msg.style.color = 'var(--danger)'; return;
@@ -3515,12 +3747,13 @@ document.getElementById('btnAddAgency').addEventListener('click', async function
   if((state.agenciesList||[]).some(function(a){ return a.code===code; })){
     msg.textContent = 'Cette agence existe déjà'; msg.style.color='var(--danger)'; return;
   }
-  state.agenciesList.push({ code: code, name: name });
+  state.agenciesList.push({ code: code, name: name, email: email });
   await saveGlobalConfig();
   renderAgenciesList();
   document.getElementById('agencyAdminCode').value = '';
   document.getElementById('agencyNewCode').value = '';
   document.getElementById('agencyNewName').value = '';
+  document.getElementById('agencyNewEmail').value = '';
   msg.textContent = 'Agence ajoutée';
   msg.style.color = 'var(--accent)';
 });
@@ -3586,6 +3819,7 @@ async function loadAgencyDataAndShowApp(){
   hideAccessGate();
   updateSecurityIdentityLine();
   updateAgencyCodeLine();
+  updateEmailTemplateFields();
   tryShowQrLanding();
 }
 
