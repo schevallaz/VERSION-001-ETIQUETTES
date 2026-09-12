@@ -176,7 +176,9 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab-btn active" data-tab="new">Nouvelle</button>
+    <button class="tab-btn active" data-tab="new">News CDE</button>
+    <button class="tab-btn" data-tab="attente">CDE en attente</button>
+    <button class="tab-btn" data-tab="ranger">CDE à Ranger</button>
     <button class="tab-btn" data-tab="hist">CDE en stock</button>
     <button class="tab-btn" data-tab="exit">Scan sortie</button>
     <button class="tab-btn" data-tab="archive">CDE sortie</button>
@@ -195,6 +197,12 @@
       <div class="field">
         <label for="f-labelnumber">N° étiquette (unique)</label>
         <input type="text" id="f-labelnumber" readonly placeholder="Généré automatiquement à l'enregistrement" style="background:#f2f1ec;color:var(--ink-soft);font-weight:600;">
+      </div>
+
+      <div class="field">
+        <label for="f-weeknumber">N° de semaine prévue</label>
+        <input type="number" min="1" max="53" id="f-weeknumber" placeholder="Ex. 23">
+        <div class="hint">Si la date exacte n'est pas encore connue, indique la semaine annoncée par le fournisseur.</div>
       </div>
 
       <div class="field">
@@ -315,8 +323,20 @@
     </div>
   </section>
 
-  <!-- ===== TAB: HISTORIQUE (CDE en stock) ===== -->
-  <section id="tab-hist" style="display:none;">
+  <!-- ===== TAB: CDE EN ATTENTE ===== -->
+  <section id="tab-attente" style="display:none;">
+    <div class="card">
+      <h2>Commandes en attente</h2>
+      <p class="hint" style="margin:0 0 10px;">Commandes annoncées mais pas encore réceptionnées (date de réception vide ou dans le futur).</p>
+      <div class="field" style="margin-bottom:12px;">
+        <input type="text" id="attenteSearch" placeholder="Rechercher : n° étiquette, client, fournisseur...">
+      </div>
+      <div id="attenteList"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: CDE A RANGER ===== -->
+  <section id="tab-ranger" style="display:none;">
     <div class="card">
       <h2>Ranger une commande</h2>
       <p class="hint" id="rangerStepHint" style="margin:0 0 10px;">Scanne l'étiquette de la palette/colis à ranger (ou tape son n°), puis scanne l'étiquette de son emplacement.</p>
@@ -345,6 +365,18 @@
         </div>
       </div>
     </div>
+    <div class="card">
+      <h2>Commandes à ranger</h2>
+      <p class="hint" style="margin:0 0 10px;">Réceptionnées mais pas encore totalement rangées (au moins une étiquette sans emplacement).</p>
+      <div class="field" style="margin-bottom:12px;">
+        <input type="text" id="toRangeSearch" placeholder="Rechercher : n° étiquette, client, fournisseur...">
+      </div>
+      <div id="toRangeList"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: HISTORIQUE (CDE en stock) ===== -->
+  <section id="tab-hist" style="display:none;">
     <div class="card">
       <h2>Commandes en stock</h2>
       <div class="field" style="margin-bottom:12px;">
@@ -745,6 +777,8 @@ async function switchToAgency(code){
   refreshDatalists();
   renderBaseLists();
   renderHistory();
+  renderPendingList();
+  renderToRangeList();
   renderArchiveList();
   resetForm();
   updateAgencyCodeLine();
@@ -930,13 +964,17 @@ async function saveHistoryIndex(){
 
 function recordToIndexEntry(rec){
   var d = rec.data || {};
+  var items = computeLabels(d);
+  var emps = d.emplacements || {};
+  var rangedCount = items.filter(function(m){ return !!emps[m.itemId]; }).length;
+  if(rangedCount===0 && d.emplacement){ rangedCount = items.length; } // compat : ancien emplacement global
   var entry = {
-    id: rec.id, date: d.date, client: d.client, contremarque: d.contremarque,
+    id: rec.id, date: d.date, weekNumber: d.weekNumber, client: d.client, contremarque: d.contremarque,
     fournisseur: d.fournisseur, transporteur: d.transporteur,
-    savedAt: rec.savedAt, labelNumber: d.labelNumber
+    savedAt: rec.savedAt, labelNumber: d.labelNumber,
+    itemsTotal: items.length, itemsRanged: rangedCount
   };
   // résumé des emplacements : chaque étiquette (palette/colis) peut avoir son propre emplacement
-  var emps = d.emplacements || {};
   var uniqueEmps = [];
   Object.keys(emps).forEach(function(k){ if(emps[k] && uniqueEmps.indexOf(emps[k])<0) uniqueEmps.push(emps[k]); });
   if(uniqueEmps.length){ entry.emplacement = uniqueEmps.sort().join(', '); }
@@ -944,6 +982,15 @@ function recordToIndexEntry(rec){
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   return entry;
+}
+
+// une commande est "totalement rangée" quand chacune de ses étiquettes (palette/colis) a un emplacement propre
+function isFullyRanged(h){
+  return (h.itemsTotal||0) > 0 && (h.itemsRanged||0) >= h.itemsTotal;
+}
+// à ranger : déjà réceptionnée (pas en attente), pas encore sortie, mais pas totalement rangée
+function isToRangeEntry(h){
+  return !h.exitedAt && !isPendingEntry(h) && !isFullyRanged(h);
 }
 
 var receptionsWatchStarted = false;
@@ -957,6 +1004,8 @@ function watchReceptions(){
     state.historyIndex = items;
     lsSet('receptions-index', JSON.stringify(items));
     renderHistory();
+    renderPendingList();
+  renderToRangeList();
     renderArchiveList();
     renderExitSessions();
     repairDuplicateLabelNumbers();
@@ -1063,6 +1112,7 @@ function getForm(){
   return {
     labelNumber: document.getElementById('f-labelnumber').value.trim(),
     date: document.getElementById('f-date').value,
+    weekNumber: document.getElementById('f-weeknumber').value.trim(),
     client: clientNom,
     clientCode: clientMatch ? clientMatch.code : '',
     fournisseur: document.getElementById('f-fournisseur').value.trim(),
@@ -1232,9 +1282,46 @@ function todayISO(){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
+function dateToISO(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+// numéro de semaine ISO-8601 d'une date donnée
+function getISOWeek(date){
+  var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  var dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+// date du lundi d'une semaine ISO-8601 donnée (année civile)
+function isoWeekToMonday(week, year){
+  var jan4 = new Date(year, 0, 4);
+  var jan4Day = jan4.getDay() || 7; // lundi=1 ... dimanche=7
+  var week1Monday = new Date(jan4);
+  week1Monday.setDate(jan4.getDate() - (jan4Day - 1));
+  var monday = new Date(week1Monday);
+  monday.setDate(week1Monday.getDate() + (week-1)*7);
+  return monday;
+}
+
+// remplit automatiquement la date de réception avec le lundi de la semaine saisie
+// (semaine antérieure à la semaine actuelle => on suppose l'année suivante)
+document.getElementById('f-weeknumber').addEventListener('input', function(){
+  var wk = parseInt(this.value, 10);
+  if(!wk || wk<1 || wk>53) return;
+  var now = new Date();
+  var year = now.getFullYear();
+  if(wk < getISOWeek(now)) year += 1;
+  document.getElementById('f-date').value = dateToISO(isoWeekToMonday(wk, year));
+  updatePreview();
+});
+
 function resetForm(){
   document.getElementById('f-labelnumber').value = '';
-  document.getElementById('f-date').value = todayISO();
+  document.getElementById('f-date').value = '';
+  document.getElementById('f-weeknumber').value = '';
   ['f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-poids','f-colis','f-palettes','f-vrac','f-support','f-emplacement'].forEach(function(id){
     document.getElementById(id).value = '';
     document.getElementById(id).classList.remove('invalid');
@@ -1353,6 +1440,8 @@ document.getElementById('btnSave').addEventListener('click', async function(){
   if(idx>=0){ state.historyIndex[idx] = entry; } else { state.historyIndex.unshift(entry); }
   await saveHistoryIndex();
   renderHistory();
+  renderPendingList();
+  renderToRangeList();
   renderArchiveList();
 
   if(isEdit){
@@ -1624,10 +1713,16 @@ function generateExitPdf(d, stats){
 // ---------- history ----------
 var walkSessions = {}; // labelNumber -> { groupList: [{code,itemIds,qtyLabel}], stepIndex }
 
+// une commande est "en attente" si sa date de réception est vide ou dans le futur (annonce de livraison,
+// pas encore réceptionnée physiquement) — sinon elle est "en stock"
+function isPendingEntry(h){
+  return !h.date || h.date > todayISO();
+}
+
 function renderHistory(){
   var el = document.getElementById('histList');
   var q = (document.getElementById('histSearch').value || '').trim().toLowerCase();
-  var items = state.historyIndex.filter(function(h){ return !h.exitedAt; });
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !isPendingEntry(h) && isFullyRanged(h); });
   var totalInStock = items.length;
   if(q){
     items = items.filter(function(h){
@@ -1718,6 +1813,59 @@ function renderHistory(){
   });
 }
 document.getElementById('histSearch').addEventListener('input', renderHistory);
+
+// ---------- CDE en attente : annoncées (date vide ou future), pas encore réceptionnées ----------
+function renderPendingList(){
+  var el = document.getElementById('attenteList');
+  var q = (document.getElementById('attenteSearch').value || '').trim().toLowerCase();
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && isPendingEntry(h); });
+  var totalPending = items.length;
+  if(q){
+    items = items.filter(function(h){
+      return (h.labelNumber||'').toLowerCase().indexOf(q)>=0 ||
+        (h.client||'').toLowerCase().indexOf(q)>=0 ||
+        (h.fournisseur||'').toLowerCase().indexOf(q)>=0 ||
+        (h.transporteur||'').toLowerCase().indexOf(q)>=0;
+    });
+  }
+  items = items.slice().sort(function(a,b){ return (a.date||'9999-99-99').localeCompare(b.date||'9999-99-99'); });
+  if(!items.length){
+    el.innerHTML = '<div class="empty">'+(totalPending?'Aucun résultat':'Aucune commande en attente pour le moment')+'</div>';
+    return;
+  }
+  el.innerHTML = items.map(function(h){
+    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var dateLine = h.date ? ('Réception prévue : '+fmtDate(h.date)) : 'Date de réception non communiquée';
+    var weekLine = h.weekNumber ? (' · Semaine '+escapeHtml(String(h.weekNumber))) : '';
+    return '<div class="hist-item" data-id="'+h.id+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
+      '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
+      '<div class="sub" style="color:var(--ink-soft);">'+dateLine+weekLine+'</div>'+
+      '<div class="actions">'+
+        '<button class="btn ghost" data-act="edit">Modifier</button>'+
+        '<button class="btn danger" data-act="del">Supprimer</button>'+
+      '</div></div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
+    var id = item.getAttribute('data-id');
+    item.querySelector('[data-act="edit"]').addEventListener('click', async function(){
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      enterEditMode(rec);
+    });
+    item.querySelector('[data-act="del"]').addEventListener('click', async function(){
+      await deleteReceptionRecord(id);
+      state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
+      await saveHistoryIndex();
+      renderPendingList();
+  renderToRangeList();
+      banner('Supprimé');
+    });
+  });
+}
+document.getElementById('attenteSearch').addEventListener('input', renderPendingList);
 
 // ---------- Sortie de commande guidée par emplacement (depuis "CDE en stock") ----------
 function renderWalkPanel(labelNumber){
@@ -1917,7 +2065,7 @@ document.getElementById('btnArchivePdf').addEventListener('click', generateArchi
 
 // ---------- INVENTAIRE (CDE en stock) : liste A4 Client / Contremarque / Date réception / Emplacement ----------
 async function generateInventoryPdf(){
-  var items = state.historyIndex.filter(function(h){ return !h.exitedAt; });
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !isPendingEntry(h); });
   if(!items.length){ banner('Aucune commande en stock'); return; }
 
   // une ligne par (commande, emplacement) — nécessite le détail complet de chaque commande
@@ -2000,6 +2148,48 @@ var rangerReceptionId = null;
 var rangerRecordCache = null;
 var rangerActiveItemId = null;
 
+function renderToRangeList(){
+  var el = document.getElementById('toRangeList');
+  var q = (document.getElementById('toRangeSearch').value || '').trim().toLowerCase();
+  var items = state.historyIndex.filter(isToRangeEntry);
+  var totalToRange = items.length;
+  if(q){
+    items = items.filter(function(h){
+      return (h.labelNumber||'').toLowerCase().indexOf(q)>=0 ||
+        (h.client||'').toLowerCase().indexOf(q)>=0 ||
+        (h.fournisseur||'').toLowerCase().indexOf(q)>=0 ||
+        (h.transporteur||'').toLowerCase().indexOf(q)>=0;
+    });
+  }
+  if(!items.length){
+    el.innerHTML = '<div class="empty">'+(totalToRange?'Aucun résultat':'Aucune commande à ranger pour le moment')+'</div>';
+    return;
+  }
+  el.innerHTML = items.map(function(h){
+    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var progress = (h.itemsRanged||0)+' / '+(h.itemsTotal||0)+' étiquette(s) rangée(s)';
+    return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
+      '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
+      '<div class="sub" style="color:var(--accent);font-weight:600;">'+progress+'</div>'+
+      '<div class="actions">'+
+        '<button class="btn accent" data-act="load">Ranger cette commande</button>'+
+      '</div></div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="load"]'), function(btn){
+    var item = btn.closest('.hist-item');
+    var labelNumber = item.getAttribute('data-labelnumber');
+    btn.addEventListener('click', function(){
+      document.getElementById('rangerLabelInput').value = labelNumber;
+      rangerLoadReception(labelNumber);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+}
+document.getElementById('toRangeSearch').addEventListener('input', renderToRangeList);
+
 async function rangerLoadReception(ln, presetItemId){
   ln = (ln||'').trim().toUpperCase();
   if(!ln) return;
@@ -2081,6 +2271,7 @@ document.getElementById('btnRangerSave').addEventListener('click', async functio
   var idx = state.historyIndex.findIndex(function(h){ return h.id===rangerReceptionId; });
   if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
   renderHistory();
+  renderToRangeList();
 
   banner('Emplacement '+code+' enregistré');
 
@@ -2167,6 +2358,7 @@ document.getElementById('btnRangerScanStop').addEventListener('click', stopRange
 function fillForm(d){
   document.getElementById('f-labelnumber').value = d.labelNumber || '';
   document.getElementById('f-date').value = d.date || '';
+  document.getElementById('f-weeknumber').value = d.weekNumber || '';
   document.getElementById('f-client').value = d.client || '';
   document.getElementById('f-fournisseur').value = d.fournisseur || '';
   document.getElementById('f-transporteur').value = d.transporteur || '';
@@ -2359,6 +2551,8 @@ async function importData(bundle){
   refreshDatalists();
   renderBaseLists();
   renderHistory();
+  renderPendingList();
+  renderToRangeList();
   renderArchiveList();
   banner('Import terminé : +'+addedClients+' clients, +'+addedFourn+' fourn., +'+addedTransp+' transp., +'+addedRecords+' réceptions');
 }
@@ -2671,14 +2865,14 @@ document.getElementById('btnScanStop').addEventListener('click', stopScan);
 
 // ---------- tabs ----------
 function switchTab(name){
-  ['new','hist','exit','archive','base'].forEach(function(t){
+  ['new','attente','ranger','hist','exit','archive','base'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
     btn.classList.toggle('active', btn.getAttribute('data-tab')===name);
   });
   if(name!=='exit'){ stopScan(); }
-  if(name!=='hist'){ stopRangerScan(); }
+  if(name!=='ranger'){ stopRangerScan(); }
   if(name==='exit'){
     if(!cameraAvailable()){
       document.getElementById('scanUnavailable').style.display = 'block';
@@ -2687,13 +2881,16 @@ function switchTab(name){
     rehydrateExitSessions();
     renderExitSessions();
   }
-  if(name==='hist'){
+  if(name==='attente'){ renderPendingList();
+  renderToRangeList(); }
+  if(name==='ranger'){
     if(!cameraAvailable()){
       document.getElementById('rangerScanUnavailable').style.display = 'block';
       document.getElementById('btnRangerScanStart').style.display = 'none';
     }
-    renderHistory();
+    renderToRangeList();
   }
+  if(name==='hist'){ renderHistory(); }
   if(name==='archive'){ renderArchiveList(); }
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
@@ -2944,6 +3141,8 @@ async function loadAgencyDataAndShowApp(){
   refreshDatalists();
   renderBaseLists();
   renderHistory();
+  renderPendingList();
+  renderToRangeList();
   renderArchiveList();
   resetForm();
   renderAgenciesList();
