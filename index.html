@@ -326,6 +326,23 @@
   <!-- ===== TAB: CDE EN ATTENTE ===== -->
   <section id="tab-attente" style="display:none;">
     <div class="card">
+      <h2>Planning de réception (PDF A4)</h2>
+      <p class="hint" style="margin:0 0 10px;">Prévisions de réception d'une semaine à l'autre, à cocher au fur et à mesure des arrivées.</p>
+      <div class="row2">
+        <div class="field">
+          <label for="planWeekFrom">Semaine de</label>
+          <input type="number" min="1" max="53" id="planWeekFrom" placeholder="Ex. 20">
+        </div>
+        <div class="field">
+          <label for="planWeekTo">Semaine à</label>
+          <input type="number" min="1" max="53" id="planWeekTo" placeholder="Ex. 24">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnPlanningPdf" style="width:100%;">Générer le PDF A4</button>
+      </div>
+    </div>
+    <div class="card">
       <h2>Commandes en attente</h2>
       <p class="hint" style="margin:0 0 10px;">Commandes annoncées mais pas encore réceptionnées (date de réception vide ou dans le futur).</p>
       <div class="field" style="margin-bottom:12px;">
@@ -970,7 +987,7 @@ function recordToIndexEntry(rec){
   if(rangedCount===0 && d.emplacement){ rangedCount = items.length; } // compat : ancien emplacement global
   var entry = {
     id: rec.id, date: d.date, weekNumber: d.weekNumber, client: d.client, contremarque: d.contremarque,
-    fournisseur: d.fournisseur, transporteur: d.transporteur,
+    fournisseur: d.fournisseur, transporteur: d.transporteur, poids: d.poids,
     savedAt: rec.savedAt, labelNumber: d.labelNumber,
     itemsTotal: items.length, itemsRanged: rangedCount
   };
@@ -1293,6 +1310,14 @@ function getISOWeek(date){
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+// année de numérotation ISO-8601 d'une date (gère les semaines à cheval sur deux années civiles)
+function getISOWeekYear(date){
+  var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  var dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  return d.getUTCFullYear();
 }
 
 // date du lundi d'une semaine ISO-8601 donnée (année civile)
@@ -2142,6 +2167,91 @@ async function generateInventoryPdf(){
   banner(rows.length+' ligne(s) — inventaire PDF téléchargé');
 }
 document.getElementById('btnInventaire').addEventListener('click', generateInventoryPdf);
+
+// ---------- Planning de réception (PDF A4) : prévisions d'une semaine à l'autre ----------
+function generateReceivingPlanningPdf(){
+  var weekFrom = parseInt(document.getElementById('planWeekFrom').value, 10);
+  var weekTo = parseInt(document.getElementById('planWeekTo').value, 10);
+  if(!weekFrom || !weekTo || weekFrom<1 || weekTo<1 || weekFrom>53 || weekTo>53){
+    banner('Saisis une semaine de début et de fin valides'); return;
+  }
+  if(weekTo < weekFrom){ var tmp = weekFrom; weekFrom = weekTo; weekTo = tmp; }
+
+  var rows = state.historyIndex.filter(function(h){
+    if(h.exitedAt || !h.date) return false;
+    var wk = getISOWeek(new Date(h.date+'T00:00:00'));
+    return wk >= weekFrom && wk <= weekTo;
+  }).slice().sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+
+  if(!rows.length){ banner('Aucune réception prévue sur ces semaines'); return; }
+
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  var H = 297, marginX = 14, y = 18;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(0,0,0);
+  doc.text('Planning de réception — semaine '+weekFrom+' à '+weekTo, marginX, y);
+  y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  doc.text('Édité le '+fmtDate(todayISO()), marginX, y);
+  y += 9;
+
+  var cols = [
+    { label:'N° SEMAINE', w:20 },
+    { label:'DATE (LUNDI)', w:24 },
+    { label:'CLIENT', w:38 },
+    { label:'CONTREMARQUE', w:32 },
+    { label:'FOURNISSEUR', w:30 },
+    { label:'POIDS', w:16 },
+    { label:'REÇU', w:14 }
+  ];
+  var tableW = cols.reduce(function(s,c){ return s+c.w; }, 0);
+
+  function drawHeader(){
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
+    var x = marginX;
+    cols.forEach(function(c){ doc.text(c.label, x, y); x += c.w; });
+    y += 2;
+    doc.setDrawColor(0,0,0); doc.setLineWidth(0.3);
+    doc.line(marginX, y, marginX+tableW, y);
+    y += 6;
+  }
+  drawHeader();
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(0,0,0);
+  rows.forEach(function(h){
+    if(y > H - 20){
+      doc.addPage();
+      y = 18;
+      drawHeader();
+    }
+    var dt = new Date(h.date+'T00:00:00');
+    var wk = getISOWeek(dt);
+    var monday = isoWeekToMonday(wk, getISOWeekYear ? getISOWeekYear(dt) : dt.getFullYear());
+    var rowVals = [ String(wk), fmtDate(dateToISO(monday)), h.client||'-', h.contremarque||'-', h.fournisseur||'-', (h.poids?h.poids+' kg':'-') ];
+    var x = marginX;
+    cols.slice(0,6).forEach(function(c, idx){
+      var lines = doc.splitTextToSize(String(rowVals[idx]), c.w-2);
+      doc.text(lines[0] || '', x, y);
+      x += c.w;
+    });
+    // case à cocher (vide, à remplir à la main à réception)
+    var boxSize = 5;
+    doc.setDrawColor(0,0,0); doc.setLineWidth(0.3);
+    doc.rect(x+3, y-4, boxSize, boxSize);
+    y += 7;
+  });
+
+  y += 4;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.2);
+  doc.line(marginX, y-3, marginX+tableW, y-3);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.text('Total : '+rows.length+' réception(s) prévue(s)', marginX, y);
+
+  downloadPdf(doc, 'planning_reception_S'+weekFrom+'_S'+weekTo+'.pdf');
+  banner(rows.length+' réception(s) — planning PDF téléchargé');
+}
+document.getElementById('btnPlanningPdf').addEventListener('click', generateReceivingPlanningPdf);
 
 // ---------- Ranger une commande : emplacement PAR étiquette individuelle (palette/colis), avec scan caméra ----------
 var rangerReceptionId = null;
