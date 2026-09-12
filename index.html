@@ -568,6 +568,18 @@
       <div id="adminChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
+      <h2>Déconnexion forcée</h2>
+      <p class="hint" style="margin:0 0 12px;">Force tous les utilisateurs (tous appareils) à se reconnecter avec le code à jour, au prochain chargement de l'appli.</p>
+      <div class="field">
+        <label for="forceLogoutAdminCode">Code administrateur</label>
+        <input type="text" id="forceLogoutAdminCode" placeholder="Code administrateur" maxlength="10">
+      </div>
+      <div class="btn-row">
+        <button class="btn danger" id="btnForceLogoutAll" style="width:100%;">Déconnecter tous les utilisateurs</button>
+      </div>
+      <div id="forceLogoutMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
       <h2>Nom de l'application</h2>
       <p class="hint" id="brandCurrentLine" style="margin:0 0 12px;"></p>
       <div class="field">
@@ -651,7 +663,7 @@ var state = {
   // multi-agences
   currentAgencyCode: null,
   isAdmin: false,
-  globalSecurity: { masterCode: '2013', adminCode: 'ADMIN1', users: [] },
+  globalSecurity: { masterCode: '2013', adminCode: 'ADMIN1', users: [], sessionVersion: 1 },
   brandName: 'STLS',
   agenciesList: []
 };
@@ -737,6 +749,7 @@ async function loadGlobalConfig(){
       if(snap.exists && snap.data().agenciesList && snap.data().agenciesList.length){
         var d = snap.data();
         state.globalSecurity = d.globalSecurity || state.globalSecurity;
+        if(!state.globalSecurity.sessionVersion) state.globalSecurity.sessionVersion = 1;
         state.agenciesList = d.agenciesList || [];
         state.brandName = d.brandName || 'STLS';
         lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, brandName: state.brandName }));
@@ -750,6 +763,7 @@ async function loadGlobalConfig(){
     try{
       var cached = JSON.parse(raw);
       state.globalSecurity = cached.globalSecurity || state.globalSecurity;
+      if(!state.globalSecurity.sessionVersion) state.globalSecurity.sessionVersion = 1;
       state.agenciesList = cached.agenciesList || [];
       state.brandName = cached.brandName || 'STLS';
     }catch(e){}
@@ -771,6 +785,7 @@ async function loadGlobalConfig(){
     state.globalSecurity = {
       masterCode: oldMasterCode,
       adminCode: 'ADMIN1',
+      sessionVersion: 1,
       users: oldUserNames.map(function(n){ return { name: n, agencyCode: defaultCode, isAdmin: false }; })
     };
     state.agenciesList = [{ code: defaultCode, name: 'Var' }];
@@ -3365,6 +3380,7 @@ async function finalizeLogin(name, isAdmin, agencyCode){
   lsSet('access-identity', name);
   lsSet('access-is-admin', isAdmin ? '1' : '');
   lsSet('current-agency', agencyCode);
+  lsSet('session-version', String(state.globalSecurity.sessionVersion || 1));
   state.isAdmin = !!isAdmin;
   await migrateAgencyDataIfNeeded(agencyCode);
   setActiveAgency(agencyCode);
@@ -3519,6 +3535,22 @@ document.getElementById('btnChangeAdminCode').addEventListener('click', async fu
   msg.style.color = 'var(--accent)';
 });
 
+document.getElementById('btnForceLogoutAll').addEventListener('click', async function(){
+  var cur = document.getElementById('forceLogoutAdminCode').value.trim();
+  var msg = document.getElementById('forceLogoutMsg');
+  if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
+    msg.textContent = 'Code administrateur incorrect';
+    msg.style.color = 'var(--danger)';
+    return;
+  }
+  if(!confirm('Tous les utilisateurs (y compris toi) devront ressaisir leur code au prochain chargement de l\'appli. Continuer ?')) return;
+  state.globalSecurity.sessionVersion = (state.globalSecurity.sessionVersion || 1) + 1;
+  await saveGlobalConfig();
+  document.getElementById('forceLogoutAdminCode').value = '';
+  msg.textContent = 'Fait — tous les appareils devront se reconnecter';
+  msg.style.color = 'var(--accent)';
+});
+
 document.getElementById('btnChangeBrand').addEventListener('click', async function(){
   var cur = document.getElementById('brandAdminCode').value.trim();
   var next = document.getElementById('brandNewName').value.trim();
@@ -3589,7 +3621,21 @@ async function migrateContremarque(){
   tryShowQrLanding(); // fonctionne même sans être connecté, grâce au code agence inclus dans le lien du QR
 
   if(isUnlocked()){
-    state.isAdmin = lsGet('access-is-admin') === '1';
+    var identity = currentIdentity();
+    var cachedSessionVersion = parseInt(lsGet('session-version')||'0', 10);
+    var liveSessionVersion = state.globalSecurity.sessionVersion || 1;
+    if(cachedSessionVersion && cachedSessionVersion < liveSessionVersion){
+      // l'administrateur a forcé la déconnexion de tout le monde : cet appareil doit se reconnecter
+      lsDelete('access-unlocked');
+      lsDelete('access-identity');
+      lsDelete('access-is-admin');
+      showAccessGate();
+      return;
+    }
+    lsSet('session-version', String(liveSessionVersion));
+    var userRecord = (state.globalSecurity.users||[]).find(function(u){ return u.name===identity; });
+    state.isAdmin = userRecord ? !!userRecord.isAdmin : (lsGet('access-is-admin') === '1');
+    lsSet('access-is-admin', state.isAdmin ? '1' : '');
     var qrAgency = getQrAgencyParam();
     var savedAgency = lsGet('current-agency');
     var agencyToUse = qrAgency || savedAgency || (state.agenciesList[0] && state.agenciesList[0].code);
