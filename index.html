@@ -320,6 +320,9 @@
         <button class="btn primary" id="btnSave">Enregistrer</button>
         <button class="btn accent" id="btnPdf">Télécharger PDF</button>
       </div>
+      <div class="btn-row">
+        <button class="btn ghost" id="btnDuplicate" style="width:100%;">Dupliquer (même client/contremarque)</button>
+      </div>
     </div>
   </section>
 
@@ -1423,6 +1426,18 @@ function exitEditMode(){
 
 document.getElementById('btnCancelEdit').addEventListener('click', exitEditMode);
 document.getElementById('btnReset').addEventListener('click', resetForm);
+
+document.getElementById('btnDuplicate').addEventListener('click', function(){
+  var client = document.getElementById('f-client').value;
+  var contremarque = document.getElementById('f-contremarque').value;
+  if(!client){ banner('Saisis d\'abord un client à dupliquer'); return; }
+  exitEditMode(); // repart d'un formulaire vide, sort du mode édition si actif
+  document.getElementById('f-client').value = client;
+  document.getElementById('f-contremarque').value = contremarque;
+  updatePreview();
+  document.getElementById('f-fournisseur').focus();
+  banner('Client et contremarque conservés — complète le reste');
+});
 
 document.getElementById('btnSave').addEventListener('click', async function(){
   if(!validate()) return;
