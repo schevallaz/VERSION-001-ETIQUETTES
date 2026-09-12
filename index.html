@@ -839,6 +839,7 @@ async function switchToAgency(code){
   await migrateLabelNumbers();
   await migrateArchiveStats();
   await migrateContremarque();
+  await migrateReceivedAt();
   refreshDatalists();
   renderBaseLists();
   renderHistory();
@@ -1034,10 +1035,11 @@ function recordToIndexEntry(rec){
   var rangedCount = items.filter(function(m){ return !!emps[m.itemId]; }).length;
   if(rangedCount===0 && d.emplacement){ rangedCount = items.length; } // compat : ancien emplacement global
   var entry = {
-    id: rec.id, date: d.date, weekNumber: d.weekNumber, client: d.client, contremarque: d.contremarque,
+    id: rec.id, date: d.date, receivedAt: d.receivedAt, weekNumber: d.weekNumber, client: d.client, contremarque: d.contremarque,
     fournisseur: d.fournisseur, transporteur: d.transporteur, poids: d.poids,
     savedAt: rec.savedAt, labelNumber: d.labelNumber,
-    itemsTotal: items.length, itemsRanged: rangedCount
+    itemsTotal: items.length, itemsRanged: rangedCount,
+    avarieCount: d.avarieCount || 0
   };
   // résumé des emplacements : chaque étiquette (palette/colis) peut avoir son propre emplacement
   var uniqueEmps = [];
@@ -1563,6 +1565,140 @@ function downloadPdf(doc, filename){
   }
 }
 
+// ---------- Avaries / réserves : photo(s) + commentaire à la réception ----------
+function compressImageFile(file){
+  return new Promise(function(resolve){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var maxDim = 900;
+        var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        var w = Math.round(img.width*scale) || 1, h = Math.round(img.height*scale) || 1;
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = function(){ resolve(null); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ resolve(null); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderReservePreview(id, urls){
+  var el = document.getElementById('reservePreview-'+id);
+  if(!el) return;
+  el.innerHTML = urls.map(function(u){
+    return '<img src="'+u+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">';
+  }).join('');
+}
+
+function openReserveBox(id, labelNumber){
+  var box = document.getElementById('reserve-'+id);
+  if(!box) return;
+  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+  var quaiBox = document.getElementById('quai-'+id);
+  if(quaiBox) quaiBox.style.display = 'none';
+  box.innerHTML =
+    '<div class="hint" style="margin-bottom:8px;">Réserve à la réception : photo(s) de la marchandise/documents de transport + commentaire.</div>'+
+    '<input type="file" id="reservePhotos-'+id+'" accept="image/*" capture="environment" multiple style="display:block;margin-bottom:10px;">'+
+    '<div id="reservePreview-'+id+'" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>'+
+    '<textarea id="reserveComment-'+id+'" placeholder="Commentaire (article abîmé, manquant...)" style="width:100%;min-height:70px;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea>'+
+    '<div class="btn-row">'+
+      '<button class="btn danger" id="reserveSave-'+id+'" style="width:100%;">Enregistrer la réserve</button>'+
+    '</div>';
+  box.style.display = 'block';
+
+  var photoDataUrls = [];
+  document.getElementById('reservePhotos-'+id).addEventListener('change', async function(e){
+    var files = Array.prototype.slice.call(e.target.files || []);
+    for(var i=0;i<files.length;i++){
+      var dataUrl = await compressImageFile(files[i]);
+      if(dataUrl) photoDataUrls.push(dataUrl);
+    }
+    renderReservePreview(id, photoDataUrls);
+  });
+
+  document.getElementById('reserveSave-'+id).addEventListener('click', async function(){
+    var comment = document.getElementById('reserveComment-'+id).value.trim();
+    if(!photoDataUrls.length && !comment){ banner('Ajoute au moins une photo ou un commentaire'); return; }
+    await saveAvarie(id, labelNumber, photoDataUrls, comment);
+    box.style.display = 'none';
+    banner('Réserve enregistrée');
+    renderPendingList();
+    renderToRangeList();
+    renderHistory();
+  });
+}
+
+async function saveAvarie(receptionId, labelNumber, photos, comment){
+  var avarieId = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  var avarie = {
+    id: avarieId,
+    receptionId: receptionId,
+    labelNumber: labelNumber,
+    photos: photos,
+    comment: comment,
+    reportedAt: new Date().toISOString(),
+    reportedBy: currentIdentity()
+  };
+  if(fsReady()){
+    try{ await configDocRef.collection('avaries').doc(avarieId).set(avarie); }
+    catch(e){ console.error('Firestore saveAvarie error', e); }
+  }
+  lsSet('avarie:'+avarieId, JSON.stringify(avarie));
+
+  var rec = await getReceptionRecord(receptionId);
+  if(rec){
+    rec.data.avarieCount = (rec.data.avarieCount||0) + 1;
+    if(!rec.data.avaries) rec.data.avaries = [];
+    rec.data.avaries.push(avarieId);
+    await saveReceptionRecord(receptionId, rec);
+    var idx = state.historyIndex.findIndex(function(h){ return h.id===receptionId; });
+    if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+  }
+}
+
+async function getAvarie(avarieId){
+  if(fsReady()){
+    try{
+      var snap = await configDocRef.collection('avaries').doc(avarieId).get();
+      if(snap.exists) return snap.data();
+    }catch(e){ console.error('Firestore getAvarie error', e); }
+  }
+  var raw = lsGet('avarie:'+avarieId);
+  if(raw){ try{ return JSON.parse(raw); }catch(e){} }
+  return null;
+}
+
+async function viewAvaries(id, boxId){
+  var box = document.getElementById(boxId||('reserve-'+id));
+  if(!box) return;
+  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+  var rec = await getReceptionRecord(id);
+  if(!rec || !rec.data.avaries || !rec.data.avaries.length){ banner('Aucune réserve trouvée'); return; }
+  var avaries = [];
+  for(var i=0;i<rec.data.avaries.length;i++){
+    var av = await getAvarie(rec.data.avaries[i]);
+    if(av) avaries.push(av);
+  }
+  box.innerHTML = '<div class="hint" style="margin-bottom:8px;font-weight:600;">Réserve(s) enregistrée(s)</div>' + avaries.map(function(av){
+    var photosHtml = (av.photos||[]).map(function(p){
+      return '<a href="'+p+'" target="_blank"><img src="'+p+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);margin:2px 4px 2px 0;"></a>';
+    }).join('');
+    return '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line);">'+
+      '<div class="hint">'+fmtDate((av.reportedAt||'').slice(0,10))+' par '+escapeHtml(av.reportedBy||'-')+'</div>'+
+      (av.comment ? '<div style="margin:4px 0;">'+escapeHtml(av.comment)+'</div>' : '')+
+      '<div style="display:flex;flex-wrap:wrap;">'+photosHtml+'</div>'+
+    '</div>';
+  }).join('');
+  box.style.display = 'block';
+}
+
 function buildQrImageFromText(text){
   var temp = document.createElement('div');
   temp.style.position = 'absolute'; temp.style.left = '-9999px'; temp.style.top = '-9999px';
@@ -1801,7 +1937,7 @@ var walkSessions = {}; // labelNumber -> { groupList: [{code,itemIds,qtyLabel}],
 // une commande est "en attente" si sa date de réception est vide ou dans le futur (annonce de livraison,
 // pas encore réceptionnée physiquement) — sinon elle est "en stock"
 function isPendingEntry(h){
-  return !h.date || h.date > todayISO();
+  return !h.receivedAt;
 }
 
 function renderHistory(){
@@ -1823,13 +1959,14 @@ function renderHistory(){
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var days = daysSince(h.date);
+    var days = daysSince(h.receivedAt || h.date);
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     var walkPanel = renderWalkPanel(h.labelNumber);
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
-      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">'+fmtDate(h.date)+'</span></div>'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+'</span><span class="date">'+fmtDate(h.receivedAt||h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
@@ -1839,9 +1976,17 @@ function renderHistory(){
         '<button class="btn danger" data-act="del">Supprimer</button>'+
       '</div>'+
       '<div class="reprint-list" id="reprint-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="walk-'+h.labelNumber+'">'+walkPanel+'</div>'+
       '</div>';
   }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.avarie-badge'), function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      viewAvaries(btn.getAttribute('data-id'), 'reserve-view-'+btn.getAttribute('data-id'));
+    });
+  });
 
   Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
     var id = item.getAttribute('data-id');
@@ -1923,29 +2068,67 @@ function renderPendingList(){
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     var dateLine = h.date ? ('Réception prévue : '+fmtDate(h.date)) : 'Date de réception non communiquée';
     var weekLine = h.weekNumber ? (' · Semaine '+escapeHtml(String(h.weekNumber))) : '';
-    return '<div class="hist-item" data-id="'+h.id+'">'+
-      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
+    var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
+    return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
       '<div class="sub" style="color:var(--ink-soft);">'+dateLine+weekLine+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
+        '<button class="btn primary" data-act="quai">À Quai</button>'+
+        '<button class="btn ghost" data-act="reserve">Réserve</button>'+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
-      '</div></div>';
+      '</div>'+
+      '<div id="quai-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="reserve-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '</div>';
   }).join('');
 
   Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
     var id = item.getAttribute('data-id');
+    var labelNumber = item.getAttribute('data-labelnumber');
     item.querySelector('[data-act="edit"]').addEventListener('click', async function(){
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
       enterEditMode(rec);
     });
+    item.querySelector('[data-act="quai"]').addEventListener('click', function(){
+      var box = document.getElementById('quai-'+id);
+      if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+      box.innerHTML =
+        '<div class="hint" style="margin-bottom:6px;">Date réelle de réception :</div>'+
+        '<div class="addrow">'+
+          '<input type="date" id="quaiDate-'+id+'" value="'+todayISO()+'">'+
+          '<button class="btn primary" id="quaiConfirm-'+id+'" style="width:auto;">Confirmer</button>'+
+        '</div>';
+      box.style.display = 'block';
+      document.getElementById('quaiConfirm-'+id).addEventListener('click', async function(){
+        var dateVal = document.getElementById('quaiDate-'+id).value || todayISO();
+        var rec = await getReceptionRecord(id);
+        if(!rec){ banner('Introuvable'); return; }
+        rec.data.receivedAt = dateVal;
+        await saveReceptionRecord(id, rec);
+        var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
+        if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+        renderPendingList();
+        renderToRangeList();
+        renderHistory();
+        banner('Réception confirmée le '+fmtDate(dateVal));
+      });
+    });
+    item.querySelector('[data-act="reserve"]').addEventListener('click', function(){
+      openReserveBox(id, labelNumber);
+    });
+    var avarieBtn = item.querySelector('.avarie-badge');
+    if(avarieBtn){
+      avarieBtn.addEventListener('click', function(e){ e.stopPropagation(); viewAvaries(id); });
+    }
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
       await deleteReceptionRecord(id);
       state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
       await saveHistoryIndex();
       renderPendingList();
-  renderToRangeList();
+      renderToRangeList();
       banner('Supprimé');
     });
   });
@@ -2034,7 +2217,7 @@ function renderArchiveList(){
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
-    var detail = 'Entrée '+fmtDate(h.date)+(h.exitDaysStored!=null?' · '+h.exitDaysStored+' j de stockage':'')+(h.exitTotalLabels?' · '+h.exitTotalLabels+' étiquette(s)':'');
+    var detail = 'Entrée '+fmtDate(h.receivedAt||h.date)+(h.exitDaysStored!=null?' · '+h.exitDaysStored+' j de stockage':'')+(h.exitTotalLabels?' · '+h.exitTotalLabels+' étiquette(s)':'');
     return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'" data-id="'+h.id+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">Sortie '+fmtDate(h.exitedAt.slice(0,10))+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
@@ -2166,7 +2349,7 @@ function generateArchivePdf(){
       h.labelNumber || '-',
       h.client || '-',
       h.contremarque || '-',
-      fmtDate(h.date),
+      fmtDate(h.receivedAt||h.date),
       fmtDate(h.exitedAt.slice(0,10)),
       (h.exitDaysStored!=null ? h.exitDaysStored+' j' : '-'),
       String(h.exitTotalLabels || '-')
@@ -2382,15 +2565,25 @@ function renderToRangeList(){
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
     var progress = (h.itemsRanged||0)+' / '+(h.itemsTotal||0)+' étiquette(s) rangée(s)';
-    return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'">'+
-      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
+    return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'" data-id="'+h.id+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
       '<div class="sub" style="color:var(--accent);font-weight:600;">'+progress+'</div>'+
       '<div class="actions">'+
         '<button class="btn accent" data-act="load">Ranger cette commande</button>'+
-      '</div></div>';
+      '</div>'+
+      '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '</div>';
   }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.avarie-badge'), function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      viewAvaries(btn.getAttribute('data-id'), 'reserve-view-'+btn.getAttribute('data-id'));
+    });
+  });
 
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="load"]'), function(btn){
     var item = btn.closest('.hist-item');
@@ -2931,7 +3124,7 @@ async function validateExit(labelNumber){
   if(!rec){ banner('Introuvable'); return; }
 
   var totalLabels = computeLabels(rec.data).length;
-  var daysStored = daysSince(rec.data.date);
+  var daysStored = daysSince(rec.data.receivedAt || rec.data.date);
   var exitDateStr = fmtDate(todayISO());
   var paletteCount = parseInt(rec.data.palettes,10)||0;
   var vracCount = parseInt(rec.data.vrac,10)||0;
@@ -3147,7 +3340,7 @@ async function migrateArchiveStats(){
         h.exitTotalLabels = rec.data.exitStats.totalLabels;
       } else {
         var totalLabels = computeLabels(rec.data).length;
-        var daysStored = daysSince(rec.data.date);
+        var daysStored = daysSince(rec.data.receivedAt || rec.data.date);
         h.exitDaysStored = daysStored;
         h.exitTotalLabels = totalLabels;
         rec.data.exitStats = { totalLabels: totalLabels, daysStored: daysStored, exitDateStr: fmtDate(h.exitedAt.slice(0,10)) };
@@ -3181,7 +3374,7 @@ function showQrLanding(rec){
   }
   document.getElementById('qrLandingLabelNumber').textContent = (d.labelNumber||'')+(posLabel?' — '+posLabel:'');
 
-  var days = daysSince(d.date);
+  var days = daysSince(d.receivedAt || d.date);
 
   document.getElementById('qrLandingBody').innerHTML =
     '<div style="font-size:19px;font-weight:700;margin-bottom:2px;">'+escapeHtml(d.client||'-')+(d.contremarque?' - '+escapeHtml(d.contremarque):'')+'</div>'+
@@ -3361,6 +3554,7 @@ async function loadAgencyDataAndShowApp(){
   await migrateLabelNumbers();
   await migrateArchiveStats();
   await migrateContremarque();
+  await migrateReceivedAt();
   refreshDatalists();
   renderBaseLists();
   renderHistory();
@@ -3609,6 +3803,23 @@ async function migrateContremarque(){
     var h = missing[i];
     var rec = await getReceptionRecord(h.id);
     h.contremarque = (rec && rec.data && rec.data.contremarque) || '';
+  }
+  await saveHistoryIndex();
+}
+
+// migration : les commandes déjà enregistrées avant la séparation "date prévue" / "date réellement reçue"
+// sont considérées comme déjà reçues (sinon elles repasseraient à tort en "CDE en attente")
+async function migrateReceivedAt(){
+  var missing = state.historyIndex.filter(function(h){ return h.receivedAt===undefined && h.date; });
+  if(!missing.length) return;
+  for(var i=0;i<missing.length;i++){
+    var h = missing[i];
+    var rec = await getReceptionRecord(h.id);
+    if(rec && rec.data){
+      rec.data.receivedAt = rec.data.date;
+      await saveReceptionRecord(h.id, rec);
+      h.receivedAt = rec.data.date;
+    }
   }
   await saveHistoryIndex();
 }
