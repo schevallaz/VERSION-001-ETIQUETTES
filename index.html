@@ -2573,6 +2573,7 @@ function renderToRangeList(){
       '<div class="sub" style="color:var(--accent);font-weight:600;">'+progress+'</div>'+
       '<div class="actions">'+
         '<button class="btn accent" data-act="load">Ranger cette commande</button>'+
+        '<button class="btn ghost" data-act="unreceive">Remettre en attente</button>'+
       '</div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '</div>';
@@ -2592,6 +2593,25 @@ function renderToRangeList(){
       document.getElementById('rangerLabelInput').value = labelNumber;
       rangerLoadReception(labelNumber);
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="unreceive"]'), function(btn){
+    var item = btn.closest('.hist-item');
+    var id = item.getAttribute('data-id');
+    var labelNumber = item.getAttribute('data-labelnumber');
+    btn.addEventListener('click', async function(){
+      if(!confirm('Remettre '+labelNumber+' en "CDE en attente" ? La date de réception confirmée sera effacée (erreur de saisie).')) return;
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      delete rec.data.receivedAt;
+      await saveReceptionRecord(id, rec);
+      var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
+      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      renderToRangeList();
+      renderPendingList();
+      renderHistory();
+      banner(labelNumber+' remise en attente de réception');
     });
   });
 }
