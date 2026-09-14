@@ -912,7 +912,8 @@ async function loadBase(){
         state.base = {
           clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice(),
           emailTemplateReserve: d0.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
-          emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION
+          emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
+          receivedAtMigrated: !!d0.receivedAtMigrated
         };
         lsSet('base-data', JSON.stringify(state.base));
         watchBase();
@@ -958,7 +959,8 @@ function watchBase(){
     state.base = {
       clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[],
       emailTemplateReserve: d.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
-      emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION
+      emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
+      receivedAtMigrated: !!d.receivedAtMigrated
     };
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
@@ -1460,7 +1462,7 @@ document.getElementById('f-weeknumber').addEventListener('input', function(){
 function resetForm(){
   document.getElementById('f-labelnumber').value = '';
   document.getElementById('f-date').value = '';
-  document.getElementById('f-weeknumber').value = '';
+  document.getElementById('f-weeknumber').value = getISOWeek(new Date());
   ['f-client','f-fournisseur','f-transporteur','f-contremarque','f-nrecep','f-poids','f-colis','f-palettes','f-vrac','f-support','f-emplacement'].forEach(function(id){
     document.getElementById(id).value = '';
     document.getElementById(id).classList.remove('invalid');
@@ -2619,6 +2621,18 @@ async function generateInventoryPdf(){
 document.getElementById('btnInventaire').addEventListener('click', generateInventoryPdf);
 
 // ---------- Planning de réception (PDF A4) : prévisions d'une semaine à l'autre ----------
+function resetPlanningWeekDefaults(){
+  var fromEl = document.getElementById('planWeekFrom');
+  var toEl = document.getElementById('planWeekTo');
+  if(!fromEl || !toEl) return;
+  if(!fromEl.value){
+    var nextWeekDate = new Date();
+    nextWeekDate.setDate(nextWeekDate.getDate() + 7);
+    fromEl.value = getISOWeek(nextWeekDate);
+  }
+  if(!toEl.value){ toEl.value = fromEl.value; }
+}
+
 function generateReceivingPlanningPdf(){
   var weekFrom = parseInt(document.getElementById('planWeekFrom').value, 10);
   var weekTo = parseInt(document.getElementById('planWeekTo').value, 10);
@@ -3521,7 +3535,7 @@ function switchTab(name){
     renderExitSessions();
   }
   if(name==='attente'){ renderPendingList();
-  renderToRangeList(); }
+  renderToRangeList(); resetPlanningWeekDefaults(); }
   if(name==='ranger'){
     if(!cameraAvailable()){
       document.getElementById('rangerScanUnavailable').style.display = 'block';
@@ -3813,6 +3827,7 @@ async function loadAgencyDataAndShowApp(){
   renderHistory();
   renderPendingList();
   renderToRangeList();
+  resetPlanningWeekDefaults();
   renderArchiveList();
   resetForm();
   renderAgenciesList();
@@ -4064,8 +4079,8 @@ async function migrateContremarque(){
 // migration : les commandes déjà enregistrées avant la séparation "date prévue" / "date réellement reçue"
 // sont considérées comme déjà reçues (sinon elles repasseraient à tort en "CDE en attente")
 async function migrateReceivedAt(){
+  if(state.base.receivedAtMigrated) return; // déjà fait une fois pour toutes : ne doit plus jamais retoucher les nouvelles commandes
   var missing = state.historyIndex.filter(function(h){ return h.receivedAt===undefined && h.date; });
-  if(!missing.length) return;
   for(var i=0;i<missing.length;i++){
     var h = missing[i];
     var rec = await getReceptionRecord(h.id);
@@ -4075,7 +4090,9 @@ async function migrateReceivedAt(){
       h.receivedAt = rec.data.date;
     }
   }
-  await saveHistoryIndex();
+  if(missing.length) await saveHistoryIndex();
+  state.base.receivedAtMigrated = true;
+  await saveBase();
 }
 
 // ---------- init ----------
