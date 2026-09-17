@@ -348,6 +348,16 @@
     <div class="card">
       <h2>Commandes en attente</h2>
       <p class="hint" style="margin:0 0 10px;">Commandes annoncées mais pas encore réceptionnées (date de réception vide ou dans le futur).</p>
+      <div class="row2" style="margin-bottom:12px;">
+        <div class="field" style="margin-bottom:0;">
+          <label for="attenteWeekFrom">N° de semaine de</label>
+          <input type="number" min="1" max="53" id="attenteWeekFrom">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label for="attenteWeekTo">N° de semaine à</label>
+          <input type="number" min="1" max="53" id="attenteWeekTo">
+        </div>
+      </div>
       <div class="field" style="margin-bottom:12px;">
         <input type="text" id="attenteSearch" placeholder="Rechercher : n° étiquette, client, fournisseur...">
       </div>
@@ -2289,6 +2299,22 @@ function renderHistory(){
 document.getElementById('histSearch').addEventListener('input', renderHistory);
 
 // ---------- CDE en attente : annoncées (date vide ou future), pas encore réceptionnées ----------
+// numéro de semaine ISO d'une commande : d'abord sa date de réception prévue, sinon le n° de semaine saisi
+function itemWeekNumber(h){
+  if(h.date){ return getISOWeek(new Date(h.date+'T00:00:00')); }
+  if(h.weekNumber){ return parseInt(h.weekNumber,10) || null; }
+  return null;
+}
+
+function resetPendingWeekDefaults(){
+  var fromEl = document.getElementById('attenteWeekFrom');
+  var toEl = document.getElementById('attenteWeekTo');
+  if(!fromEl || !toEl) return;
+  var curWeek = getISOWeek(new Date());
+  if(!fromEl.value){ fromEl.value = curWeek; }
+  if(!toEl.value){ toEl.value = curWeek; }
+}
+
 function renderPendingList(){
   var el = document.getElementById('attenteList');
   var q = (document.getElementById('attenteSearch').value || '').trim().toLowerCase();
@@ -2300,6 +2326,15 @@ function renderPendingList(){
         (h.client||'').toLowerCase().indexOf(q)>=0 ||
         (h.fournisseur||'').toLowerCase().indexOf(q)>=0 ||
         (h.transporteur||'').toLowerCase().indexOf(q)>=0;
+    });
+  }
+  var wkFrom = parseInt((document.getElementById('attenteWeekFrom')||{}).value, 10);
+  var wkTo = parseInt((document.getElementById('attenteWeekTo')||{}).value, 10);
+  if(wkFrom && wkTo){
+    items = items.filter(function(h){
+      var wk = itemWeekNumber(h);
+      if(wk==null) return true; // pas de semaine connue : toujours affichée
+      return wk>=wkFrom && wk<=wkTo;
     });
   }
   items = items.slice().sort(function(a,b){ return (a.date||'9999-99-99').localeCompare(b.date||'9999-99-99'); });
@@ -2374,6 +2409,8 @@ function renderPendingList(){
   });
 }
 document.getElementById('attenteSearch').addEventListener('input', renderPendingList);
+document.getElementById('attenteWeekFrom').addEventListener('input', renderPendingList);
+document.getElementById('attenteWeekTo').addEventListener('input', renderPendingList);
 
 // ---------- Sortie de commande guidée par emplacement (depuis "CDE en stock") ----------
 function renderWalkPanel(labelNumber){
@@ -2828,6 +2865,7 @@ function renderToRangeList(){
         '<button class="btn ghost" data-act="unreceive">Remettre en attente</button>'+
         '<button class="btn ghost" data-act="photos">📷 Photos réception</button>'+
         '<button class="btn ghost" data-act="mailreception">Envoyer mail</button>'+
+        '<button class="btn ghost" data-act="pdf">Télécharger PDF étiquette</button>'+
       '</div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="recphotos-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
@@ -2838,6 +2876,16 @@ function renderToRangeList(){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       viewAvaries(btn.getAttribute('data-id'), 'reserve-view-'+btn.getAttribute('data-id'));
+    });
+  });
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="pdf"]'), function(btn){
+    var item = btn.closest('.hist-item');
+    var id = item.getAttribute('data-id');
+    btn.addEventListener('click', async function(){
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      generatePdf(rec.data);
     });
   });
 
@@ -3610,8 +3658,8 @@ function switchTab(name){
     rehydrateExitSessions();
     renderExitSessions();
   }
-  if(name==='attente'){ renderPendingList();
-  renderToRangeList(); resetPlanningWeekDefaults(); }
+  if(name==='attente'){ resetPlanningWeekDefaults(); resetPendingWeekDefaults(); renderPendingList();
+  renderToRangeList(); }
   if(name==='ranger'){
     if(!cameraAvailable()){
       document.getElementById('rangerScanUnavailable').style.display = 'block';
@@ -3902,9 +3950,9 @@ async function loadAgencyDataAndShowApp(){
   renderBaseLists();
   renderTrashList();
   renderHistory();
+  resetPlanningWeekDefaults(); resetPendingWeekDefaults();
   renderPendingList();
   renderToRangeList();
-  resetPlanningWeekDefaults();
   renderArchiveList();
   resetForm();
   renderAgenciesList();
