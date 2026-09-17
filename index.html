@@ -583,6 +583,11 @@
       <div id="forceLogoutMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
+      <h2>Corbeille (<span id="cnt-trash">0</span>)</h2>
+      <p class="hint" style="margin:0 0 12px;">Commandes supprimées depuis "CDE en attente" ou "CDE en stock" — récupérables ici tant qu'elles ne sont pas effacées définitivement.</p>
+      <div id="trashList"></div>
+    </div>
+    <div class="card">
       <h2>Nom de l'application</h2>
       <p class="hint" id="brandCurrentLine" style="margin:0 0 12px;"></p>
       <div class="field">
@@ -867,6 +872,7 @@ async function switchToAgency(code){
   await migrateReceivedAt();
   refreshDatalists();
   renderBaseLists();
+  renderTrashList();
   renderHistory();
   renderPendingList();
   renderToRangeList();
@@ -965,6 +971,7 @@ function watchBase(){
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
     renderBaseLists();
+    renderTrashList();
     updateEmailTemplateFields();
   }, function(err){ console.error('Firestore base watch error', err); });
 }
@@ -1087,6 +1094,7 @@ function recordToIndexEntry(rec){
   else if(d.emplacement){ entry.emplacement = d.emplacement; }
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
+  if(d.deletedAt){ entry.deletedAt = d.deletedAt; entry.deletedBy = d.deletedBy; }
   return entry;
 }
 
@@ -1094,9 +1102,9 @@ function recordToIndexEntry(rec){
 function isFullyRanged(h){
   return (h.itemsTotal||0) > 0 && (h.itemsRanged||0) >= h.itemsTotal;
 }
-// à ranger : déjà réceptionnée (pas en attente), pas encore sortie, mais pas totalement rangée
+// à ranger : déjà réceptionnée (pas en attente), pas encore sortie, pas à la corbeille, mais pas totalement rangée
 function isToRangeEntry(h){
-  return !h.exitedAt && !isPendingEntry(h) && !isFullyRanged(h);
+  return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && !isFullyRanged(h);
 }
 
 var receptionsWatchStarted = false;
@@ -1146,6 +1154,78 @@ async function deleteReceptionRecord(id){
   }
 }
 
+// ---------- corbeille : suppression douce (récupérable) des commandes ----------
+async function moveReceptionToTrash(id){
+  var rec = await getReceptionRecord(id);
+  if(!rec){ banner('Introuvable'); return; }
+  rec.data.deletedAt = new Date().toISOString();
+  rec.data.deletedBy = currentIdentity();
+  await saveReceptionRecord(id, rec);
+  var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
+  if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+  await saveHistoryIndex();
+  renderPendingList();
+  renderToRangeList();
+  renderHistory();
+  renderTrashList();
+  banner('Commande envoyée à la corbeille');
+}
+
+async function restoreFromTrash(id){
+  var rec = await getReceptionRecord(id);
+  if(!rec){ banner('Introuvable'); return; }
+  delete rec.data.deletedAt;
+  delete rec.data.deletedBy;
+  await saveReceptionRecord(id, rec);
+  var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
+  if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+  await saveHistoryIndex();
+  renderPendingList();
+  renderToRangeList();
+  renderHistory();
+  renderTrashList();
+  banner('Commande restaurée');
+}
+
+async function permanentlyDeleteFromTrash(id, labelNumber){
+  if(!confirm('Supprimer définitivement '+(labelNumber||'cette commande')+' ? Cette action est irréversible, elle ne pourra plus être récupérée.')) return;
+  await deleteReceptionRecord(id);
+  state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
+  await saveHistoryIndex();
+  renderTrashList();
+  banner('Commande supprimée définitivement');
+}
+
+function renderTrashList(){
+  var el = document.getElementById('trashList');
+  if(!el) return;
+  var items = state.historyIndex.filter(function(h){ return !!h.deletedAt; });
+  items = items.slice().sort(function(a,b){ return (b.deletedAt||'').localeCompare(a.deletedAt||''); });
+  document.getElementById('cnt-trash').textContent = items.length;
+  if(!items.length){
+    el.innerHTML = '<div class="empty">La corbeille est vide</div>';
+    return;
+  }
+  el.innerHTML = items.map(function(h){
+    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
+      '<div class="sub" style="color:var(--ink-soft);">Supprimée le '+fmtDate((h.deletedAt||'').slice(0,10))+(h.deletedBy?' par '+escapeHtml(h.deletedBy):'')+'</div>'+
+      '<div class="actions">'+
+        '<button class="btn primary" data-act="restore">Restaurer</button>'+
+        '<button class="btn danger" data-act="purge">Supprimer définitivement</button>'+
+      '</div></div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
+    var id = item.getAttribute('data-id');
+    var labelNumber = item.getAttribute('data-labelnumber');
+    item.querySelector('[data-act="restore"]').addEventListener('click', function(){ restoreFromTrash(id); });
+    item.querySelector('[data-act="purge"]').addEventListener('click', function(){ permanentlyDeleteFromTrash(id, labelNumber); });
+  });
+}
+
 // ---------- datalist / base rendering ----------
 function refreshDatalists(){
   var dc = document.getElementById('dl-clients');
@@ -1172,9 +1252,11 @@ function renderBaseLists(){
 
   renderClientsList();
   renderOneBaseList('listFournisseurs', state.base.fournisseurs, 'nom', 'code', function(idx){
+    if(!confirm('Supprimer ce fournisseur de la base ?')) return;
     state.base.fournisseurs.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
   });
   renderOneBaseList('listTransporteurs', state.base.transporteurs, 'nom', 'code', function(idx){
+    if(!confirm('Supprimer ce transporteur de la base ?')) return;
     state.base.transporteurs.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
   });
   renderEmplacementsList();
@@ -1191,6 +1273,7 @@ function renderEmplacementsList(){
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('button[data-idx]'), function(btn){
     btn.addEventListener('click', function(){
+      if(!confirm('Supprimer cet emplacement de la base ?')) return;
       state.base.emplacements.splice(parseInt(btn.getAttribute('data-idx'),10),1);
       saveBase(); renderEmplacementsList(); refreshDatalists();
     });
@@ -1224,6 +1307,7 @@ function renderClientsList(){
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="delclient"]'), function(btn){
     btn.addEventListener('click', function(){
+      if(!confirm('Supprimer ce client de la base ?')) return;
       state.base.clients.splice(parseInt(btn.getAttribute('data-idx'),10),1);
       saveBase(); renderBaseLists(); refreshDatalists();
     });
@@ -2108,7 +2192,7 @@ function isPendingEntry(h){
 function renderHistory(){
   var el = document.getElementById('histList');
   var q = (document.getElementById('histSearch').value || '').trim().toLowerCase();
-  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !isPendingEntry(h) && isFullyRanged(h); });
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && isFullyRanged(h); });
   var totalInStock = items.length;
   if(q){
     items = items.filter(function(h){
@@ -2188,15 +2272,10 @@ function renderHistory(){
       startCommandExitWalk(labelNumber, id);
     });
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
-      await deleteReceptionRecord(id);
-      state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
-      await saveHistoryIndex();
-      renderHistory();
-      banner('Supprimé');
+      if(!confirm('Envoyer '+(labelNumber||'cette commande')+' à la corbeille ? Tu pourras la restaurer depuis Base → Corbeille.')) return;
+      await moveReceptionToTrash(id);
     });
   });
-
-  // câble les boutons du panneau de sortie guidée (rendu dans le HTML ci-dessus)
   Array.prototype.forEach.call(el.querySelectorAll('[data-walk-next]'), function(btn){
     btn.addEventListener('click', function(){ walkNextStep(btn.getAttribute('data-walk-next')); });
   });
@@ -2213,7 +2292,7 @@ document.getElementById('histSearch').addEventListener('input', renderHistory);
 function renderPendingList(){
   var el = document.getElementById('attenteList');
   var q = (document.getElementById('attenteSearch').value || '').trim().toLowerCase();
-  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && isPendingEntry(h); });
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && isPendingEntry(h); });
   var totalPending = items.length;
   if(q){
     items = items.filter(function(h){
@@ -2289,12 +2368,8 @@ function renderPendingList(){
       avarieBtn.addEventListener('click', function(e){ e.stopPropagation(); viewAvaries(id); });
     }
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
-      await deleteReceptionRecord(id);
-      state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
-      await saveHistoryIndex();
-      renderPendingList();
-      renderToRangeList();
-      banner('Supprimé');
+      if(!confirm('Envoyer '+(labelNumber||'cette commande')+' à la corbeille ? Tu pourras la restaurer depuis Base → Corbeille.')) return;
+      await moveReceptionToTrash(id);
     });
   });
 }
@@ -2542,7 +2617,7 @@ document.getElementById('btnArchivePdf').addEventListener('click', generateArchi
 
 // ---------- INVENTAIRE (CDE en stock) : liste A4 Client / Contremarque / Date réception / Emplacement ----------
 async function generateInventoryPdf(){
-  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !isPendingEntry(h); });
+  var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !isPendingEntry(h); });
   if(!items.length){ banner('Aucune commande en stock'); return; }
 
   // une ligne par (commande, emplacement) — nécessite le détail complet de chaque commande
@@ -3203,6 +3278,7 @@ async function importData(bundle){
 
   refreshDatalists();
   renderBaseLists();
+  renderTrashList();
   renderHistory();
   renderPendingList();
   renderToRangeList();
@@ -3824,6 +3900,7 @@ async function loadAgencyDataAndShowApp(){
   await migrateReceivedAt();
   refreshDatalists();
   renderBaseLists();
+  renderTrashList();
   renderHistory();
   renderPendingList();
   renderToRangeList();
