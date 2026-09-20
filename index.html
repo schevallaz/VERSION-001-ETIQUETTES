@@ -1839,6 +1839,15 @@ function currentAgencyEmail(){
   return (ag && ag.email) || '';
 }
 
+// destinataire = mail du client (base clients) ou, s'il est vide, mail du dépôt en cours d'utilisation par défaut
+// copie = toujours le mail du dépôt en cours d'utilisation
+function resolveReceptionEmailRecipients(clientName){
+  var depotEmail = currentAgencyEmail();
+  var c = (state.base.clients||[]).find(function(x){ return (x.nom||'').toLowerCase()===(clientName||'').toLowerCase(); });
+  var toEmail = (c && c.email) ? c.email : depotEmail;
+  return { to: toEmail, cc: depotEmail };
+}
+
 async function ensureBaseEntry(kind, nom){
   if(!nom) return;
   var arr, prefix, field;
@@ -1987,6 +1996,16 @@ function downloadPdf(doc, filename){
 }
 
 // ---------- Avaries / réserves : photo(s) + commentaire à la réception ----------
+// lit un fichier tel quel en data URL, sans compression (utilisé pour les PDF de documents de réception)
+function fileToDataUrl(file){
+  return new Promise(function(resolve){
+    var reader = new FileReader();
+    reader.onload = function(e){ resolve(e.target.result); };
+    reader.onerror = function(){ resolve(null); };
+    reader.readAsDataURL(file);
+  });
+}
+
 function compressImageFile(file){
   return new Promise(function(resolve){
     var reader = new FileReader();
@@ -2050,15 +2069,18 @@ function resolveClientEmailInteractive(clientName, boxEl, onResolved){
 // étape "photos + envoi mail" affichée juste après la confirmation "À Quai" (facultative)
 function renderQuaiPhotosStep(box, id, rec, labelNumber){
   var photos = rec.data.receptionPhotos ? rec.data.receptionPhotos.slice() : [];
+  var docs = rec.data.receptionDocs ? rec.data.receptionDocs.slice() : [];
   box.innerHTML =
     '<div class="hint" style="margin-bottom:8px;color:var(--accent);font-weight:600;">✓ Réception confirmée</div>'+
-    '<div class="hint" style="margin-bottom:8px;">Photos (facultatif) :</div>'+
+    '<div class="hint" style="margin-bottom:8px;">Marchandise et documents (facultatif) :</div>'+
     '<div class="btn-row" style="margin-top:0;">'+
       '<button class="btn ghost" id="quaiPhotoMarch-'+id+'" style="width:auto;">📷 Photos marchandise</button>'+
-      '<button class="btn ghost" id="quaiPhotoDocs-'+id+'" style="width:auto;">📷 Photos documents</button>'+
+      '<button class="btn ghost" id="quaiPdfDocs-'+id+'" style="width:auto;">📄 Charger un PDF</button>'+
     '</div>'+
     '<input type="file" id="quaiPhotoInput-'+id+'" accept="image/*" capture="environment" multiple style="display:none;">'+
+    '<input type="file" id="quaiPdfInput-'+id+'" accept="application/pdf" multiple style="display:none;">'+
     '<div id="quaiPhotoPreview-'+id+'" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;"></div>'+
+    '<div id="quaiDocsPreview-'+id+'" style="margin:4px 0 8px;"></div>'+
     '<div class="btn-row">'+
       '<button class="btn danger" id="quaiSendMail-'+id+'" style="width:100%;">Envoyer par mail au client</button>'+
     '</div>'+
@@ -2069,6 +2091,9 @@ function renderQuaiPhotosStep(box, id, rec, labelNumber){
   function renderPreview(){
     document.getElementById('quaiPhotoPreview-'+id).innerHTML = photos.map(function(u){
       return '<img src="'+u+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">';
+    }).join('');
+    document.getElementById('quaiDocsPreview-'+id).innerHTML = docs.map(function(d){
+      return '<div class="hint">📄 '+escapeHtml(d.name||'document.pdf')+'</div>';
     }).join('');
   }
   renderPreview();
@@ -2086,13 +2111,26 @@ function renderQuaiPhotosStep(box, id, rec, labelNumber){
     banner(photos.length+' photo(s) enregistrée(s)');
   });
   document.getElementById('quaiPhotoMarch-'+id).addEventListener('click', function(){ fileInput.click(); });
-  document.getElementById('quaiPhotoDocs-'+id).addEventListener('click', function(){ fileInput.click(); });
+
+  var pdfInput = document.getElementById('quaiPdfInput-'+id);
+  pdfInput.addEventListener('change', async function(e){
+    var files = Array.prototype.slice.call(e.target.files || []);
+    for(var i=0;i<files.length;i++){
+      var dataUrl = await fileToDataUrl(files[i]);
+      if(dataUrl) docs.push({ name: files[i].name, dataUrl: dataUrl });
+    }
+    rec.data.receptionDocs = docs;
+    await saveReceptionRecord(id, rec);
+    renderPreview();
+    banner(docs.length+' document(s) PDF enregistré(s)');
+  });
+  document.getElementById('quaiPdfDocs-'+id).addEventListener('click', function(){ pdfInput.click(); });
 
   document.getElementById('quaiSendMail-'+id).addEventListener('click', function(){
     resolveClientEmailInteractive(rec.data.client, box, async function(toEmail){
       var ccEmail = currentAgencyEmail();
       var body = buildEmailBody(state.base.emailTemplateReception || DEFAULT_EMAIL_RECEPTION);
-      await shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(rec.data.labelNumber||''), body, photos);
+      await shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(rec.data.labelNumber||''), body, photos, docs);
       rec.data.receptionMailSent = true;
       await saveReceptionRecord(id, rec);
       var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
@@ -2234,15 +2272,23 @@ function buildEmailBody(template){
   return (template || '').split('#AGENCE#').join(currentAgencyName());
 }
 
-async function shareOrEmailWithPhotos(toEmail, ccEmail, subject, body, photoDataUrls){
+async function shareOrEmailWithPhotos(toEmail, ccEmail, subject, body, photoDataUrls, docFiles){
   photoDataUrls = photoDataUrls || [];
-  if(navigator.canShare && photoDataUrls.length){
+  docFiles = docFiles || []; // [{name, dataUrl}] — documents PDF de réception
+  var hasAttachments = photoDataUrls.length || docFiles.length;
+  if(navigator.canShare && hasAttachments){
     try{
       var files = await Promise.all(photoDataUrls.map(async function(url, i){
         var res = await fetch(url);
         var blob = await res.blob();
         return new File([blob], 'photo'+(i+1)+'.jpg', { type: 'image/jpeg' });
       }));
+      var pdfFiles = await Promise.all(docFiles.map(async function(d){
+        var res = await fetch(d.dataUrl);
+        var blob = await res.blob();
+        return new File([blob], d.name || 'document.pdf', { type: 'application/pdf' });
+      }));
+      files = files.concat(pdfFiles);
       if(navigator.canShare({ files: files })){
         await navigator.share({
           files: files,
@@ -2253,8 +2299,8 @@ async function shareOrEmailWithPhotos(toEmail, ccEmail, subject, body, photoData
       }
     }catch(e){ console.error('share error', e); }
   }
-  // repli : ouvre la messagerie (sans pièce jointe) + télécharge les photos pour les joindre à la main
-  var mailto = 'mailto:'+encodeURIComponent(toEmail||'')+(ccEmail?'?cc='+encodeURIComponent(ccEmail):'?')+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body+(photoDataUrls.length?'\n\n(Photos téléchargées séparément — à joindre manuellement.)':''));
+  // repli : ouvre la messagerie (sans pièce jointe) + télécharge les photos/PDF pour les joindre à la main
+  var mailto = 'mailto:'+encodeURIComponent(toEmail||'')+(ccEmail?'?cc='+encodeURIComponent(ccEmail):'?')+'&subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body+(hasAttachments?'\n\n(Pièces jointes téléchargées séparément — à joindre manuellement.)':''));
   window.location.href = mailto;
   photoDataUrls.forEach(function(url, i){
     setTimeout(function(){
@@ -2262,6 +2308,13 @@ async function shareOrEmailWithPhotos(toEmail, ccEmail, subject, body, photoData
       a.href = url; a.download = 'photo'+(i+1)+'.jpg';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }, i*400);
+  });
+  docFiles.forEach(function(d, i){
+    setTimeout(function(){
+      var a = document.createElement('a');
+      a.href = d.dataUrl; a.download = d.name || ('document'+(i+1)+'.pdf');
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }, (photoDataUrls.length+i)*400);
   });
 }
 
@@ -2298,10 +2351,9 @@ async function viewAvaries(id, boxId){
   box.style.display = 'block';
 
   document.getElementById('reserveEmailBtn-'+id).addEventListener('click', function(){
-    var toEmail = findClientEmail(rec.data.client);
-    var ccEmail = currentAgencyEmail();
+    var recipients = resolveReceptionEmailRecipients(rec.data.client);
     var body = buildEmailBody(state.base.emailTemplateReserve || DEFAULT_EMAIL_RESERVE);
-    shareOrEmailWithPhotos(toEmail, ccEmail, 'Réserve à réception — '+(rec.data.labelNumber||''), body, allPhotos);
+    shareOrEmailWithPhotos(recipients.to, recipients.cc, 'Réserve à réception — '+(rec.data.labelNumber||''), body, allPhotos);
   });
 }
 
@@ -2569,7 +2621,7 @@ function renderHistory(){
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
-    var mailBadge = h.receptionMailSent ? ' <span title="Documents de réception envoyés par mail" style="font-size:15px;">✅</span>' : '';
+    var mailBadge = h.receptionMailSent ? ' <span title="Documents de réception envoyés par mail" style="font-size:15px;">✅</span>' : ' <span title="Documents de réception pas encore envoyés" style="font-size:15px;">🟠</span>';
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     var walkPanel = renderWalkPanel(h.labelNumber);
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
@@ -3202,7 +3254,9 @@ function renderToRangeList(){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
-    var mailBadge = h.receptionMailSent ? ' <span title="Documents de réception envoyés par mail" style="font-size:15px;">✅</span>' : '';
+    var mailBadge = h.receptionMailSent
+      ? ' <span title="Documents de réception envoyés par mail" style="font-size:15px;">✅</span>'
+      : ' <span title="Documents de réception pas encore envoyés" style="font-size:15px;">🟠</span>';
     var progress = (h.itemsRanged||0)+' / '+(h.itemsTotal||0)+' étiquette(s) rangée(s)';
     return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'" data-id="'+h.id+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span></div>'+
@@ -3212,11 +3266,13 @@ function renderToRangeList(){
         '<button class="btn accent" data-act="load">Ranger cette commande</button>'+
         '<button class="btn ghost" data-act="unreceive">Remettre en attente</button>'+
         '<button class="btn ghost" data-act="photos">📷 Photos réception</button>'+
+        '<button class="btn ghost" data-act="pdfdocs">📄 Charger un PDF</button>'+
         '<button class="btn ghost" data-act="mailreception">Envoyer mail</button>'+
         '<button class="btn ghost" data-act="pdf">Télécharger PDF étiquette</button>'+
       '</div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="recphotos-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<input type="file" id="recdocs-input-'+h.id+'" accept="application/pdf" multiple style="display:none;">'+
       '</div>';
   }).join('');
 
@@ -3243,6 +3299,28 @@ function renderToRangeList(){
     btn.addEventListener('click', function(){ openReceptionPhotosBox(id); });
   });
 
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="pdfdocs"]'), function(btn){
+    var item = btn.closest('.hist-item');
+    var id = item.getAttribute('data-id');
+    var input = document.getElementById('recdocs-input-'+id);
+    btn.addEventListener('click', function(){ input.click(); });
+    input.addEventListener('change', async function(e){
+      var files = Array.prototype.slice.call(e.target.files || []);
+      if(!files.length) return;
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      var docs = rec.data.receptionDocs || [];
+      for(var i=0;i<files.length;i++){
+        var dataUrl = await fileToDataUrl(files[i]);
+        if(dataUrl) docs.push({ name: files[i].name, dataUrl: dataUrl });
+      }
+      rec.data.receptionDocs = docs;
+      await saveReceptionRecord(id, rec);
+      banner(docs.length+' document(s) PDF enregistré(s)');
+      input.value = '';
+    });
+  });
+
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="mailreception"]'), function(btn){
     var item = btn.closest('.hist-item');
     var id = item.getAttribute('data-id');
@@ -3250,11 +3328,17 @@ function renderToRangeList(){
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
       var photos = rec.data.receptionPhotos || [];
-      if(!photos.length){ banner('Prends d\'abord des photos de réception'); return; }
-      var toEmail = findClientEmail(rec.data.client);
-      var ccEmail = currentAgencyEmail();
+      var docs = rec.data.receptionDocs || [];
+      if(!photos.length && !docs.length){ banner('Prends d\'abord des photos ou charge un PDF de réception'); return; }
+      var recipients = resolveReceptionEmailRecipients(rec.data.client);
       var body = buildEmailBody(state.base.emailTemplateReception || DEFAULT_EMAIL_RECEPTION);
-      shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(rec.data.labelNumber||''), body, photos);
+      await shareOrEmailWithPhotos(recipients.to, recipients.cc, 'Documents de réception — '+(rec.data.labelNumber||''), body, photos, docs);
+      rec.data.receptionMailSent = true;
+      await saveReceptionRecord(id, rec);
+      var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
+      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      renderToRangeList();
+      banner('Mail envoyé');
     });
   });
 
@@ -4383,7 +4467,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0010';
+var APP_VERSION = '2026.0011';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
