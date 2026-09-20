@@ -3155,10 +3155,24 @@ async function moveLoadReception(ln, presetItemId){
   moveRecordCache = rec;
   moveActiveItemId = null;
   document.getElementById('moveLabelInput').value = ln;
-  document.getElementById('moveSelected').textContent = 'Commande : '+ln+' — '+(rec.data.client||'')+(rec.data.contremarque?' - '+rec.data.contremarque:'');
+  document.getElementById('moveSelected').innerHTML = 'Commande : '+ln+' — '+escapeHtml(rec.data.client||'')+(rec.data.contremarque?' - '+escapeHtml(rec.data.contremarque):'')+
+    '<br><span style="font-size:11.5px;color:var(--ink-soft);">Diagnostic — '+buildMoveDiagnostic(rec.data)+'</span>';
   document.getElementById('moveEmpRow').style.display = 'none';
   renderMoveItems();
   if(presetItemId){ selectMoveItem(presetItemId); }
+}
+
+function buildMoveDiagnostic(d){
+  var items = computeLabels(d);
+  var emps = d.emplacements || {};
+  var ranged = items.filter(function(m){ return !!emps[m.itemId]; }).length;
+  var parts = [];
+  parts.push('date='+(d.date||'—'));
+  parts.push('reçue='+(d.receivedAt||'NON'));
+  parts.push('rangée='+ranged+'/'+items.length);
+  parts.push('sortie='+(d.exitedAt?'OUI ('+d.exitedAt.slice(0,10)+')':'non'));
+  parts.push('corbeille='+(d.deletedAt?'OUI':'non'));
+  return parts.join(' · ');
 }
 
 function renderMoveItems(){
@@ -3235,6 +3249,8 @@ document.getElementById('btnMoveSave').addEventListener('click', async function(
   moveActiveItemId = null;
   document.getElementById('moveEmpRow').style.display = 'none';
   document.getElementById('moveStepHint').textContent = "Scanne l'étiquette de la palette/colis à déplacer (ou tape son n°), puis scanne l'étiquette de son nouvel emplacement.";
+  document.getElementById('moveSelected').innerHTML = 'Commande : '+(freshRec.data.labelNumber||'')+' — '+escapeHtml(freshRec.data.client||'')+(freshRec.data.contremarque?' - '+escapeHtml(freshRec.data.contremarque):'')+
+    '<br><span style="font-size:11.5px;color:var(--ink-soft);">Diagnostic — '+buildMoveDiagnostic(freshRec.data)+'</span>';
   renderMoveItems();
 });
 
@@ -4050,7 +4066,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0001';
+var APP_VERSION = '2026.0002';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
