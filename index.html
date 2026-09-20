@@ -658,22 +658,108 @@
       <div id="backupExitedMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
-      <h2>Agences</h2>
+      <h2>Sièges</h2>
+      <div id="listSieges" style="margin-bottom:12px;"></div>
+
+      <h2 style="margin-top:20px;" id="siegeFormTitle">Ajouter un siège (administrateur)</h2>
+      <div class="field">
+        <label for="siegeAdminCode">Code administrateur</label>
+        <input type="text" id="siegeAdminCode" placeholder="Code administrateur" maxlength="10">
+      </div>
+      <div class="field">
+        <label for="siegeNom">Nom de l'agence (siège)</label>
+        <input type="text" id="siegeNom" placeholder="STLS-VAR 83">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="siegeAdresse1">Adresse 1</label>
+          <input type="text" id="siegeAdresse1">
+        </div>
+        <div class="field">
+          <label for="siegeAdresse2">Adresse 2</label>
+          <input type="text" id="siegeAdresse2">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="siegeCp">Code postal</label>
+          <input type="text" id="siegeCp" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="siegeVille">Ville</label>
+          <input type="text" id="siegeVille">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="siegeTel">Téléphone</label>
+          <input type="text" id="siegeTel">
+        </div>
+        <div class="field">
+          <label for="siegeMail">Mail</label>
+          <input type="email" id="siegeMail">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="siegeFax">Fax</label>
+          <input type="text" id="siegeFax">
+        </div>
+        <div class="field">
+          <label for="siegeType">Type de société</label>
+          <input type="text" id="siegeType" placeholder="EURL">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="siegeSiret">N° de Siret</label>
+          <input type="text" id="siegeSiret" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="siegeSiren">N° de Siren</label>
+          <input type="text" id="siegeSiren" inputmode="numeric">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="siegeTva">N° de TVA intracom.</label>
+          <input type="text" id="siegeTva" placeholder="FR 44790485247">
+        </div>
+        <div class="field">
+          <label for="siegeCapital">Capital</label>
+          <input type="text" id="siegeCapital" inputmode="numeric">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSaveSiege" style="width:100%;">Enregistrer le siège</button>
+      </div>
+      <div class="btn-row" id="btnCancelSiegeEditRow" style="display:none;">
+        <button class="btn ghost" id="btnCancelSiegeEdit" style="width:100%;">Annuler la modification</button>
+      </div>
+      <div id="siegeChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Dépôts</h2>
       <p class="hint" id="agencyCurrentLine" style="margin:0 0 14px;"></p>
-      <div class="base-list" id="listAgencies" style="margin-bottom:12px;"></div>
+      <div id="listDepots" style="margin-bottom:12px;"></div>
 
       <div class="field">
-        <label for="agencySwitchSelect">Changer d'agence active (administrateur)</label>
+        <label for="agencySwitchSelect">Changer de dépôt actif (administrateur)</label>
         <select id="agencySwitchSelect" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
       </div>
       <div class="btn-row">
-        <button class="btn accent" id="btnSwitchAgency" style="width:100%;">Basculer sur cette agence</button>
+        <button class="btn accent" id="btnSwitchAgency" style="width:100%;">Basculer sur ce dépôt</button>
       </div>
 
-      <h2 style="margin-top:20px;">Ajouter une agence (administrateur)</h2>
+      <h2 style="margin-top:20px;" id="depotFormTitle">Ajouter un dépôt (administrateur)</h2>
       <div class="field">
         <label for="agencyAdminCode">Code administrateur</label>
         <input type="text" id="agencyAdminCode" placeholder="Code administrateur" maxlength="10">
+      </div>
+      <div class="field">
+        <label for="depotSiege">Siège de rattachement</label>
+        <select id="depotSiege" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
       </div>
       <div class="row2">
         <div class="field">
@@ -681,23 +767,92 @@
           <input type="text" id="agencyNewCode" placeholder="83" maxlength="2" inputmode="numeric">
         </div>
         <div class="field">
-          <label for="agencyNewName">Nom de l'agence</label>
-          <input type="text" id="agencyNewName" placeholder="Var">
+          <label for="agencyNewName">Nom du dépôt</label>
+          <input type="text" id="agencyNewName" placeholder="STLS-VAR 83">
         </div>
       </div>
       <div class="field">
-        <label for="agencyNewEmail">Adresse mail de l'agence</label>
-        <input type="email" id="agencyNewEmail" placeholder="agence83@stls.fr">
+        <label for="depotContact">Contact</label>
+        <input type="text" id="depotContact" placeholder="M Chevallaz">
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:9px;flex-direction:row;">
+        <input type="checkbox" id="depotSameAddress" style="width:18px;height:18px;flex-shrink:0;">
+        <label for="depotSameAddress" style="margin:0;">Même adresse que le siège</label>
+      </div>
+      <div id="depotAddressFields">
+        <div class="row2">
+          <div class="field">
+            <label for="depotAdresse1">Adresse 1</label>
+            <input type="text" id="depotAdresse1">
+          </div>
+          <div class="field">
+            <label for="depotAdresse2">Adresse 2</label>
+            <input type="text" id="depotAdresse2">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="depotCp">Code postal</label>
+            <input type="text" id="depotCp" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="depotVille">Ville</label>
+            <input type="text" id="depotVille">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="depotTel">Téléphone</label>
+            <input type="text" id="depotTel">
+          </div>
+          <div class="field">
+            <label for="agencyNewEmail">Mail</label>
+            <input type="email" id="agencyNewEmail" placeholder="depot@stls.fr">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="depotFax">Fax</label>
+            <input type="text" id="depotFax">
+          </div>
+          <div class="field">
+            <label for="depotType">Type de société</label>
+            <input type="text" id="depotType" placeholder="EURL">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="depotSiret">N° de Siret</label>
+            <input type="text" id="depotSiret" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="depotSiren">N° de Siren</label>
+            <input type="text" id="depotSiren" inputmode="numeric">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="depotTva">N° de TVA intracom.</label>
+            <input type="text" id="depotTva" placeholder="FR 44790485247">
+          </div>
+          <div class="field">
+            <label for="depotCapital">Capital</label>
+            <input type="text" id="depotCapital" inputmode="numeric">
+          </div>
+        </div>
       </div>
       <div class="btn-row">
-        <button class="btn accent" id="btnAddAgency" style="width:100%;">Ajouter cette agence</button>
+        <button class="btn accent" id="btnAddAgency" style="width:100%;">Enregistrer ce dépôt</button>
+      </div>
+      <div class="btn-row" id="btnCancelDepotEditRow" style="display:none;">
+        <button class="btn ghost" id="btnCancelDepotEdit" style="width:100%;">Annuler la modification</button>
       </div>
       <div id="agencyChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
 
       <div class="btn-row" style="margin-top:16px;">
-        <button class="btn primary" id="btnPrintAgencyQr" style="width:100%;">Imprimer l'étiquette d'accueil de l'agence active</button>
+        <button class="btn primary" id="btnPrintAgencyQr" style="width:100%;">Imprimer l'étiquette d'accueil du dépôt actif</button>
       </div>
-      <p class="hint" style="margin-top:8px;">À afficher dans le dépôt : en la scannant, l'appli démarre directement sur cette agence.</p>
+      <p class="hint" style="margin-top:8px;">À afficher dans le dépôt : en la scannant, l'appli démarre directement dessus.</p>
     </div>
     <div class="card">
       <h2>Modèles d'e-mail</h2>
@@ -741,7 +896,8 @@ var state = {
   isAdmin: false,
   globalSecurity: { masterCode: '2013', adminCode: 'ADMIN1', users: [], sessionVersion: 1 },
   brandName: 'STLS',
-  agenciesList: []
+  agenciesList: [],
+  siegesList: []
 };
 
 function banner(msg){
@@ -827,8 +983,9 @@ async function loadGlobalConfig(){
         state.globalSecurity = d.globalSecurity || state.globalSecurity;
         if(!state.globalSecurity.sessionVersion) state.globalSecurity.sessionVersion = 1;
         state.agenciesList = d.agenciesList || [];
+        state.siegesList = d.siegesList || [];
         state.brandName = d.brandName || 'STLS';
-        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, brandName: state.brandName }));
+        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }));
         return;
       }
     }catch(e){ console.error('Firestore loadGlobalConfig error', e); }
@@ -841,6 +998,7 @@ async function loadGlobalConfig(){
       state.globalSecurity = cached.globalSecurity || state.globalSecurity;
       if(!state.globalSecurity.sessionVersion) state.globalSecurity.sessionVersion = 1;
       state.agenciesList = cached.agenciesList || [];
+      state.siegesList = cached.siegesList || [];
       state.brandName = cached.brandName || 'STLS';
     }catch(e){}
   }
@@ -870,9 +1028,9 @@ async function loadGlobalConfig(){
 }
 
 async function saveGlobalConfig(){
-  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, brandName: state.brandName }));
+  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }));
   if(fsReady()){
-    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, brandName: state.brandName }, { merge: true }); }
+    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }, { merge: true }); }
     catch(e){ console.error('Firestore saveGlobalConfig error', e); }
   }
 }
@@ -926,7 +1084,8 @@ async function switchToAgency(code){
   resetForm();
   updateAgencyCodeLine();
   updateEmailTemplateFields();
-  renderAgenciesList();
+  renderSiegesList();
+  renderDepotsList();
 }
 
 // ---------- storage (Firestore = source de vérité partagée ; localStorage = cache de secours hors-ligne) ----------
@@ -4052,7 +4211,7 @@ function updateAgencyCodeLine(){
   var el = document.getElementById('agencyCurrentLine');
   if(!el) return;
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
-  el.textContent = 'Agence active : '+(state.brandName||'STLS')+' - Agence '+(state.currentAgencyCode||'-')+(ag&&ag.name?' — '+ag.name:'');
+  el.textContent = 'Dépôt actif : '+(state.brandName||'STLS')+' - Dépôt '+(state.currentAgencyCode||'-')+(ag&&ag.name?' — '+ag.name:'');
 }
 
 function currentAgencyName(){
@@ -4074,7 +4233,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0004';
+var APP_VERSION = '2026.0005';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
@@ -4085,13 +4244,119 @@ function updateBrandingUI(){
   if(line) line.textContent = 'Nom actuel : '+brand;
 }
 
-function renderAgenciesList(){
-  var el = document.getElementById('listAgencies');
+// ---------- Sièges ----------
+var siegeEditId = null;
+
+function renderSiegesList(){
+  var el = document.getElementById('listSieges');
+  if(!el) return;
+  var list = state.siegesList||[];
+  el.innerHTML = list.length ? list.map(function(s){
+    var adr = [s.adresse1, s.cp, s.ville].filter(Boolean).join(' · ');
+    return '<div class="base-row"><span>'+escapeHtml(s.nom||'')+(adr?' — '+escapeHtml(adr):'')+'</span>'+
+      '<button data-id="'+s.id+'" data-act="editsiege">Modifier</button></div>';
+  }).join('') : '<div class="empty">Aucun siège enregistré</div>';
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="editsiege"]'), function(btn){
+    btn.addEventListener('click', function(){ startEditSiege(btn.getAttribute('data-id')); });
+  });
+
+  var depotSel = document.getElementById('depotSiege');
+  if(depotSel){
+    depotSel.innerHTML = list.map(function(s){ return '<option value="'+s.id+'">'+escapeHtml(s.nom||'')+'</option>'; }).join('');
+  }
+}
+
+function clearSiegeForm(){
+  siegeEditId = null;
+  document.getElementById('siegeFormTitle').textContent = 'Ajouter un siège (administrateur)';
+  document.getElementById('btnSaveSiege').textContent = 'Enregistrer le siège';
+  document.getElementById('btnCancelSiegeEditRow').style.display = 'none';
+  ['siegeNom','siegeAdresse1','siegeAdresse2','siegeCp','siegeVille','siegeTel','siegeMail','siegeFax','siegeType','siegeSiret','siegeSiren','siegeTva','siegeCapital'].forEach(function(id){
+    document.getElementById(id).value = '';
+  });
+}
+
+function startEditSiege(id){
+  var s = (state.siegesList||[]).find(function(x){ return x.id===id; });
+  if(!s) return;
+  siegeEditId = id;
+  document.getElementById('siegeFormTitle').textContent = 'Modifier le siège';
+  document.getElementById('btnSaveSiege').textContent = 'Enregistrer les modifications';
+  document.getElementById('btnCancelSiegeEditRow').style.display = 'block';
+  document.getElementById('siegeNom').value = s.nom||'';
+  document.getElementById('siegeAdresse1').value = s.adresse1||'';
+  document.getElementById('siegeAdresse2').value = s.adresse2||'';
+  document.getElementById('siegeCp').value = s.cp||'';
+  document.getElementById('siegeVille').value = s.ville||'';
+  document.getElementById('siegeTel').value = s.telephone||'';
+  document.getElementById('siegeMail').value = s.mail||'';
+  document.getElementById('siegeFax').value = s.fax||'';
+  document.getElementById('siegeType').value = s.typeSociete||'';
+  document.getElementById('siegeSiret').value = s.siret||'';
+  document.getElementById('siegeSiren').value = s.siren||'';
+  document.getElementById('siegeTva').value = s.tva||'';
+  document.getElementById('siegeCapital').value = s.capital||'';
+  window.scrollTo({ top: document.getElementById('siegeFormTitle').offsetTop - 80, behavior: 'smooth' });
+}
+document.getElementById('btnCancelSiegeEdit').addEventListener('click', clearSiegeForm);
+
+document.getElementById('btnSaveSiege').addEventListener('click', async function(){
+  var adminCodeInput = document.getElementById('siegeAdminCode').value.trim();
+  var msg = document.getElementById('siegeChangeMsg');
+  if(adminCodeInput.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
+    msg.textContent = 'Code administrateur incorrect'; msg.style.color = 'var(--danger)'; return;
+  }
+  var nom = document.getElementById('siegeNom').value.trim();
+  if(!nom){ msg.textContent = 'Saisis un nom'; msg.style.color='var(--danger)'; return; }
+  var data = {
+    nom: nom,
+    adresse1: document.getElementById('siegeAdresse1').value.trim(),
+    adresse2: document.getElementById('siegeAdresse2').value.trim(),
+    cp: document.getElementById('siegeCp').value.trim(),
+    ville: document.getElementById('siegeVille').value.trim(),
+    telephone: document.getElementById('siegeTel').value.trim(),
+    mail: document.getElementById('siegeMail').value.trim(),
+    fax: document.getElementById('siegeFax').value.trim(),
+    typeSociete: document.getElementById('siegeType').value.trim(),
+    siret: document.getElementById('siegeSiret').value.trim(),
+    siren: document.getElementById('siegeSiren').value.trim(),
+    tva: document.getElementById('siegeTva').value.trim(),
+    capital: document.getElementById('siegeCapital').value.trim()
+  };
+  if(siegeEditId){
+    var s = state.siegesList.find(function(x){ return x.id===siegeEditId; });
+    if(s) Object.assign(s, data);
+    msg.textContent = 'Siège modifié';
+  } else {
+    data.id = 'sg_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    state.siegesList.push(data);
+    msg.textContent = 'Siège ajouté';
+  }
+  await saveGlobalConfig();
+  renderSiegesList();
+  renderDepotsList();
+  document.getElementById('siegeAdminCode').value = '';
+  clearSiegeForm();
+  msg.style.color = 'var(--accent)';
+});
+
+// ---------- Dépôts ----------
+var depotEditId = null;
+
+function renderDepotsList(){
+  var el = document.getElementById('listDepots');
   if(!el) return;
   var list = state.agenciesList||[];
   el.innerHTML = list.length ? list.map(function(a){
-    return '<div class="base-row"><span>'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+(a.email?' · '+escapeHtml(a.email):'')+(a.code===state.currentAgencyCode?' <b style="color:var(--accent);">(active)</b>':'')+'</span></div>';
-  }).join('') : '<div class="empty">Aucune agence enregistrée</div>';
+    var siege = (state.siegesList||[]).find(function(s){ return s.id===a.siegeId; });
+    return '<div class="base-row"><span>'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+(siege?' ('+escapeHtml(siege.nom)+')':'')+(a.email?' · '+escapeHtml(a.email):'')+(a.code===state.currentAgencyCode?' <b style="color:var(--accent);">(actif)</b>':'')+'</span>'+
+      '<button data-code="'+escapeHtml(a.code)+'" data-act="editdepot">Modifier</button></div>';
+  }).join('') : '<div class="empty">Aucun dépôt enregistré</div>';
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="editdepot"]'), function(btn){
+    btn.addEventListener('click', function(){ startEditDepot(btn.getAttribute('data-code')); });
+  });
 
   var sel = document.getElementById('agencySwitchSelect');
   if(sel){
@@ -4100,12 +4365,85 @@ function renderAgenciesList(){
   }
 }
 
+function applySameAddressToggle(){
+  var same = document.getElementById('depotSameAddress').checked;
+  document.getElementById('depotAddressFields').style.display = same ? 'none' : 'block';
+  if(same){
+    var siegeId = document.getElementById('depotSiege').value;
+    var s = (state.siegesList||[]).find(function(x){ return x.id===siegeId; });
+    if(s){
+      document.getElementById('depotAdresse1').value = s.adresse1||'';
+      document.getElementById('depotAdresse2').value = s.adresse2||'';
+      document.getElementById('depotCp').value = s.cp||'';
+      document.getElementById('depotVille').value = s.ville||'';
+      document.getElementById('depotTel').value = s.telephone||'';
+      document.getElementById('depotFax').value = s.fax||'';
+      document.getElementById('depotType').value = s.typeSociete||'';
+      document.getElementById('depotSiret').value = s.siret||'';
+      document.getElementById('depotSiren').value = s.siren||'';
+      document.getElementById('depotTva').value = s.tva||'';
+      document.getElementById('depotCapital').value = s.capital||'';
+    }
+  }
+}
+document.getElementById('depotSameAddress').addEventListener('change', applySameAddressToggle);
+document.getElementById('depotSiege').addEventListener('change', function(){
+  if(document.getElementById('depotSameAddress').checked) applySameAddressToggle();
+});
+
+function clearDepotForm(){
+  depotEditId = null;
+  document.getElementById('depotFormTitle').textContent = 'Ajouter un dépôt (administrateur)';
+  document.getElementById('btnAddAgency').textContent = 'Enregistrer ce dépôt';
+  document.getElementById('btnCancelDepotEditRow').style.display = 'none';
+  document.getElementById('agencyNewCode').disabled = false;
+  document.getElementById('agencyNewCode').value = '';
+  document.getElementById('agencyNewName').value = '';
+  document.getElementById('agencyNewEmail').value = '';
+  document.getElementById('depotContact').value = '';
+  document.getElementById('depotSameAddress').checked = false;
+  document.getElementById('depotAddressFields').style.display = 'block';
+  ['depotAdresse1','depotAdresse2','depotCp','depotVille','depotTel','depotFax','depotType','depotSiret','depotSiren','depotTva','depotCapital'].forEach(function(id){
+    document.getElementById(id).value = '';
+  });
+}
+
+function startEditDepot(code){
+  var a = (state.agenciesList||[]).find(function(x){ return x.code===code; });
+  if(!a) return;
+  depotEditId = code;
+  document.getElementById('depotFormTitle').textContent = 'Modifier le dépôt '+code;
+  document.getElementById('btnAddAgency').textContent = 'Enregistrer les modifications';
+  document.getElementById('btnCancelDepotEditRow').style.display = 'block';
+  document.getElementById('agencyNewCode').value = a.code;
+  document.getElementById('agencyNewCode').disabled = true; // le code ne change pas une fois créé
+  document.getElementById('agencyNewName').value = a.name||'';
+  document.getElementById('agencyNewEmail').value = a.email||'';
+  document.getElementById('depotContact').value = a.contact||'';
+  if(a.siegeId) document.getElementById('depotSiege').value = a.siegeId;
+  document.getElementById('depotSameAddress').checked = !!a.sameAddressAsSiege;
+  document.getElementById('depotAddressFields').style.display = a.sameAddressAsSiege ? 'none' : 'block';
+  document.getElementById('depotAdresse1').value = a.adresse1||'';
+  document.getElementById('depotAdresse2').value = a.adresse2||'';
+  document.getElementById('depotCp').value = a.cp||'';
+  document.getElementById('depotVille').value = a.ville||'';
+  document.getElementById('depotTel').value = a.telephone||'';
+  document.getElementById('depotFax').value = a.fax||'';
+  document.getElementById('depotType').value = a.typeSociete||'';
+  document.getElementById('depotSiret').value = a.siret||'';
+  document.getElementById('depotSiren').value = a.siren||'';
+  document.getElementById('depotTva').value = a.tva||'';
+  document.getElementById('depotCapital').value = a.capital||'';
+  window.scrollTo({ top: document.getElementById('depotFormTitle').offsetTop - 80, behavior: 'smooth' });
+}
+document.getElementById('btnCancelDepotEdit').addEventListener('click', clearDepotForm);
+
 document.getElementById('btnSwitchAgency').addEventListener('click', async function(){
   if(!state.isAdmin){ banner('Réservé à l\'administrateur'); return; }
   var code = document.getElementById('agencySwitchSelect').value;
   if(!code || code === state.currentAgencyCode) return;
   await switchToAgency(code);
-  banner('Agence active : '+code);
+  banner('Dépôt actif : '+code);
 });
 
 document.getElementById('btnAddAgency').addEventListener('click', async function(){
@@ -4118,18 +4456,42 @@ document.getElementById('btnAddAgency').addEventListener('click', async function
     msg.textContent = 'Code administrateur incorrect'; msg.style.color = 'var(--danger)'; return;
   }
   if(!/^[0-9]{2}$/.test(code)){ msg.textContent = 'Le numéro doit être composé de 2 chiffres (ex. 83)'; msg.style.color='var(--danger)'; return; }
-  if(!name){ msg.textContent = 'Saisis un nom d\'agence'; msg.style.color='var(--danger)'; return; }
-  if((state.agenciesList||[]).some(function(a){ return a.code===code; })){
-    msg.textContent = 'Cette agence existe déjà'; msg.style.color='var(--danger)'; return;
+  if(!name){ msg.textContent = 'Saisis un nom de dépôt'; msg.style.color='var(--danger)'; return; }
+
+  var same = document.getElementById('depotSameAddress').checked;
+  var data = {
+    code: code, name: name, email: email,
+    siegeId: document.getElementById('depotSiege').value,
+    contact: document.getElementById('depotContact').value.trim(),
+    sameAddressAsSiege: same,
+    adresse1: document.getElementById('depotAdresse1').value.trim(),
+    adresse2: document.getElementById('depotAdresse2').value.trim(),
+    cp: document.getElementById('depotCp').value.trim(),
+    ville: document.getElementById('depotVille').value.trim(),
+    telephone: document.getElementById('depotTel').value.trim(),
+    fax: document.getElementById('depotFax').value.trim(),
+    typeSociete: document.getElementById('depotType').value.trim(),
+    siret: document.getElementById('depotSiret').value.trim(),
+    siren: document.getElementById('depotSiren').value.trim(),
+    tva: document.getElementById('depotTva').value.trim(),
+    capital: document.getElementById('depotCapital').value.trim()
+  };
+
+  if(depotEditId){
+    var a = state.agenciesList.find(function(x){ return x.code===depotEditId; });
+    if(a) Object.assign(a, data, { code: a.code }); // le code d'origine est conservé
+    msg.textContent = 'Dépôt modifié';
+  } else {
+    if((state.agenciesList||[]).some(function(a){ return a.code===code; })){
+      msg.textContent = 'Ce numéro de dépôt existe déjà'; msg.style.color='var(--danger)'; return;
+    }
+    state.agenciesList.push(data);
+    msg.textContent = 'Dépôt ajouté';
   }
-  state.agenciesList.push({ code: code, name: name, email: email });
   await saveGlobalConfig();
-  renderAgenciesList();
+  renderDepotsList();
   document.getElementById('agencyAdminCode').value = '';
-  document.getElementById('agencyNewCode').value = '';
-  document.getElementById('agencyNewName').value = '';
-  document.getElementById('agencyNewEmail').value = '';
-  msg.textContent = 'Agence ajoutée';
+  clearDepotForm();
   msg.style.color = 'var(--accent)';
 });
 
@@ -4192,7 +4554,8 @@ async function loadAgencyDataAndShowApp(){
   renderToRangeList();
   renderArchiveList();
   resetForm();
-  renderAgenciesList();
+  renderSiegesList();
+  renderDepotsList();
   hideAccessGate();
   updateSecurityIdentityLine();
   updateAgencyCodeLine();
@@ -4489,7 +4852,8 @@ document.getElementById('btnRepairReceivedAt').addEventListener('click', repairM
 (async function init(){
   await loadGlobalConfig();
   updateBrandingUI();
-  renderAgenciesList();
+  renderSiegesList();
+  renderDepotsList();
   tryShowQrLanding(); // fonctionne même sans être connecté, grâce au code agence inclus dans le lien du QR
 
   if(isUnlocked()){
