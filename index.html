@@ -1505,10 +1505,35 @@ function addShowToggle(inputId){
 ['accessCodeInput','secCurrentCode','secNewCode','adminCurrentCode','adminNewCode','forceLogoutAdminCode','brandAdminCode','siegeAdminCode','agencyAdminCode'].forEach(addShowToggle);
 
 // petite coche colorée (verte = envoyé, orange = pas encore) pour le statut du mail de réception
-function mailStatusBadge(sent){
+function mailStatusBadge(sent, id){
   var bg = sent ? '#1e8e3e' : '#e8792e';
-  var title = sent ? 'Documents de réception envoyés par mail' : 'Documents de réception pas encore envoyés';
-  return ' <span title="'+title+'" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:'+bg+';color:#fff;font-size:11px;font-weight:900;line-height:1;vertical-align:middle;">✓</span>';
+  var title = sent ? 'Cliquer pour voir les documents envoyés' : 'Documents de réception pas encore envoyés';
+  var cursor = sent ? 'cursor:pointer;' : '';
+  var cls = sent ? ' class="maildocs-badge" data-id="'+id+'"' : '';
+  return ' <span'+cls+' title="'+title+'" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:'+bg+';color:#fff;font-size:11px;font-weight:900;line-height:1;vertical-align:middle;'+cursor+'">✓</span>';
+}
+
+// affiche les photos et documents PDF envoyés par mail pour une commande (clic sur le badge vert)
+async function viewReceptionDocs(id, boxId){
+  var box = document.getElementById(boxId);
+  if(!box) return;
+  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+  var rec = await getReceptionRecord(id);
+  if(!rec){ banner('Introuvable'); return; }
+  var photos = rec.data.receptionPhotos || [];
+  var docs = rec.data.receptionDocs || [];
+  if(!photos.length && !docs.length){ banner('Aucun document retrouvé pour cette commande'); return; }
+  var photosHtml = photos.map(function(p){
+    return '<a href="'+p+'" target="_blank"><img src="'+p+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);margin:2px 4px 2px 0;"></a>';
+  }).join('');
+  var docsHtml = docs.map(function(d){
+    return '<a href="'+d.dataUrl+'" download="'+escapeHtml(d.name||'document.pdf')+'" style="display:block;margin:4px 0;color:var(--accent);">📄 '+escapeHtml(d.name||'document.pdf')+'</a>';
+  }).join('');
+  box.innerHTML =
+    '<div class="hint" style="margin-bottom:8px;font-weight:600;">Documents de réception envoyés</div>'+
+    (photosHtml ? '<div style="display:flex;flex-wrap:wrap;margin-bottom:6px;">'+photosHtml+'</div>' : '')+
+    docsHtml;
+  box.style.display = 'block';
 }
 
 function escapeHtml(s){
@@ -2634,7 +2659,7 @@ function renderHistory(){
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
-    var mailBadge = mailStatusBadge(h.receptionMailSent);
+    var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     var walkPanel = renderWalkPanel(h.labelNumber);
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
@@ -2649,9 +2674,17 @@ function renderHistory(){
       '</div>'+
       '<div class="reprint-list" id="reprint-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="maildocs-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="walk-'+h.labelNumber+'">'+walkPanel+'</div>'+
       '</div>';
   }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.maildocs-badge'), function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      viewReceptionDocs(btn.getAttribute('data-id'), 'maildocs-view-'+btn.getAttribute('data-id'));
+    });
+  });
 
   Array.prototype.forEach.call(el.querySelectorAll('.avarie-badge'), function(btn){
     btn.addEventListener('click', function(e){
@@ -2761,7 +2794,7 @@ function renderPendingList(){
     var dateLine = h.date ? ('Réception prévue : '+fmtDate(h.date)) : 'Date de réception non communiquée';
     var weekLine = h.weekNumber ? (' · Semaine '+escapeHtml(String(h.weekNumber))) : '';
     var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
-    var mailBadge = h.receptionMailSent ? mailStatusBadge(true) : '';
+    var mailBadge = h.receptionMailSent ? mailStatusBadge(true, h.id) : '';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
@@ -2774,8 +2807,16 @@ function renderPendingList(){
       '</div>'+
       '<div id="quai-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="reserve-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="maildocs-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '</div>';
   }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.maildocs-badge'), function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      viewReceptionDocs(btn.getAttribute('data-id'), 'maildocs-view-'+btn.getAttribute('data-id'));
+    });
+  });
 
   Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
     var id = item.getAttribute('data-id');
@@ -3267,7 +3308,7 @@ function renderToRangeList(){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
-    var mailBadge = mailStatusBadge(h.receptionMailSent);
+    var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var progress = (h.itemsRanged||0)+' / '+(h.itemsTotal||0)+' étiquette(s) rangée(s)';
     return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'" data-id="'+h.id+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span></div>'+
@@ -3283,9 +3324,17 @@ function renderToRangeList(){
       '</div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="recphotos-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="maildocs-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<input type="file" id="recdocs-input-'+h.id+'" accept="application/pdf" multiple style="display:none;">'+
       '</div>';
   }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.maildocs-badge'), function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      viewReceptionDocs(btn.getAttribute('data-id'), 'maildocs-view-'+btn.getAttribute('data-id'));
+    });
+  });
 
   Array.prototype.forEach.call(el.querySelectorAll('.avarie-badge'), function(btn){
     btn.addEventListener('click', function(e){
@@ -4483,7 +4532,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0015';
+var APP_VERSION = '2026.0016';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
