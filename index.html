@@ -182,6 +182,7 @@
     <button class="tab-btn" data-tab="hist">CDE en stock</button>
     <button class="tab-btn" data-tab="exit">Scan sortie</button>
     <button class="tab-btn" data-tab="archive">CDE sortie</button>
+    <button class="tab-btn" data-tab="planning">Planning</button>
     <button class="tab-btn" data-tab="base">Base</button>
   </nav>
 
@@ -515,6 +516,22 @@
     </div>
   </section>
 
+  <!-- ===== TAB: PLANNING (livraison) ===== -->
+  <section id="tab-planning" style="display:none;">
+    <div class="card">
+      <h2>Planning de livraison</h2>
+      <p class="hint" style="margin:0 0 12px;">Commandes en stock, prêtes à livrer. Assigne une date de livraison prévue pour les faire apparaître dans le planning, trié par date.</p>
+      <div class="field" style="margin-bottom:12px;">
+        <input type="text" id="planningSearch" placeholder="Rechercher : n° étiquette, client, contremarque...">
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:9px;flex-direction:row;margin-bottom:12px;">
+        <input type="checkbox" id="planningHideUnplanned" style="width:18px;height:18px;flex-shrink:0;">
+        <label for="planningHideUnplanned" style="margin:0;">Masquer les commandes sans date de livraison assignée</label>
+      </div>
+      <div id="planningList"></div>
+    </div>
+  </section>
+
   <!-- ===== TAB: BASE ===== -->
   <section id="tab-base" style="display:none;">
     <div class="card">
@@ -536,6 +553,85 @@
       <div class="field" style="margin-top:8px;">
         <input type="email" id="add-client-email" placeholder="Adresse mail du client (facultatif — sinon celle de l'agence)">
       </div>
+    </div>
+    <div class="card">
+      <h2 id="clientFicheTitle">Fiche client détaillée</h2>
+      <p class="hint" style="margin:0 0 12px;">Choisis un client dans la liste ci-dessus puis complète sa fiche — pratique dès que le client t'a transmis ses informations de livraison.</p>
+      <div class="field">
+        <label for="clientFicheSelect">Client</label>
+        <select id="clientFicheSelect" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="cli-code">Code client</label>
+          <input type="text" id="cli-code" disabled>
+        </div>
+        <div class="field">
+          <label for="cli-nomEntreprise">Nom enseigne</label>
+          <input type="text" id="cli-nomEntreprise">
+        </div>
+      </div>
+      <h2 style="margin-top:16px;font-size:15px;">Adresse et contact du site</h2>
+      <div id="cli-profile-fields"></div>
+      <h2 style="margin-top:16px;font-size:15px;">Entreprise</h2>
+      <div class="row2">
+        <div class="field">
+          <label for="cli-siret">N° de Siret</label>
+          <input type="text" id="cli-siret" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="cli-siren">N° de Siren</label>
+          <input type="text" id="cli-siren" inputmode="numeric">
+        </div>
+      </div>
+      <div class="field">
+        <label for="cli-tva">N° de TVA intracom.</label>
+        <input type="text" id="cli-tva" placeholder="FR000000000">
+      </div>
+      <h2 style="margin-top:16px;font-size:15px;">Contact administratif (facturation)</h2>
+      <div class="row2">
+        <div class="field">
+          <label for="cli-contactNom">Nom</label>
+          <input type="text" id="cli-contactNom">
+        </div>
+        <div class="field">
+          <label for="cli-contactPrenom">Prénom</label>
+          <input type="text" id="cli-contactPrenom">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="cli-contactTel1">Téléphone 1</label>
+          <input type="text" id="cli-contactTel1" maxlength="10" inputmode="tel">
+        </div>
+        <div class="field">
+          <label for="cli-contactTel2">Téléphone 2</label>
+          <input type="text" id="cli-contactTel2" maxlength="10" inputmode="tel">
+        </div>
+      </div>
+      <div class="field">
+        <label for="cli-contactMail">Mail</label>
+        <input type="email" id="cli-contactMail">
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSaveClientFiche" style="width:100%;">Enregistrer la fiche client</button>
+      </div>
+      <div id="clientFicheMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
+      <h2>Fiches Contremarque (<span id="cnt-contremarques">0</span>)</h2>
+      <p class="hint" style="margin:0 0 12px;">Le client final — celui à qui la marchandise est livrée. À compléter dès que les informations de livraison sont connues.</p>
+      <div id="listContremarques" style="margin-bottom:12px;"></div>
+
+      <h2 id="cmFicheTitle" style="font-size:15px;">Ajouter une fiche contremarque</h2>
+      <div id="cm-profile-fields"></div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSaveContremarqueFiche" style="width:100%;">Enregistrer la fiche</button>
+      </div>
+      <div class="btn-row" id="btnCancelCmEditRow" style="display:none;">
+        <button class="btn ghost" id="btnCancelCmEdit" style="width:100%;">Annuler la modification</button>
+      </div>
+      <div id="cmFicheMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
       <h2>Fournisseurs (<span id="cnt-fournisseurs">0</span>)</h2>
@@ -1155,6 +1251,7 @@ async function loadBase(){
         var d0 = snap.data();
         state.base = {
           clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice(),
+          contremarques: d0.contremarques||[],
           emailTemplateReserve: d0.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
           emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
           receivedAtMigrated: !!d0.receivedAtMigrated
@@ -1180,6 +1277,7 @@ async function loadBase(){
   }
   if(!state.base.emplacements){ state.base.emplacements = DEFAULT_EMPLACEMENTS.slice(); }
   if(!state.base.emailTemplateReserve){ state.base.emailTemplateReserve = DEFAULT_EMAIL_RESERVE; }
+  if(!state.base.contremarques){ state.base.contremarques = []; }
   if(!state.base.emailTemplateReception){ state.base.emailTemplateReception = DEFAULT_EMAIL_RECEPTION; }
   await saveBase();
   watchBase();
@@ -1202,6 +1300,7 @@ function watchBase(){
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
     state.base = {
       clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[],
+      contremarques: d.contremarques||[],
       emailTemplateReserve: d.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
       emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
       receivedAtMigrated: !!d.receivedAtMigrated
@@ -1324,7 +1423,8 @@ function recordToIndexEntry(rec){
     savedAt: rec.savedAt, labelNumber: d.labelNumber,
     itemsTotal: items.length, itemsRanged: rangedCount,
     avarieCount: d.avarieCount || 0,
-    receptionMailSent: !!d.receptionMailSent
+    receptionMailSent: !!d.receptionMailSent,
+    deliveryDate: d.deliveryDate || ''
   };
   // résumé des emplacements : chaque étiquette (palette/colis) peut avoir son propre emplacement
   var uniqueEmps = [];
@@ -1363,6 +1463,7 @@ function watchReceptions(){
     renderPendingList();
   renderToRangeList();
     renderArchiveList();
+    renderPlanningList();
     renderExitSessions();
     repairDuplicateLabelNumbers();
   }, function(err){ console.error('Firestore receptions watch error', err); });
@@ -1536,6 +1637,68 @@ async function viewReceptionDocs(id, boxId){
   box.style.display = 'block';
 }
 
+// ---------- champs de profil partagés (fiche Client / fiche Contremarque) ----------
+var PROFILE_JOURS = [['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi','Jeudi'],['vendredi','Vendredi'],['samedi','Samedi'],['dimanche','Dimanche']];
+
+function buildProfileFieldsHtml(p){
+  var h = '';
+  h += '<div class="row2"><div class="field"><label for="'+p+'-nom">Nom</label><input type="text" id="'+p+'-nom"></div>'+
+       '<div class="field"><label for="'+p+'-prenom">Prénom</label><input type="text" id="'+p+'-prenom"></div></div>';
+  h += '<div class="row2"><div class="field"><label for="'+p+'-adresse1">Adresse 1</label><input type="text" id="'+p+'-adresse1"></div>'+
+       '<div class="field"><label for="'+p+'-adresse2">Adresse 2</label><input type="text" id="'+p+'-adresse2"></div></div>';
+  h += '<div class="row2"><div class="field"><label for="'+p+'-departement">Département</label><input type="text" id="'+p+'-departement" maxlength="2" inputmode="numeric"></div>'+
+       '<div class="field"><label for="'+p+'-cp">Code postal</label><input type="text" id="'+p+'-cp" maxlength="5" inputmode="numeric"></div></div>';
+  h += '<div class="row2"><div class="field"><label for="'+p+'-ville">Ville</label><input type="text" id="'+p+'-ville"></div>'+
+       '<div class="field"><label for="'+p+'-pays">Pays</label><input type="text" id="'+p+'-pays" value="FR-France"></div></div>';
+  h += '<div class="row2"><div class="field"><label for="'+p+'-tel1">Téléphone 1</label><input type="text" id="'+p+'-tel1" maxlength="10" inputmode="tel"></div>'+
+       '<div class="field"><label for="'+p+'-tel2">Téléphone 2</label><input type="text" id="'+p+'-tel2" maxlength="10" inputmode="tel"></div></div>';
+  h += '<div class="field"><label for="'+p+'-mail">Mail</label><input type="email" id="'+p+'-mail"></div>';
+  h += '<div class="field"><label for="'+p+'-etage">Nb étage</label><input type="text" id="'+p+'-etage" maxlength="2" inputmode="numeric"></div>';
+  h += '<div class="field"><label style="margin-bottom:8px;">Accès</label><div style="display:flex;flex-wrap:wrap;gap:14px;">'+
+       ['ascenseur:Ascenseur','villa:Villa','immeuble:Immeuble','bureau:Bureau'].map(function(x){
+         var parts=x.split(':');
+         return '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="'+p+'-'+parts[0]+'" style="width:17px;height:17px;">'+parts[1]+'</label>';
+       }).join('')+'</div></div>';
+  h += '<div class="field"><label style="margin-bottom:8px;">Horaires du matin</label><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+       '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="'+p+'-horairesAM" style="width:17px;height:17px;">Oui</label>'+
+       '<input type="time" id="'+p+'-amDe" style="width:auto;flex:1;"><span>à</span><input type="time" id="'+p+'-amA" style="width:auto;flex:1;">'+
+       '</div></div>';
+  h += '<div class="field"><label style="margin-bottom:8px;">Horaires de l\'après-midi</label><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'+
+       '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="'+p+'-horairesPM" style="width:17px;height:17px;">Oui</label>'+
+       '<input type="time" id="'+p+'-pmDe" style="width:auto;flex:1;"><span>à</span><input type="time" id="'+p+'-pmA" style="width:auto;flex:1;">'+
+       '</div></div>';
+  h += '<div class="field"><label style="margin-bottom:8px;">Journée continue</label><div style="display:flex;align-items:center;gap:10px;">'+
+       '<input type="time" id="'+p+'-journeeDe" style="width:auto;flex:1;"><span>à</span><input type="time" id="'+p+'-journeeA" style="width:auto;flex:1;">'+
+       '</div></div>';
+  h += '<div class="field"><label style="margin-bottom:8px;">Jours d\'ouverture</label><div style="display:flex;flex-wrap:wrap;gap:10px;">'+
+       '<label style="display:flex;align-items:center;gap:6px;font-weight:600;margin:0;"><input type="checkbox" id="'+p+'-joursTous" style="width:17px;height:17px;">Tous</label>'+
+       PROFILE_JOURS.map(function(j){
+         return '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="'+p+'-'+j[0]+'" style="width:17px;height:17px;">'+j[1]+'</label>';
+       }).join('')+'</div></div>';
+  return h;
+}
+
+var PROFILE_FIELD_IDS = ['nom','prenom','adresse1','adresse2','departement','cp','ville','pays','tel1','tel2','mail','etage'];
+var PROFILE_CHECK_IDS = ['ascenseur','villa','immeuble','bureau','horairesAM','horairesPM','joursTous','lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
+var PROFILE_TIME_IDS = ['amDe','amA','pmDe','pmA','journeeDe','journeeA'];
+
+function collectProfileFields(p){
+  var obj = {};
+  PROFILE_FIELD_IDS.forEach(function(id){ obj[id] = document.getElementById(p+'-'+id).value.trim(); });
+  PROFILE_CHECK_IDS.forEach(function(id){ obj[id] = document.getElementById(p+'-'+id).checked; });
+  PROFILE_TIME_IDS.forEach(function(id){ obj[id] = document.getElementById(p+'-'+id).value; });
+  return obj;
+}
+
+function fillProfileFields(p, obj){
+  obj = obj || {};
+  PROFILE_FIELD_IDS.forEach(function(id){ document.getElementById(p+'-'+id).value = obj[id] || (id==='pays' ? 'FR-France' : ''); });
+  PROFILE_CHECK_IDS.forEach(function(id){ document.getElementById(p+'-'+id).checked = !!obj[id]; });
+  PROFILE_TIME_IDS.forEach(function(id){ document.getElementById(p+'-'+id).value = obj[id] || ''; });
+}
+
+function clearProfileFields(p){ fillProfileFields(p, {}); }
+
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -1547,8 +1710,11 @@ function renderBaseLists(){
   document.getElementById('cnt-fournisseurs').textContent = state.base.fournisseurs.length;
   document.getElementById('cnt-transporteurs').textContent = state.base.transporteurs.length;
   document.getElementById('cnt-emplacements').textContent = (state.base.emplacements||[]).length;
+  document.getElementById('cnt-contremarques').textContent = (state.base.contremarques||[]).length;
 
   renderClientsList();
+  populateClientFicheSelect();
+  renderContremarquesList();
   renderOneBaseList('listFournisseurs', state.base.fournisseurs, 'nom', 'code', function(idx){
     if(!confirm('Supprimer ce fournisseur de la base ?')) return;
     state.base.fournisseurs.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
@@ -1619,6 +1785,134 @@ function renderClientsList(){
     });
   });
 }
+
+// ---------- Fiche client détaillée ----------
+function populateClientFicheSelect(){
+  var sel = document.getElementById('clientFicheSelect');
+  if(!sel) return;
+  var prevVal = sel.value;
+  sel.innerHTML = '<option value="">— Choisir un client —</option>'+state.base.clients.map(function(c, idx){
+    return '<option value="'+idx+'">'+escapeHtml(c.nom)+'</option>';
+  }).join('');
+  if(prevVal && sel.querySelector('option[value="'+prevVal+'"]')){ sel.value = prevVal; }
+}
+
+document.getElementById('clientFicheSelect').addEventListener('change', function(){
+  var idx = this.value;
+  var msg = document.getElementById('clientFicheMsg');
+  msg.textContent = '';
+  if(idx===''){
+    document.getElementById('cli-code').value = '';
+    document.getElementById('cli-nomEntreprise').value = '';
+    clearProfileFields('cli');
+    ['siret','siren','tva','contactNom','contactPrenom','contactTel1','contactTel2','contactMail'].forEach(function(id){
+      document.getElementById('cli-'+id).value = '';
+    });
+    return;
+  }
+  var c = state.base.clients[parseInt(idx,10)];
+  if(!c) return;
+  document.getElementById('cli-code').value = c.code||'';
+  document.getElementById('cli-nomEntreprise').value = c.nomEntreprise||'';
+  var profile = Object.assign({}, c);
+  if(!profile.nom) profile.nom = c.nom; // le nom du client sert de valeur de départ pour le contact du site
+  if(!profile.mail) profile.mail = c.email||'';
+  fillProfileFields('cli', profile);
+  document.getElementById('cli-siret').value = c.siret||'';
+  document.getElementById('cli-siren').value = c.siren||'';
+  document.getElementById('cli-tva').value = c.tva||'';
+  document.getElementById('cli-contactNom').value = c.contactNom||'';
+  document.getElementById('cli-contactPrenom').value = c.contactPrenom||'';
+  document.getElementById('cli-contactTel1').value = c.contactTel1||'';
+  document.getElementById('cli-contactTel2').value = c.contactTel2||'';
+  document.getElementById('cli-contactMail').value = c.contactMail||'';
+});
+
+document.getElementById('btnSaveClientFiche').addEventListener('click', async function(){
+  var sel = document.getElementById('clientFicheSelect');
+  var msg = document.getElementById('clientFicheMsg');
+  if(sel.value===''){ msg.textContent = 'Choisis d\'abord un client'; msg.style.color='var(--danger)'; return; }
+  var c = state.base.clients[parseInt(sel.value,10)];
+  if(!c){ msg.textContent = 'Client introuvable'; msg.style.color='var(--danger)'; return; }
+  var profile = collectProfileFields('cli');
+  Object.assign(c, profile);
+  c.email = profile.mail || c.email; // conserve l'adresse mail principale déjà utilisée pour l'envoi des documents
+  c.nomEntreprise = document.getElementById('cli-nomEntreprise').value.trim();
+  c.siret = document.getElementById('cli-siret').value.trim();
+  c.siren = document.getElementById('cli-siren').value.trim();
+  c.tva = document.getElementById('cli-tva').value.trim();
+  c.contactNom = document.getElementById('cli-contactNom').value.trim();
+  c.contactPrenom = document.getElementById('cli-contactPrenom').value.trim();
+  c.contactTel1 = document.getElementById('cli-contactTel1').value.trim();
+  c.contactTel2 = document.getElementById('cli-contactTel2').value.trim();
+  c.contactMail = document.getElementById('cli-contactMail').value.trim();
+  await saveBase();
+  renderClientsList();
+  refreshDatalists();
+  msg.textContent = 'Fiche client enregistrée';
+  msg.style.color = 'var(--accent)';
+});
+
+// ---------- Fiches Contremarque ----------
+var cmEditIdx = null;
+
+function renderContremarquesList(){
+  var el = document.getElementById('listContremarques');
+  if(!el) return;
+  var arr = state.base.contremarques || [];
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucune fiche contremarque enregistrée</div>'; return; }
+  el.innerHTML = arr.map(function(cm, idx){
+    var adr = [cm.adresse1, cm.cp, cm.ville].filter(Boolean).join(' · ');
+    return '<div class="base-row"><span>'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+(adr?' — '+escapeHtml(adr):'')+'</span>'+
+      '<button data-idx="'+idx+'" data-act="editcm">Modifier</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="editcm"]'), function(btn){
+    btn.addEventListener('click', function(){ startEditContremarque(parseInt(btn.getAttribute('data-idx'),10)); });
+  });
+}
+
+function clearContremarqueForm(){
+  cmEditIdx = null;
+  document.getElementById('cmFicheTitle').textContent = 'Ajouter une fiche contremarque';
+  document.getElementById('btnSaveContremarqueFiche').textContent = 'Enregistrer la fiche';
+  document.getElementById('btnCancelCmEditRow').style.display = 'none';
+  clearProfileFields('cm');
+}
+
+function startEditContremarque(idx){
+  var cm = (state.base.contremarques||[])[idx];
+  if(!cm) return;
+  cmEditIdx = idx;
+  document.getElementById('cmFicheTitle').textContent = 'Modifier la fiche contremarque';
+  document.getElementById('btnSaveContremarqueFiche').textContent = 'Enregistrer les modifications';
+  document.getElementById('btnCancelCmEditRow').style.display = 'block';
+  fillProfileFields('cm', cm);
+  window.scrollTo({ top: document.getElementById('cmFicheTitle').offsetTop - 80, behavior: 'smooth' });
+}
+document.getElementById('btnCancelCmEdit').addEventListener('click', clearContremarqueForm);
+
+document.getElementById('btnSaveContremarqueFiche').addEventListener('click', async function(){
+  var msg = document.getElementById('cmFicheMsg');
+  var profile = collectProfileFields('cm');
+  if(!profile.nom){ msg.textContent = 'Saisis au moins un nom'; msg.style.color='var(--danger)'; return; }
+  if(!state.base.contremarques) state.base.contremarques = [];
+  if(cmEditIdx!=null){
+    Object.assign(state.base.contremarques[cmEditIdx], profile);
+    msg.textContent = 'Fiche modifiée';
+  } else {
+    state.base.contremarques.push(profile);
+    msg.textContent = 'Fiche ajoutée';
+  }
+  await saveBase();
+  document.getElementById('cnt-contremarques').textContent = (state.base.contremarques||[]).length;
+  renderContremarquesList();
+  clearContremarqueForm();
+  msg.style.color = 'var(--accent)';
+});
+
+// injecte les champs de profil partagés dans les deux formulaires
+document.getElementById('cli-profile-fields').innerHTML = buildProfileFieldsHtml('cli');
+document.getElementById('cm-profile-fields').innerHTML = buildProfileFieldsHtml('cm');
 
 // ---------- form / preview ----------
 function getForm(){
@@ -2914,6 +3208,84 @@ function cancelCommandExitWalk(labelNumber){
 }
 
 // ---------- CDE sortie (archive + liste A4) ----------
+// ---------- Planning de livraison (module "Gestion Planning") ----------
+// une commande apparaît au planning dès qu'elle est en stock (reçue et totalement rangée) et pas encore sortie
+function isPlanningEntry(h){
+  return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && isFullyRanged(h);
+}
+
+function findContremarqueProfile(nom){
+  if(!nom) return null;
+  return (state.base.contremarques||[]).find(function(cm){ return (cm.nom||'').toLowerCase()===nom.toLowerCase(); }) || null;
+}
+
+function formatContremarqueConstraints(cm){
+  var parts = [];
+  if(cm.adresse1) parts.push(cm.adresse1+(cm.cp||cm.ville?(' — '+[cm.cp,cm.ville].filter(Boolean).join(' ')):''));
+  if(cm.etage) parts.push('Étage '+cm.etage+(cm.ascenseur?' (ascenseur)':' (pas d\'ascenseur)'));
+  var typeLieu = ['villa','immeuble','bureau'].filter(function(k){ return cm[k]; }).map(function(k){ return k.charAt(0).toUpperCase()+k.slice(1); });
+  if(typeLieu.length) parts.push(typeLieu.join(', '));
+  var horaires = [];
+  if(cm.horairesAM && (cm.amDe||cm.amA)) horaires.push('Matin '+(cm.amDe||'?')+'-'+(cm.amA||'?'));
+  if(cm.horairesPM && (cm.pmDe||cm.pmA)) horaires.push('Aprem '+(cm.pmDe||'?')+'-'+(cm.pmA||'?'));
+  if(cm.journeeDe||cm.journeeA) horaires.push('Journée '+(cm.journeeDe||'?')+'-'+(cm.journeeA||'?'));
+  if(horaires.length) parts.push(horaires.join(' · '));
+  var jours = cm.joursTous ? 'Tous les jours' : PROFILE_JOURS.filter(function(j){ return cm[j[0]]; }).map(function(j){ return j[1]; }).join(', ');
+  if(jours) parts.push(jours);
+  return parts.join(' · ');
+}
+
+function renderPlanningList(){
+  var el = document.getElementById('planningList');
+  var q = (document.getElementById('planningSearch').value || '').trim().toLowerCase();
+  var hideUnplanned = document.getElementById('planningHideUnplanned').checked;
+  var items = state.historyIndex.filter(isPlanningEntry);
+  var total = items.length;
+  if(q){
+    items = items.filter(function(h){
+      return (h.labelNumber||'').toLowerCase().indexOf(q)>=0 ||
+        (h.client||'').toLowerCase().indexOf(q)>=0 ||
+        (h.contremarque||'').toLowerCase().indexOf(q)>=0;
+    });
+  }
+  if(hideUnplanned){ items = items.filter(function(h){ return !!h.deliveryDate; }); }
+  items = items.slice().sort(function(a,b){ return (a.deliveryDate||'9999-99-99').localeCompare(b.deliveryDate||'9999-99-99'); });
+  if(!items.length){
+    el.innerHTML = '<div class="empty">'+(total?'Aucun résultat':'Aucune commande en stock pour le moment')+'</div>';
+    return;
+  }
+  el.innerHTML = items.map(function(h){
+    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var cm = findContremarqueProfile(h.contremarque);
+    var cmLine = cm ? '<div class="sub" style="color:var(--accent);">'+escapeHtml(formatContremarqueConstraints(cm))+'</div>' : (h.contremarque ? '<div class="sub" style="color:var(--ink-soft);">Aucune fiche contremarque pour « '+escapeHtml(h.contremarque)+' »</div>' : '');
+    return '<div class="hist-item" data-id="'+h.id+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
+      '<div class="sub">'+escapeHtml(h.emplacement||'—')+'</div>'+
+      cmLine+
+      '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
+        '<label>Date de livraison prévue</label>'+
+        '<input type="date" data-id="'+h.id+'" class="planning-date-input" value="'+(h.deliveryDate||'')+'">'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.planning-date-input'), function(input){
+    input.addEventListener('change', async function(){
+      var id = input.getAttribute('data-id');
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      rec.data.deliveryDate = input.value;
+      await saveReceptionRecord(id, rec);
+      var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
+      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      banner(input.value ? 'Date de livraison enregistrée' : 'Date de livraison effacée');
+    });
+  });
+}
+document.getElementById('planningSearch').addEventListener('input', renderPlanningList);
+document.getElementById('planningHideUnplanned').addEventListener('change', renderPlanningList);
+
 function renderArchiveList(){
   var el = document.getElementById('archiveList');
   if(!el) return;
@@ -4328,7 +4700,7 @@ document.getElementById('btnScanStop').addEventListener('click', stopScan);
 
 // ---------- tabs ----------
 function switchTab(name){
-  ['new','attente','ranger','hist','exit','archive','base'].forEach(function(t){
+  ['new','attente','ranger','hist','exit','archive','planning','base'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
@@ -4362,6 +4734,7 @@ function switchTab(name){
     renderHistory();
   }
   if(name==='archive'){ renderArchiveList(); }
+  if(name==='planning'){ renderPlanningList(); }
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
@@ -4533,7 +4906,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0017';
+var APP_VERSION = '2026.0020';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -4855,6 +5228,7 @@ async function loadAgencyDataAndShowApp(){
   renderPendingList();
   renderToRangeList();
   renderArchiveList();
+  renderPlanningList();
   resetForm();
   renderSiegesList();
   renderDepotsList();
