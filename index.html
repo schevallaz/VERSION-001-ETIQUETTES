@@ -4290,7 +4290,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0008';
+var APP_VERSION = '2026.0009';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
@@ -4361,6 +4361,7 @@ document.getElementById('btnCancelSiegeEdit').addEventListener('click', clearSie
 document.getElementById('btnSaveSiege').addEventListener('click', async function(){
   var adminCodeInput = document.getElementById('siegeAdminCode').value.trim();
   var msg = document.getElementById('siegeChangeMsg');
+  await refreshGlobalConfigFromServer();
   if(adminCodeInput.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur incorrect'; msg.style.color = 'var(--danger)'; return;
   }
@@ -4509,6 +4510,7 @@ document.getElementById('btnAddAgency').addEventListener('click', async function
   var name = document.getElementById('agencyNewName').value.trim();
   var email = document.getElementById('agencyNewEmail').value.trim();
   var msg = document.getElementById('agencyChangeMsg');
+  await refreshGlobalConfigFromServer();
   if(adminCodeInput.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur incorrect'; msg.style.color = 'var(--danger)'; return;
   }
@@ -4748,6 +4750,7 @@ document.getElementById('btnChangeMasterCode').addEventListener('click', async f
   var cur = document.getElementById('secCurrentCode').value.trim();
   var next = document.getElementById('secNewCode').value.trim();
   var msg = document.getElementById('secChangeMsg');
+  await refreshGlobalConfigFromServer();
   if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur incorrect';
     msg.style.color = 'var(--danger)';
@@ -4762,10 +4765,25 @@ document.getElementById('btnChangeMasterCode').addEventListener('click', async f
   msg.style.color = 'var(--accent)';
 });
 
+async function refreshGlobalConfigFromServer(){
+  if(!fsReady()) return;
+  try{
+    var snap = await globalDocRef.get();
+    if(snap.exists && snap.data().agenciesList){
+      var d = snap.data();
+      state.globalSecurity = d.globalSecurity || state.globalSecurity;
+      state.agenciesList = d.agenciesList || state.agenciesList;
+      state.siegesList = d.siegesList || state.siegesList;
+      state.brandName = d.brandName || state.brandName;
+    }
+  }catch(e){ console.error('Firestore refreshGlobalConfigFromServer error', e); }
+}
+
 document.getElementById('btnChangeAdminCode').addEventListener('click', async function(){
   var cur = document.getElementById('adminCurrentCode').value.trim();
   var next = document.getElementById('adminNewCode').value.trim();
   var msg = document.getElementById('adminChangeMsg');
+  await refreshGlobalConfigFromServer(); // vérifie contre la valeur la plus fraîche possible, pas une copie en mémoire potentiellement périmée
   if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur actuel incorrect';
     msg.style.color = 'var(--danger)';
@@ -4783,6 +4801,7 @@ document.getElementById('btnChangeAdminCode').addEventListener('click', async fu
 document.getElementById('btnForceLogoutAll').addEventListener('click', async function(){
   var cur = document.getElementById('forceLogoutAdminCode').value.trim();
   var msg = document.getElementById('forceLogoutMsg');
+  await refreshGlobalConfigFromServer();
   if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur incorrect';
     msg.style.color = 'var(--danger)';
@@ -4800,6 +4819,7 @@ document.getElementById('btnChangeBrand').addEventListener('click', async functi
   var cur = document.getElementById('brandAdminCode').value.trim();
   var next = document.getElementById('brandNewName').value.trim();
   var msg = document.getElementById('brandChangeMsg');
+  await refreshGlobalConfigFromServer();
   if(cur.toUpperCase() !== (state.globalSecurity.adminCode||'').toUpperCase()){
     msg.textContent = 'Code administrateur incorrect';
     msg.style.color = 'var(--danger)';
