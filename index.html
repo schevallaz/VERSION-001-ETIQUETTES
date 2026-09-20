@@ -451,6 +451,16 @@
   <!-- ===== TAB: SORTIE (scan) ===== -->
   <section id="tab-exit" style="display:none;">
     <div class="card">
+      <h2>Commandes prévues en sortie</h2>
+      <p class="hint" style="margin:0 0 10px;">Commandes en stock dont la date de livraison prévue (onglet Planning) tombe à partir de la date choisie.</p>
+      <div class="field">
+        <label for="exitPlanDate">Date de livraison</label>
+        <input type="date" id="exitPlanDate">
+      </div>
+      <div id="exitPlanList"></div>
+    </div>
+
+    <div class="card">
       <h2>Scanner une sortie (caméra)</h2>
       <p class="hint" style="margin:0 0 10px;">Scanne chaque étiquette de la commande. Si un scan caméra n'est pas disponible sur cet appareil, utilise la saisie manuelle plus bas.</p>
       <div id="scanUnavailable" class="hint" style="display:none;margin-bottom:10px;">Scan caméra indisponible ici (nécessite un hébergement en HTTPS). Utilise la saisie manuelle ci-dessous.</div>
@@ -3305,6 +3315,45 @@ function formatContremarqueConstraints(cm){
   return parts.join(' · ');
 }
 
+function resetExitPlanDefault(){
+  var input = document.getElementById('exitPlanDate');
+  if(!input || input.value) return;
+  var d = new Date();
+  d.setDate(d.getDate()+1); // J+1 par défaut
+  input.value = dateToISO(d);
+}
+
+function renderExitPlanList(){
+  var el = document.getElementById('exitPlanList');
+  var dateVal = document.getElementById('exitPlanDate').value;
+  var items = state.historyIndex.filter(function(h){ return isPlanningEntry(h) && h.deliveryDate && (!dateVal || h.deliveryDate >= dateVal); });
+  items = items.slice().sort(function(a,b){ return (a.deliveryDate||'').localeCompare(b.deliveryDate||''); });
+  if(!items.length){
+    el.innerHTML = '<div class="empty">Aucune commande prévue en sortie à partir de cette date</div>';
+    return;
+  }
+  el.innerHTML = items.map(function(h){
+    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'">'+
+      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">'+fmtDate(h.deliveryDate)+'</span></div>'+
+      '<div class="sub">'+escapeHtml(h.emplacement||'—')+'</div>'+
+      '<div class="actions"><button class="btn accent" data-act="loadexit">Charger cette commande</button></div>'+
+    '</div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="loadexit"]'), function(btn){
+    var item = btn.closest('.hist-item');
+    var labelNumber = item.getAttribute('data-labelnumber');
+    btn.addEventListener('click', function(){
+      document.getElementById('manualLabelNumber').value = labelNumber;
+      document.getElementById('btnManualLoad').click();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+}
+document.getElementById('exitPlanDate').addEventListener('input', renderExitPlanList);
+
 function renderPlanningList(){
   var el = document.getElementById('planningList');
   var q = (document.getElementById('planningSearch').value || '').trim().toLowerCase();
@@ -4786,6 +4835,8 @@ function switchTab(name){
     }
     rehydrateExitSessions();
     renderExitSessions();
+    resetExitPlanDefault();
+    renderExitPlanList();
   }
   if(name==='attente'){ resetPlanningWeekDefaults(); resetPendingWeekDefaults(); renderPendingList();
   renderToRangeList(); }
@@ -4976,7 +5027,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0021';
+var APP_VERSION = '2026.0022';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
