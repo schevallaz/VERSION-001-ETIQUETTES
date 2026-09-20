@@ -621,6 +621,14 @@
       <div id="forceLogoutMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
+      <h2>Réparation</h2>
+      <p class="hint" style="margin:0 0 12px;">Si une commande reste bloquée dans "CDE en attente" alors qu'elle est déjà rangée en dépôt, c'est qu'elle n'a jamais été confirmée "reçue" (souvent une commande ancienne). Ce bouton confirme automatiquement la réception (à la date déjà enregistrée) de toutes les commandes concernées, sans rien changer d'autre.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnRepairReceivedAt" style="width:100%;">Réparer les commandes non confirmées</button>
+      </div>
+      <div id="repairMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
       <h2>Corbeille (<span id="cnt-trash">0</span>)</h2>
       <p class="hint" style="margin:0 0 12px;">Commandes supprimées depuis "CDE en attente" ou "CDE en stock" — récupérables ici tant qu'elles ne sont pas effacées définitivement.</p>
       <div id="trashList"></div>
@@ -4066,7 +4074,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0002';
+var APP_VERSION = '2026.0003';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
@@ -4448,6 +4456,34 @@ async function migrateReceivedAt(){
   state.base.receivedAtMigrated = true;
   await saveBase();
 }
+
+// réparation manuelle (rejouable à volonté) : confirme la réception (à la date déjà connue) des commandes
+// qui n'ont jamais été marquées "reçues", quelle qu'en soit la cause
+async function repairMissingReceivedAt(){
+  var msg = document.getElementById('repairMsg');
+  var missing = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !h.receivedAt && h.date; });
+  if(!missing.length){ msg.textContent = 'Rien à réparer'; msg.style.color = 'var(--accent)'; return; }
+  var fixed = 0;
+  for(var i=0;i<missing.length;i++){
+    var h = missing[i];
+    var rec = await getReceptionRecord(h.id);
+    if(rec && rec.data){
+      rec.data.receivedAt = rec.data.date;
+      await saveReceptionRecord(h.id, rec);
+      var idx = state.historyIndex.findIndex(function(x){ return x.id===h.id; });
+      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      fixed++;
+    }
+  }
+  await saveHistoryIndex();
+  renderPendingList();
+  renderToRangeList();
+  renderHistory();
+  msg.textContent = fixed+' commande(s) réparée(s)';
+  msg.style.color = 'var(--accent)';
+  banner(fixed+' commande(s) réparée(s)');
+}
+document.getElementById('btnRepairReceivedAt').addEventListener('click', repairMissingReceivedAt);
 
 // ---------- init ----------
 (async function init(){
