@@ -2956,6 +2956,8 @@ function renderHistory(){
     var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     var walkPanel = renderWalkPanel(h.labelNumber);
+    var cmLinked = findContremarqueProfile(h.contremarque);
+    var cmBtnLabel = cmLinked ? 'Fiche contremarque ✓' : 'Fiche contremarque';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span><span class="date">'+fmtDate(h.receivedAt||h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+'</div>'+
@@ -2963,12 +2965,14 @@ function renderHistory(){
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
         '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
+        '<button class="btn '+(cmLinked?'accent':'ghost')+'" data-act="cmlink">'+cmBtnLabel+'</button>'+
         '<button class="btn accent" data-act="walk">Sortie de commande</button>'+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
       '</div>'+
       '<div class="reprint-list" id="reprint-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="maildocs-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '<div id="cmlink-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="walk-'+h.labelNumber+'">'+walkPanel+'</div>'+
       '</div>';
   }).join('');
@@ -3020,6 +3024,9 @@ function renderHistory(){
     });
     item.querySelector('[data-act="walk"]').addEventListener('click', function(){
       startCommandExitWalk(labelNumber, id);
+    });
+    item.querySelector('[data-act="cmlink"]').addEventListener('click', function(){
+      renderCmLinkPanel(id);
     });
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
       if(!confirm('Envoyer '+(labelNumber||'cette commande')+' à la corbeille ? Tu pourras la restaurer depuis Base → Corbeille.')) return;
@@ -3217,6 +3224,69 @@ function isPlanningEntry(h){
 function findContremarqueProfile(nom){
   if(!nom) return null;
   return (state.base.contremarques||[]).find(function(cm){ return (cm.nom||'').toLowerCase()===nom.toLowerCase(); }) || null;
+}
+
+// panneau (depuis "CDE en stock") pour associer une commande à une fiche contremarque existante,
+// ou en créer une nouvelle directement à partir du nom de contremarque déjà saisi sur la commande
+async function renderCmLinkPanel(id){
+  var box = document.getElementById('cmlink-'+id);
+  if(!box) return;
+  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+  var rec = await getReceptionRecord(id);
+  if(!rec){ banner('Introuvable'); return; }
+  var current = rec.data.contremarque || '';
+  var linked = findContremarqueProfile(current);
+  var list = state.base.contremarques || [];
+
+  var html = '';
+  if(linked){
+    html += '<div class="hint" style="margin-bottom:8px;color:var(--accent);font-weight:600;">✓ Associée à la fiche « '+escapeHtml(linked.nom)+(linked.prenom?' '+escapeHtml(linked.prenom):'')+' »</div>';
+  } else if(current){
+    html += '<div class="hint" style="margin-bottom:8px;">Contremarque actuelle : « '+escapeHtml(current)+' » — aucune fiche ne correspond.</div>';
+  } else {
+    html += '<div class="hint" style="margin-bottom:8px;">Aucune contremarque saisie sur cette commande.</div>';
+  }
+
+  html += '<div class="field"><label>Associer à une fiche existante</label>'+
+    '<select id="cmlinkSelect-'+id+'" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
+    '<option value="">— Choisir une fiche —</option>'+
+    list.map(function(cm, idx){ return '<option value="'+idx+'">'+escapeHtml(cm.nom)+(cm.prenom?' '+escapeHtml(cm.prenom):'')+'</option>'; }).join('')+
+    '</select></div>'+
+    '<div class="btn-row"><button class="btn accent" id="cmlinkAssocBtn-'+id+'" style="width:100%;">Associer cette fiche</button></div>';
+
+  if(current && !linked){
+    html += '<div class="btn-row"><button class="btn primary" id="cmlinkCreateBtn-'+id+'" style="width:100%;">Créer une fiche à partir de « '+escapeHtml(current)+' »</button></div>';
+  }
+
+  box.innerHTML = html;
+  box.style.display = 'block';
+
+  document.getElementById('cmlinkAssocBtn-'+id).addEventListener('click', async function(){
+    var sel = document.getElementById('cmlinkSelect-'+id);
+    if(sel.value===''){ banner('Choisis une fiche'); return; }
+    var cm = list[parseInt(sel.value,10)];
+    if(!cm) return;
+    var freshRec = await getReceptionRecord(id);
+    freshRec.data.contremarque = cm.nom;
+    await saveReceptionRecord(id, freshRec);
+    var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
+    if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(freshRec); }
+    renderHistory();
+    banner('Commande associée à la fiche « '+cm.nom+' »');
+  });
+
+  var createBtn = document.getElementById('cmlinkCreateBtn-'+id);
+  if(createBtn){
+    createBtn.addEventListener('click', async function(){
+      if(!state.base.contremarques) state.base.contremarques = [];
+      state.base.contremarques.push({ nom: current, pays: 'FR-France' });
+      await saveBase();
+      renderContremarquesList();
+      document.getElementById('cnt-contremarques').textContent = state.base.contremarques.length;
+      renderHistory();
+      banner('Fiche « '+current+' » créée — complète-la dans Base → Fiches Contremarque');
+    });
+  }
 }
 
 function formatContremarqueConstraints(cm){
@@ -4906,7 +4976,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0020';
+var APP_VERSION = '2026.0021';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
