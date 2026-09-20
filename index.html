@@ -4074,7 +4074,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0003';
+var APP_VERSION = '2026.0004';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
@@ -4461,7 +4461,7 @@ async function migrateReceivedAt(){
 // qui n'ont jamais été marquées "reçues", quelle qu'en soit la cause
 async function repairMissingReceivedAt(){
   var msg = document.getElementById('repairMsg');
-  var missing = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !h.receivedAt && h.date; });
+  var missing = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !h.receivedAt && h.date && h.date <= todayISO(); });
   if(!missing.length){ msg.textContent = 'Rien à réparer'; msg.style.color = 'var(--accent)'; return; }
   var fixed = 0;
   for(var i=0;i<missing.length;i++){
