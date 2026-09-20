@@ -1035,6 +1035,39 @@ async function saveGlobalConfig(){
   }
 }
 
+// écoute en direct : garde la config globale (codes, sièges, dépôts) à jour sur tous les appareils ouverts,
+// réinitialisation exceptionnelle et unique du code administrateur (suite au bug de synchronisation) :
+// au tout premier chargement de cette version, si ce n'est pas déjà fait, le code repasse à une valeur connue
+async function applyOneTimeAdminReset(){
+  if(state.globalSecurity.adminCodeResetV8) return;
+  state.globalSecurity.adminCode = 'ADMIN1';
+  state.globalSecurity.adminCodeResetV8 = true;
+  await saveGlobalConfig();
+}
+
+// pour qu'une sauvegarde locale ne parte jamais d'une copie périmée et n'écrase un changement fait ailleurs
+var globalConfigWatchStarted = false;
+function watchGlobalConfig(){
+  if(!fsReady() || globalConfigWatchStarted) return;
+  globalConfigWatchStarted = true;
+  globalDocRef.onSnapshot(function(snap){
+    if(!snap.exists) return;
+    var d = snap.data();
+    if(!d.agenciesList) return;
+    state.globalSecurity = d.globalSecurity || state.globalSecurity;
+    if(!state.globalSecurity.sessionVersion) state.globalSecurity.sessionVersion = 1;
+    state.agenciesList = d.agenciesList || [];
+    state.siegesList = d.siegesList || [];
+    state.brandName = d.brandName || 'STLS';
+    lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }));
+    renderSiegesList();
+    renderDepotsList();
+    updateBrandingUI();
+    updateAgencyCodeLine();
+  }, function(err){ console.error('Firestore global config watch error', err); });
+}
+
+
 // migration : copie les données de l'ancien emplacement mono-agence vers agency_{code}, une seule fois,
 // sans jamais supprimer l'ancien (filet de sécurité)
 async function migrateAgencyDataIfNeeded(code){
@@ -1445,6 +1478,30 @@ function refreshDatalists(){
   var de = document.getElementById('dl-emplacements');
   de.innerHTML = (state.base.emplacements||[]).map(function(e){ return '<option value="'+escapeHtml(e)+'">'; }).join('');
 }
+
+// masque un champ de code sensible (type password) avec un petit bouton "Afficher/Masquer" à côté
+function addShowToggle(inputId){
+  var input = document.getElementById(inputId);
+  if(!input || input.dataset.maskWired) return;
+  input.dataset.maskWired = '1';
+  input.type = 'password';
+  input.autocomplete = 'off';
+  var wrapper = document.createElement('div');
+  wrapper.style.cssText = 'position:relative;';
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+  input.style.paddingRight = '76px';
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = 'Afficher';
+  btn.style.cssText = 'position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;padding:5px 7px;';
+  btn.addEventListener('click', function(){
+    if(input.type === 'password'){ input.type = 'text'; btn.textContent = 'Masquer'; }
+    else { input.type = 'password'; btn.textContent = 'Afficher'; }
+  });
+  wrapper.appendChild(btn);
+}
+['accessCodeInput','secCurrentCode','secNewCode','adminCurrentCode','adminNewCode','forceLogoutAdminCode','brandAdminCode','siegeAdminCode','agencyAdminCode'].forEach(addShowToggle);
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -4233,7 +4290,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0005';
+var APP_VERSION = '2026.0008';
 
 function updateBrandingUI(){
   var brand = state.brandName || 'STLS';
@@ -4851,6 +4908,8 @@ document.getElementById('btnRepairReceivedAt').addEventListener('click', repairM
 // ---------- init ----------
 (async function init(){
   await loadGlobalConfig();
+  await applyOneTimeAdminReset();
+  watchGlobalConfig();
   updateBrandingUI();
   renderSiegesList();
   renderDepotsList();
