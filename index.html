@@ -1151,7 +1151,10 @@ function watchReceptions(){
   receptionsWatchStarted = true;
   receptionsColRef.onSnapshot(function(qsnap){
     var items = [];
-    qsnap.forEach(function(doc){ items.push(recordToIndexEntry(doc.data())); });
+    qsnap.forEach(function(doc){
+      try{ items.push(recordToIndexEntry(doc.data())); }
+      catch(e){ console.error('recordToIndexEntry error pour le document '+doc.id+' — ignoré, ne bloque plus le reste de la liste', e); }
+    });
     items.sort(function(a,b){ return (b.savedAt||'').localeCompare(a.savedAt||''); });
     state.historyIndex = items;
     lsSet('receptions-index', JSON.stringify(items));
