@@ -307,12 +307,32 @@ var firebaseConfig = {
 };
 var fsAvailable = false;
 var db = null;
-try{
-  firebase.initializeApp(firebaseConfig);
-  db = firebase.firestore();
-  fsAvailable = true;
-}catch(e){ console.error('Firebase init error', e); }
 function fsReady(){ return fsAvailable && !!db; }
+
+// initialisation robuste : attend que les scripts Firebase (chargés depuis gstatic.com) soient bien prêts,
+// avec plusieurs tentatives espacées au cas où ils mettent un peu de temps à s'exécuter
+function initFirebase(retriesLeft){
+  return new Promise(function(resolve){
+    function attempt(remaining){
+      if(typeof firebase !== 'undefined'){
+        try{
+          firebase.initializeApp(firebaseConfig);
+          db = firebase.firestore();
+          fsAvailable = true;
+        }catch(e){ console.error('Firebase init error', e); }
+        resolve();
+        return;
+      }
+      if(remaining <= 0){
+        console.error('Firebase toujours indisponible après plusieurs tentatives (scripts non chargés)');
+        resolve();
+        return;
+      }
+      setTimeout(function(){ attempt(remaining-1); }, 300);
+    }
+    attempt(retriesLeft);
+  });
+}
 
 var LS_PREFIX = 'stls_etiquettes_'; // même préfixe que Gestion Dépôt pour partager la session
 function lsGet(key){ try{ return localStorage.getItem(LS_PREFIX+key); }catch(e){ return null; } }
@@ -329,10 +349,10 @@ function banner(msg){
   setTimeout(function(){ b.classList.remove('show'); }, 2200);
 }
 
-var globalDocRef = fsReady() ? db.collection('stls_depot').doc('global') : null;
+var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 
-var APP_VERSION = '2026.0004';
+var APP_VERSION = '2026.0005';
 
 var state = {
   agenciesList: [],
@@ -682,6 +702,8 @@ document.getElementById('btnSaveZone').addEventListener('click', async function(
 
 // ---------- init ----------
 (async function init(){
+  await initFirebase(10);
+  if(fsReady()){ globalDocRef = db.collection('stls_depot').doc('global'); }
   await loadGlobalSecurity();
   var unlocked = lsGet('access-unlocked');
   var agencyCode = lsGet('current-agency');
