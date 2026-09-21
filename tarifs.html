@@ -181,9 +181,12 @@
           <input type="number" id="calcNbEtages" min="0" value="0">
         </div>
       </div>
-      <div class="field" style="display:flex;align-items:center;gap:9px;flex-direction:row;">
-        <input type="checkbox" id="calcAscenseur" style="width:18px;height:18px;flex-shrink:0;" checked>
-        <label for="calcAscenseur" style="margin:0;">Ascenseur présent</label>
+      <div class="field">
+        <label style="margin-bottom:8px;">Ascenseur ?</label>
+        <div style="display:flex;gap:16px;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="radio" name="calcAscenseur" id="calcAscenseurOui" value="oui" checked style="width:18px;height:18px;">Oui</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="radio" name="calcAscenseur" id="calcAscenseurNon" value="non" style="width:18px;height:18px;">Non</label>
+        </div>
       </div>
       <div class="field">
         <label for="calcMontageMin">Temps de montage (minutes, si prestation demandée)</label>
@@ -209,7 +212,11 @@
       </div>
       <div class="row2">
         <div class="field"><label for="p-coeffLV1">Coefficient LV1</label><input type="number" id="p-coeffLV1" step="0.01"></div>
-        <div class="field"><label for="p-coeffLV2">Coefficient LV2 / LV3</label><input type="number" id="p-coeffLV2" step="0.01"></div>
+        <div class="field"><label for="p-coeffLV2">Coefficient LV2</label><input type="number" id="p-coeffLV2" step="0.01"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="p-coeffLV3">Coefficient LV3</label><input type="number" id="p-coeffLV3" step="0.01"></div>
+        <div class="field"></div>
       </div>
 
       <h2 style="font-size:14.5px;">Montage</h2>
@@ -325,7 +332,7 @@ function banner(msg){
 var globalDocRef = fsReady() ? db.collection('stls_depot').doc('global') : null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 
-var APP_VERSION = '2026.0003';
+var APP_VERSION = '2026.0004';
 
 var state = {
   agenciesList: [],
@@ -340,6 +347,7 @@ var DEFAULT_PARAMS = {
   coeffLivreurMin: 1.5,
   coeffLV1: 1.2,
   coeffLV2: 1.25,
+  coeffLV3: 1.25,
   salaireMonteurHeure: 35,
   coeffMontageMin: 2,
   coeffEtageBande: 0.08,
@@ -386,7 +394,7 @@ function calculerPrestation(params, zone, input){
   var LT = (zone.minLivraison * minCoutLivreur * params.coeffLivreurMin) + zone.carburantKm;
   var LV1 = LT * params.coeffLV1;
   var LV2 = LT*params.coeffLV2 + LV1;
-  var LV3 = LT*params.coeffLV2 + LV2;
+  var LV3 = LT*params.coeffLV3 + LV2;
 
   var minCoutMontage = params.salaireMonteurHeure/60;
   var montage = (input.montageMin||0) * minCoutMontage * params.coeffMontageMin;
@@ -543,7 +551,7 @@ document.getElementById('btnCalculer').addEventListener('click', function(){
     colisLourd: parseFloat(document.getElementById('calcColisLourd').value)||0,
     colisLong: parseFloat(document.getElementById('calcColisLong').value)||0,
     nbEtages: parseFloat(document.getElementById('calcNbEtages').value)||0,
-    ascenseur: document.getElementById('calcAscenseur').checked,
+    ascenseur: document.getElementById('calcAscenseurOui').checked,
     montageMin: parseFloat(document.getElementById('calcMontageMin').value)||0
   };
   var r = calculerPrestation(state.params, zone, input);
@@ -574,6 +582,7 @@ var PARAM_FIELD_MAP = {
   coeffLivreurMin: 'p-coeffLivreurMin',
   coeffLV1: 'p-coeffLV1',
   coeffLV2: 'p-coeffLV2',
+  coeffLV3: 'p-coeffLV3',
   salaireMonteurHeure: 'p-salaireMonteurHeure',
   coeffMontageMin: 'p-coeffMontageMin',
   coeffEtageBande: 'p-coeffEtageBande',
