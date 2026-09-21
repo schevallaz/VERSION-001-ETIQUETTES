@@ -3260,6 +3260,10 @@ function cancelCommandExitWalk(labelNumber){
 // ---------- Planning de livraison (module "Gestion Planning") ----------
 // une commande apparaît au planning dès qu'elle est en stock (reçue et totalement rangée) et pas encore sortie
 function isPlanningEntry(h){
+  return !h.exitedAt && !h.deletedAt;
+}
+// commande réellement disponible en stock (reçue et totalement rangée) — utilisé pour la préparation des sorties
+function isStockEntry(h){
   return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && isFullyRanged(h);
 }
 
@@ -3358,7 +3362,7 @@ function resetExitPlanDefault(){
 function renderExitPlanList(){
   var el = document.getElementById('exitPlanList');
   var dateVal = document.getElementById('exitPlanDate').value;
-  var items = state.historyIndex.filter(function(h){ return isPlanningEntry(h) && h.deliveryDate && (!dateVal || h.deliveryDate >= dateVal); });
+  var items = state.historyIndex.filter(function(h){ return isStockEntry(h) && h.deliveryDate && (!dateVal || h.deliveryDate >= dateVal); });
   items = items.slice().sort(function(a,b){ return (a.deliveryDate||'').localeCompare(b.deliveryDate||''); });
   if(!items.length){
     el.innerHTML = '<div class="empty">Aucune commande prévue en sortie à partir de cette date</div>';
@@ -3402,17 +3406,18 @@ function renderPlanningList(){
   if(hideUnplanned){ items = items.filter(function(h){ return !!h.deliveryDate; }); }
   items = items.slice().sort(function(a,b){ return (a.deliveryDate||'9999-99-99').localeCompare(b.deliveryDate||'9999-99-99'); });
   if(!items.length){
-    el.innerHTML = '<div class="empty">'+(total?'Aucun résultat':'Aucune commande en stock pour le moment')+'</div>';
+    el.innerHTML = '<div class="empty">'+(total?'Aucun résultat':'Aucune commande en cours pour le moment')+'</div>';
     return;
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var statut = isPendingEntry(h) ? 'En attente de réception' : (isFullyRanged(h) ? 'En stock — '+(h.emplacement||'—') : 'À ranger');
     var cm = findContremarqueProfile(h.contremarque);
     var cmLine = cm ? '<div class="sub" style="color:var(--accent);">'+escapeHtml(formatContremarqueConstraints(cm))+'</div>' : (h.contremarque ? '<div class="sub" style="color:var(--ink-soft);">Aucune fiche contremarque pour « '+escapeHtml(h.contremarque)+' »</div>' : '');
     return '<div class="hist-item" data-id="'+h.id+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
-      '<div class="sub">'+escapeHtml(h.emplacement||'—')+'</div>'+
+      '<div class="sub">'+escapeHtml(statut)+'</div>'+
       cmLine+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
         '<label>Date de livraison prévue</label>'+
@@ -5059,7 +5064,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0023';
+var APP_VERSION = '2026.0024';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
