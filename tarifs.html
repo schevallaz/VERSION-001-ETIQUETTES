@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Tarifs STLS</title>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --ink:#1c1c1a; --ink-soft:#5f5e5a; --line:#dcdad2; --line-strong:#b4b2a9;
+    --bg:#f6f5f0; --card:#ffffff; --accent:#0f6e56; --accent-light:#e1f5ee;
+    --danger:#a32d2d; --danger-light:#fcebeb;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-tap-highlight-color:transparent;
+  }
+  .app{max-width:760px;margin:0 auto;padding:12px 12px 60px;}
+  header.top{padding:14px 4px 10px;}
+  header.top h1{font-size:19px;font-weight:600;margin:0;}
+  header.top p{font-size:13px;color:var(--ink-soft);margin:4px 0 0;}
+  nav.tabs{display:flex;gap:6px;position:sticky;top:0;background:var(--bg);padding:8px 0 10px;z-index:5;}
+  nav.tabs button{
+    flex:1;padding:10px 4px;border-radius:10px;border:1px solid var(--line);
+    background:var(--card);font-size:13px;font-weight:500;color:var(--ink-soft);cursor:pointer;
+  }
+  nav.tabs button.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
+  .card h2{font-size:15px;margin:0 0 12px;font-weight:600;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:500;}
+  .field input, .field select, .field textarea{
+    width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;
+    font-size:15px;background:#fff;color:var(--ink);font-family:inherit;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:11px 16px;border-radius:9px;border:1px solid var(--line-strong);
+    background:#fff;color:var(--ink);font-size:14px;font-weight:500;cursor:pointer;width:100%;
+  }
+  .btn:active{transform:scale(0.98);}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .btn.accent{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .btn.danger{background:var(--danger-light);color:var(--danger);border-color:#f0c9c9;}
+  .btn.ghost{background:transparent;}
+  .btn-row{display:flex;gap:8px;margin-top:14px;}
+  .btn-row .btn{width:auto;flex:1;}
+  .err{color:var(--danger);font-size:12.5px;margin-top:4px;display:none;}
+  .err.show{display:block;}
+  input.invalid, select.invalid{border-color:var(--danger);}
+
+  /* --- label preview: emulates a 100x150mm zebra label --- */
+  .label-wrap{display:flex;justify-content:center;padding:6px 0 4px;}
+  .label{
+    width:280px;height:420px;background:#fff;border:1.5px solid #000;
+    display:flex;flex-direction:column;font-family:Arial,Helvetica,sans-serif;color:#000;
+    font-size:10px;overflow:hidden;
+  }
+  .label .top{display:flex;border-bottom:1.5px solid #000;min-height:112px;}
+  .label .qrzone{width:112px;border-right:1.5px solid #000;display:flex;align-items:center;justify-content:center;padding:6px;flex-shrink:0;}
+  .label .qrzone canvas, .label .qrzone img{width:100%;height:auto;}
+  .label .idzone{flex:1;padding:8px;display:flex;flex-direction:column;justify-content:center;gap:6px;}
+  .label .idzone .client{font-size:14px;font-weight:700;line-height:1.15;word-break:break-word;}
+  .label .idzone .codewrap{font-size:9px;color:#000;}
+  .label .idzone .codewrap b{font-size:11px;}
+  .label .contremarque{
+    border-bottom:1.5px solid #000;padding:10px 8px;text-align:center;
+    display:flex;align-items:center;justify-content:center;min-height:64px;
+  }
+  .label .contremarque b{font-size:16px;word-break:break-word;}
+  .label .midrow{display:flex;border-bottom:1.5px solid #000;}
+  .label .midrow .cell{flex:1;padding:6px 8px;}
+  .label .midrow .cell:first-child{border-right:1.5px solid #000;}
+  .label .cell .k{font-size:8px;color:#333;text-transform:uppercase;letter-spacing:.02em;}
+  .label .cell .v{font-size:11px;font-weight:600;margin-top:2px;word-break:break-word;}
+  .label .qtyrow{display:flex;flex:1;}
+  .label .qtyrow .left{width:112px;border-right:1.5px solid #000;display:flex;flex-direction:column;}
+  .label .qtyrow .left .sub{flex:1;padding:6px 8px;border-bottom:1.5px solid #000;}
+  .label .qtyrow .left .sub:last-child{border-bottom:none;}
+  .label .qtyrow .right{flex:1;display:flex;flex-direction:column;}
+  .label .qtyrow .right .sub{flex:1;padding:6px 8px;border-bottom:1.5px solid #000;display:flex;flex-direction:column;justify-content:center;}
+  .label .qtyrow .right .sub:last-child{border-bottom:none;}
+  .label .qtyrow .right .sub .v{font-size:15px;}
+  .label .qtyrow .left .sub .v{font-size:13px;}
+
+  #qrHidden{position:absolute;left:-9999px;top:-9999px;}
+
+  .hist-item{border:1px solid var(--line);border-radius:11px;padding:12px;margin-bottom:10px;}
+  .hist-item .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .hist-item .hd .nom{font-weight:600;font-size:14.5px;}
+  .hist-item .hd .date{font-size:12px;color:var(--ink-soft);white-space:nowrap;}
+  .hist-item .sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
+  .hist-item .actions{display:flex;gap:8px;margin-top:10px;}
+  .hist-item .actions .btn{padding:8px 10px;font-size:13px;}
+  .empty{color:var(--ink-soft);font-size:13.5px;text-align:center;padding:28px 10px;}
+
+  .base-list{max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:9px;}
+  .base-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13.5px;}
+  .base-row:last-child{border-bottom:none;}
+  .base-row .code{color:var(--ink-soft);font-size:12px;}
+  .base-row button{background:none;border:none;color:var(--danger);font-size:12px;cursor:pointer;padding:4px 6px;}
+  .addrow{display:flex;gap:8px;margin-top:10px;}
+  .addrow input{flex:1;}
+  .addrow button{white-space:nowrap;}
+
+  .save-banner{
+    position:fixed;left:12px;right:12px;bottom:14px;max-width:736px;margin:0 auto;
+    background:var(--ink);color:#fff;padding:12px 16px;border-radius:11px;font-size:13.5px;
+    text-align:center;display:none;z-index:20;
+  }
+  .save-banner.show{display:block;}
+
+  @media (min-width:600px){
+    .label{width:320px;height:480px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1 id="appTitle">Tarifs STLS <span id="appVersion" style="font-size:13px;font-weight:500;color:var(--ink-soft);vertical-align:middle;">Version 2026.0003</span></h1>
+    <p>Moteur de calcul des prestations de livraison</p>
+  </header>
+
+  <div id="accessGateOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:55;align-items:center;justify-content:center;padding:20px 12px;">
+    <div class="card" style="max-width:360px;width:100%;">
+      <h2 style="margin-bottom:6px;">Code d'accès</h2>
+      <p class="hint" style="margin:0 0 14px;">Utilise le même code que sur Gestion Dépôt (équipe ou personnel).</p>
+      <div class="field">
+        <input type="text" id="accessCodeInput" placeholder="Code" maxlength="10" style="text-align:center;font-size:20px;letter-spacing:2px;">
+      </div>
+      <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnAccessSubmit" style="width:100%;">Valider</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="calc">Calculateur</button>
+    <button class="tab-btn" data-tab="params">Paramètres</button>
+    <button class="tab-btn" data-tab="zones">Zones kilométriques</button>
+  </nav>
+
+  <!-- ===== TAB: CALCULATEUR ===== -->
+  <section id="tab-calc" style="display:block;">
+    <div class="card">
+      <h2>Calculateur de prestation</h2>
+      <p class="hint" id="calcDepotLine" style="margin:0 0 14px;"></p>
+      <div class="field">
+        <label for="calcZone">Zone kilométrique</label>
+        <select id="calcZone" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
+      </div>
+      <div class="field">
+        <label for="calcDistance">Distance exacte (km) — facultatif, prend le pas sur la zone ci-dessus</label>
+        <input type="number" id="calcDistance" min="0" placeholder="Ex. 245">
+        <p class="hint" style="margin-top:4px;">Au-delà de la dernière zone définie, le tarif au km supplémentaire (onglet Paramètres) s'applique automatiquement.</p>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="calcPoids">Poids de la commande (kg)</label>
+          <input type="number" id="calcPoids" min="0" value="0">
+        </div>
+        <div class="field">
+          <label for="calcColisLourd">Colis le plus lourd (kg)</label>
+          <input type="number" id="calcColisLourd" min="0" value="0">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="calcColisLong">Colis le plus long (cm)</label>
+          <input type="number" id="calcColisLong" min="0" value="0">
+        </div>
+        <div class="field">
+          <label for="calcNbEtages">Nombre d'étage(s)</label>
+          <input type="number" id="calcNbEtages" min="0" value="0">
+        </div>
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:9px;flex-direction:row;">
+        <input type="checkbox" id="calcAscenseur" style="width:18px;height:18px;flex-shrink:0;" checked>
+        <label for="calcAscenseur" style="margin:0;">Ascenseur présent</label>
+      </div>
+      <div class="field">
+        <label for="calcMontageMin">Temps de montage (minutes, si prestation demandée)</label>
+        <input type="number" id="calcMontageMin" min="0" value="0">
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnCalculer" style="width:100%;">Calculer</button>
+      </div>
+      <div id="calcResult" style="margin-top:14px;"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: PARAMETRES ===== -->
+  <section id="tab-params" style="display:none;">
+    <div class="card">
+      <h2>Paramètres de calcul</h2>
+      <p class="hint" style="margin:0 0 14px;">Ces valeurs s'appliquent au dépôt actif. Modifiable par tous les utilisateurs connectés (pas de restriction administrateur pour l'instant).</p>
+
+      <h2 style="font-size:14.5px;margin-top:0;">Coûts et coefficients livraison</h2>
+      <div class="row2">
+        <div class="field"><label for="p-salaireLivreurHeure">Salaire livreur (€/h)</label><input type="number" id="p-salaireLivreurHeure" step="0.01"></div>
+        <div class="field"><label for="p-coeffLivreurMin">Coefficient facturation livreur</label><input type="number" id="p-coeffLivreurMin" step="0.01"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="p-coeffLV1">Coefficient LV1</label><input type="number" id="p-coeffLV1" step="0.01"></div>
+        <div class="field"><label for="p-coeffLV2">Coefficient LV2 / LV3</label><input type="number" id="p-coeffLV2" step="0.01"></div>
+      </div>
+
+      <h2 style="font-size:14.5px;">Montage</h2>
+      <div class="row2">
+        <div class="field"><label for="p-salaireMonteurHeure">Salaire monteur (€/h)</label><input type="number" id="p-salaireMonteurHeure" step="0.01"></div>
+        <div class="field"><label for="p-coeffMontageMin">Coefficient facturation montage</label><input type="number" id="p-coeffMontageMin" step="0.01"></div>
+      </div>
+
+      <h2 style="font-size:14.5px;">Poids / étage / colis</h2>
+      <div class="row2">
+        <div class="field"><label for="p-coeffEtageBande">Incrément coefficient par tranche de 30 kg</label><input type="number" id="p-coeffEtageBande" step="0.01"></div>
+        <div class="field"><label for="p-coeffEtageBase">Coefficient de départ (≤10 kg)</label><input type="number" id="p-coeffEtageBase" step="0.01"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="p-colisLongBase">Longueur de référence colis (cm)</label><input type="number" id="p-colisLongBase" step="1"></div>
+        <div class="field"><label for="p-coeffColisCourt">Coefficient si colis ≤ référence</label><input type="number" id="p-coeffColisCourt" step="0.01"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="p-coeffColisLong">Coefficient si colis &gt; référence</label><input type="number" id="p-coeffColisLong" step="0.01"></div>
+        <div class="field"><label for="p-coeffSansAscenseur">Coefficient sans ascenseur</label><input type="number" id="p-coeffSansAscenseur" step="0.01"></div>
+      </div>
+      <div class="field">
+        <label for="p-maxiLV1">Poids max colis pour LV1 seul (kg)</label>
+        <input type="number" id="p-maxiLV1" step="1">
+      </div>
+
+      <h2 style="font-size:14.5px;">Au-delà des zones définies</h2>
+      <div class="field">
+        <label for="p-tarifKmSupplementaire">Tarif €HT par km supplémentaire au-delà de la dernière zone</label>
+        <input type="number" id="p-tarifKmSupplementaire" step="0.01">
+      </div>
+
+      <div class="btn-row">
+        <button class="btn accent" id="btnSaveParams" style="width:100%;">Enregistrer les paramètres</button>
+      </div>
+      <div id="paramsMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: ZONES ===== -->
+  <section id="tab-zones" style="display:none;">
+    <div class="card">
+      <h2>Zones kilométriques</h2>
+      <p class="hint" style="margin:0 0 12px;">Chaque zone représente une tranche de distance, avec son coût carburant et son temps de trajet estimé.</p>
+      <div id="listZones" style="margin-bottom:12px;"></div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="btnFillMissingZones" style="width:100%;">Compléter les zones manquantes (A à T)</button>
+      </div>
+      <p class="hint" style="margin:8px 0 0;">Ajoute automatiquement les zones du tableau d'origine (A à T, 0 à 199 km) qui ne sont pas encore enregistrées, sans toucher à celles déjà en place.</p>
+
+      <h2 id="zoneFormTitle" style="font-size:14.5px;margin-top:20px;">Ajouter une zone</h2>
+      <div class="row2">
+        <div class="field"><label for="z-code">Code zone</label><input type="text" id="z-code" maxlength="3" placeholder="A"></div>
+        <div class="field"><label for="z-carburantKm">Carburant €HT/km</label><input type="number" id="z-carburantKm" step="0.01"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="z-kmDe">Distance de (km)</label><input type="number" id="z-kmDe" step="1"></div>
+        <div class="field"><label for="z-kmA">Distance à (km)</label><input type="number" id="z-kmA" step="1"></div>
+      </div>
+      <div class="field">
+        <label for="z-minLivraison">Temps de trajet estimé (minutes)</label>
+        <input type="number" id="z-minLivraison" step="1">
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSaveZone" style="width:100%;">Enregistrer la zone</button>
+      </div>
+      <div class="btn-row" id="btnCancelZoneEditRow" style="display:none;">
+        <button class="btn ghost" id="btnCancelZoneEdit" style="width:100%;">Annuler la modification</button>
+      </div>
+      <div id="zoneMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+  </section>
+
+</div>
+<div class="save-banner" id="saveBanner"></div>
+<script>
+(function(){
+
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c",
+  measurementId: "G-2M8ENNG05B"
+};
+var fsAvailable = false;
+var db = null;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  fsAvailable = true;
+}catch(e){ console.error('Firebase init error', e); }
+function fsReady(){ return fsAvailable && !!db; }
+
+var LS_PREFIX = 'stls_etiquettes_'; // même préfixe que Gestion Dépôt pour partager la session
+function lsGet(key){ try{ return localStorage.getItem(LS_PREFIX+key); }catch(e){ return null; } }
+function lsSet(key, val){ try{ localStorage.setItem(LS_PREFIX+key, val); }catch(e){} }
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function banner(msg){
+  var b = document.getElementById('saveBanner');
+  b.textContent = msg; b.classList.add('show');
+  setTimeout(function(){ b.classList.remove('show'); }, 2200);
+}
+
+var globalDocRef = fsReady() ? db.collection('stls_depot').doc('global') : null;
+function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
+
+var APP_VERSION = '2026.0003';
+
+var state = {
+  agenciesList: [],
+  currentAgencyCode: null,
+  agencyName: '',
+  params: {},
+  zones: []
+};
+
+var DEFAULT_PARAMS = {
+  salaireLivreurHeure: 28,
+  coeffLivreurMin: 1.5,
+  coeffLV1: 1.2,
+  coeffLV2: 1.25,
+  salaireMonteurHeure: 35,
+  coeffMontageMin: 2,
+  coeffEtageBande: 0.08,
+  coeffEtageBase: 0.96,
+  colisLongBase: 200,
+  coeffColisCourt: 0.6,
+  coeffColisLong: 1.2,
+  coeffSansAscenseur: 1.3,
+  maxiLV1: 30,
+  tarifKmSupplementaire: 0.5
+};
+var DEFAULT_ZONES = [
+  { code:'A', kmDe:0, kmA:9, carburantKm:2.97, minLivraison:7.5 },
+  { code:'B', kmDe:10, kmA:19, carburantKm:6.27, minLivraison:15.8333 },
+  { code:'C', kmDe:20, kmA:29, carburantKm:9.57, minLivraison:24.1667 },
+  { code:'D', kmDe:30, kmA:39, carburantKm:12.87, minLivraison:32.5 },
+  { code:'E', kmDe:40, kmA:49, carburantKm:16.17, minLivraison:40.8333 },
+  { code:'F', kmDe:50, kmA:59, carburantKm:19.47, minLivraison:49.1667 },
+  { code:'G', kmDe:60, kmA:69, carburantKm:22.77, minLivraison:57.5 },
+  { code:'H', kmDe:70, kmA:79, carburantKm:26.07, minLivraison:65.8333 },
+  { code:'I', kmDe:80, kmA:89, carburantKm:29.37, minLivraison:74.1667 },
+  { code:'J', kmDe:90, kmA:99, carburantKm:32.67, minLivraison:82.5 },
+  { code:'K', kmDe:100, kmA:109, carburantKm:35.97, minLivraison:90.8333 },
+  { code:'L', kmDe:110, kmA:119, carburantKm:39.27, minLivraison:99.1667 },
+  { code:'M', kmDe:120, kmA:129, carburantKm:42.57, minLivraison:107.5 },
+  { code:'N', kmDe:130, kmA:139, carburantKm:45.87, minLivraison:115.8333 },
+  { code:'O', kmDe:140, kmA:149, carburantKm:49.17, minLivraison:124.1667 },
+  { code:'P', kmDe:150, kmA:159, carburantKm:52.47, minLivraison:132.5 },
+  { code:'Q', kmDe:160, kmA:169, carburantKm:55.77, minLivraison:140.8333 },
+  { code:'R', kmDe:170, kmA:179, carburantKm:59.07, minLivraison:149.1667 },
+  { code:'S', kmDe:180, kmA:189, carburantKm:62.37, minLivraison:157.5 },
+  { code:'T', kmDe:190, kmA:199, carburantKm:65.67, minLivraison:165.8333 }
+];
+
+// ---------- moteur de calcul ----------
+function poidsCoefficient(poids, params){
+  if(poids<=10) return params.coeffEtageBase;
+  var n = Math.ceil((poids-10)/30);
+  return params.coeffEtageBase + params.coeffEtageBande*n;
+}
+
+function calculerPrestation(params, zone, input){
+  var minCoutLivreur = params.salaireLivreurHeure/60;
+  var LT = (zone.minLivraison * minCoutLivreur * params.coeffLivreurMin) + zone.carburantKm;
+  var LV1 = LT * params.coeffLV1;
+  var LV2 = LT*params.coeffLV2 + LV1;
+  var LV3 = LT*params.coeffLV2 + LV2;
+
+  var minCoutMontage = params.salaireMonteurHeure/60;
+  var montage = (input.montageMin||0) * minCoutMontage * params.coeffMontageMin;
+
+  var coeffColis = (input.colisLong||0) > params.colisLongBase ? params.coeffColisLong : params.coeffColisCourt;
+  var coeffPoids = poidsCoefficient(input.poids||0, params);
+  var coutEtageUnitaire = LV1 * coeffPoids * coeffColis;
+  var surchargeEtage = coutEtageUnitaire * (input.nbEtages||0) * (input.ascenseur ? 1 : params.coeffSansAscenseur);
+
+  var alerteEquipe = (input.colisLourd||0) > params.maxiLV1 ? 'Le colis le plus lourd dépasse '+params.maxiLV1+' kg : LV1 seul est déconseillé, prévoir LV2 ou LV3.' : '';
+
+  return {
+    LT: LT,
+    LV1: LV1+surchargeEtage, LV2: LV2+surchargeEtage, LV3: LV3+surchargeEtage,
+    LV1M: LV1+surchargeEtage+montage, LV2M: LV2+surchargeEtage+montage, LV3M: LV3+surchargeEtage+montage,
+    surchargeEtage: surchargeEtage, montage: montage, alerteEquipe: alerteEquipe
+  };
+}
+
+function fmtEuro(n){ return n.toFixed(2).replace('.', ',')+' €'; }
+
+// trouve la zone correspondant à une distance exacte ; au-delà de la dernière zone définie,
+// extrapole avec le tarif au km supplémentaire (et le temps de trajet au prorata)
+function resolveZoneForDistance(distance, params){
+  if(!state.zones.length) return null;
+  var zone = state.zones.find(function(z){ return distance>=z.kmDe && distance<=z.kmA; });
+  if(zone) return { zone: zone, extraKm: 0 };
+  var maxZone = state.zones.slice().sort(function(a,b){ return b.kmA-a.kmA; })[0];
+  if(distance <= maxZone.kmA) return { zone: maxZone, extraKm: 0 }; // distance en dessous de la plage connue
+  var extraKm = distance - maxZone.kmA;
+  var minParKm = maxZone.kmA ? (maxZone.minLivraison / maxZone.kmA) : 0;
+  var synthetic = {
+    code: maxZone.code+'+', kmDe: maxZone.kmDe, kmA: distance,
+    carburantKm: maxZone.carburantKm + extraKm*params.tarifKmSupplementaire,
+    minLivraison: maxZone.minLivraison + extraKm*minParKm
+  };
+  return { zone: synthetic, extraKm: extraKm };
+}
+
+// ---------- session : réutilise la session de Gestion Dépôt si déjà connecté sur cet appareil ----------
+var globalSecurity = { masterCode:'2013', adminCode:'ADMIN1', users:[] };
+
+async function loadGlobalSecurity(){
+  if(!fsReady()) return;
+  try{
+    var snap = await globalDocRef.get();
+    if(snap.exists){
+      var d = snap.data();
+      globalSecurity = d.globalSecurity || globalSecurity;
+      state.agenciesList = d.agenciesList || [];
+    }
+  }catch(e){ console.error('Firestore loadGlobalSecurity error', e); }
+}
+
+async function startForAgency(code){
+  state.currentAgencyCode = code;
+  lsSet('current-agency', code);
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===code; });
+  state.agencyName = ag ? ag.name : code;
+  document.getElementById('accessGateOverlay').style.display = 'none';
+  await loadTarifData();
+  populateCalcZoneSelect();
+  fillParamsForm();
+  renderZonesList();
+  document.getElementById('calcDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
+}
+
+function showAccessGate(){
+  document.getElementById('accessGateOverlay').style.display = 'flex';
+}
+
+document.getElementById('btnAccessSubmit').addEventListener('click', async function(){
+  var val = document.getElementById('accessCodeInput').value.trim();
+  var err = document.getElementById('accessGateError');
+  err.style.display = 'none';
+  if(!val) return;
+  var isKnown = val.toUpperCase()===globalSecurity.masterCode.toUpperCase() ||
+    val.toUpperCase()===globalSecurity.adminCode.toUpperCase() ||
+    (globalSecurity.users||[]).some(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
+  if(!isKnown){
+    err.textContent = 'Code invalide';
+    err.style.display = 'block';
+    return;
+  }
+  var userMatch = (globalSecurity.users||[]).find(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
+  var agencyCode = (userMatch && userMatch.agencyCode) || (state.agenciesList[0] && state.agenciesList[0].code);
+  if(!agencyCode){ err.textContent = 'Aucun dépôt disponible'; err.style.display='block'; return; }
+  lsSet('access-unlocked','1');
+  lsSet('access-identity', userMatch ? userMatch.name : val.toUpperCase());
+  await startForAgency(agencyCode);
+});
+
+// ---------- données tarifs (stockées sur le document du dépôt actif) ----------
+async function loadTarifData(){
+  if(fsReady()){
+    try{
+      var snap = await agencyDocRef(state.currentAgencyCode).get();
+      if(snap.exists && snap.data().tarifs){
+        var t = snap.data().tarifs;
+        state.params = Object.assign({}, DEFAULT_PARAMS, t.params||{});
+        state.zones = (t.zones && t.zones.length) ? t.zones : DEFAULT_ZONES.slice();
+        return;
+      }
+    }catch(e){ console.error('Firestore loadTarifData error', e); }
+  }
+  state.params = Object.assign({}, DEFAULT_PARAMS);
+  state.zones = DEFAULT_ZONES.slice();
+  await saveTarifData();
+}
+
+async function saveTarifData(){
+  if(!fsReady()) return;
+  try{
+    await agencyDocRef(state.currentAgencyCode).set({ tarifs: { params: state.params, zones: state.zones } }, { merge: true });
+  }catch(e){ console.error('Firestore saveTarifData error', e); }
+}
+
+// ---------- navigation ----------
+Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
+  btn.addEventListener('click', function(){
+    var name = btn.getAttribute('data-tab');
+    ['calc','params','zones'].forEach(function(t){
+      document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(b){
+      b.classList.toggle('active', b===btn);
+    });
+  });
+});
+
+// ---------- calculateur ----------
+function populateCalcZoneSelect(){
+  var sel = document.getElementById('calcZone');
+  sel.innerHTML = state.zones.map(function(z, idx){
+    return '<option value="'+idx+'">'+escapeHtml(z.code)+' — '+z.kmDe+' à '+z.kmA+' km</option>';
+  }).join('');
+}
+
+document.getElementById('btnCalculer').addEventListener('click', function(){
+  var el = document.getElementById('calcResult');
+  var distanceVal = document.getElementById('calcDistance').value.trim();
+  var zone, extraKm = 0;
+  if(distanceVal){
+    var resolved = resolveZoneForDistance(parseFloat(distanceVal), state.params);
+    if(!resolved){ banner('Aucune zone enregistrée'); return; }
+    zone = resolved.zone; extraKm = resolved.extraKm;
+  } else {
+    var zoneIdx = document.getElementById('calcZone').value;
+    zone = state.zones[parseInt(zoneIdx,10)];
+    if(!zone){ banner('Choisis une zone ou saisis une distance'); return; }
+  }
+  var input = {
+    poids: parseFloat(document.getElementById('calcPoids').value)||0,
+    colisLourd: parseFloat(document.getElementById('calcColisLourd').value)||0,
+    colisLong: parseFloat(document.getElementById('calcColisLong').value)||0,
+    nbEtages: parseFloat(document.getElementById('calcNbEtages').value)||0,
+    ascenseur: document.getElementById('calcAscenseur').checked,
+    montageMin: parseFloat(document.getElementById('calcMontageMin').value)||0
+  };
+  var r = calculerPrestation(state.params, zone, input);
+  var rows = [
+    ['LT (livraison trottoir)', r.LT],
+    ['LV1 (1 livreur)', r.LV1],
+    ['LV2 (2 livreurs)', r.LV2],
+    ['LV3 (3 livreurs)', r.LV3],
+    ['LV1 + Montage', r.LV1M],
+    ['LV2 + Montage', r.LV2M],
+    ['LV3 + Montage', r.LV3M]
+  ];
+  var html = (extraKm>0 ? '<p class="hint" style="margin-bottom:8px;">Zone '+escapeHtml(zone.code)+' — dont '+extraKm+' km au tarif supplémentaire ('+fmtEuro(state.params.tarifKmSupplementaire)+'/km)</p>' : '')+
+    '<table style="width:100%;border-collapse:collapse;">'+
+    rows.map(function(row){
+      return '<tr style="border-bottom:1px solid var(--line);"><td style="padding:8px 4px;">'+row[0]+'</td>'+
+        '<td style="padding:8px 4px;text-align:right;font-weight:700;color:var(--accent);">'+fmtEuro(row[1])+'</td></tr>';
+    }).join('')+
+    '</table>'+
+    '<p class="hint" style="margin-top:10px;">Dont surcharge étage/poids : '+fmtEuro(r.surchargeEtage)+(r.montage?' · Montage : '+fmtEuro(r.montage):'')+'</p>'+
+    (r.alerteEquipe ? '<p class="hint" style="color:var(--danger);margin-top:4px;">⚠ '+r.alerteEquipe+'</p>' : '');
+  el.innerHTML = html;
+});
+
+// ---------- paramètres ----------
+var PARAM_FIELD_MAP = {
+  salaireLivreurHeure: 'p-salaireLivreurHeure',
+  coeffLivreurMin: 'p-coeffLivreurMin',
+  coeffLV1: 'p-coeffLV1',
+  coeffLV2: 'p-coeffLV2',
+  salaireMonteurHeure: 'p-salaireMonteurHeure',
+  coeffMontageMin: 'p-coeffMontageMin',
+  coeffEtageBande: 'p-coeffEtageBande',
+  coeffEtageBase: 'p-coeffEtageBase',
+  colisLongBase: 'p-colisLongBase',
+  coeffColisCourt: 'p-coeffColisCourt',
+  coeffColisLong: 'p-coeffColisLong',
+  coeffSansAscenseur: 'p-coeffSansAscenseur',
+  maxiLV1: 'p-maxiLV1',
+  tarifKmSupplementaire: 'p-tarifKmSupplementaire'
+};
+
+function fillParamsForm(){
+  Object.keys(PARAM_FIELD_MAP).forEach(function(key){
+    document.getElementById(PARAM_FIELD_MAP[key]).value = state.params[key];
+  });
+}
+
+document.getElementById('btnSaveParams').addEventListener('click', async function(){
+  Object.keys(PARAM_FIELD_MAP).forEach(function(key){
+    var v = parseFloat(document.getElementById(PARAM_FIELD_MAP[key]).value);
+    if(!isNaN(v)) state.params[key] = v;
+  });
+  await saveTarifData();
+  var msg = document.getElementById('paramsMsg');
+  msg.textContent = 'Paramètres enregistrés';
+  msg.style.color = 'var(--accent)';
+});
+
+// ---------- zones kilométriques ----------
+var zoneEditIdx = null;
+
+function renderZonesList(){
+  var el = document.getElementById('listZones');
+  if(!state.zones.length){ el.innerHTML = '<div class="empty">Aucune zone enregistrée</div>'; return; }
+  el.innerHTML = state.zones.map(function(z, idx){
+    return '<div class="base-row"><span>'+escapeHtml(z.code)+' — '+z.kmDe+' à '+z.kmA+' km · '+z.carburantKm+' €/km · '+z.minLivraison+' min</span>'+
+      '<button data-idx="'+idx+'" data-act="editzone">Modifier</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="editzone"]'), function(btn){
+    btn.addEventListener('click', function(){ startEditZone(parseInt(btn.getAttribute('data-idx'),10)); });
+  });
+}
+
+document.getElementById('btnFillMissingZones').addEventListener('click', async function(){
+  var existingCodes = state.zones.map(function(z){ return z.code; });
+  var missing = DEFAULT_ZONES.filter(function(z){ return existingCodes.indexOf(z.code)<0; });
+  if(!missing.length){ banner('Toutes les zones A à T sont déjà présentes'); return; }
+  state.zones = state.zones.concat(missing).sort(function(a,b){ return a.kmDe-b.kmDe; });
+  await saveTarifData();
+  renderZonesList();
+  populateCalcZoneSelect();
+  banner(missing.length+' zone(s) ajoutée(s)');
+});
+
+function clearZoneForm(){
+  zoneEditIdx = null;
+  document.getElementById('zoneFormTitle').textContent = 'Ajouter une zone';
+  document.getElementById('btnSaveZone').textContent = 'Enregistrer la zone';
+  document.getElementById('btnCancelZoneEditRow').style.display = 'none';
+  ['z-code','z-carburantKm','z-kmDe','z-kmA','z-minLivraison'].forEach(function(id){ document.getElementById(id).value = ''; });
+}
+
+function startEditZone(idx){
+  var z = state.zones[idx];
+  if(!z) return;
+  zoneEditIdx = idx;
+  document.getElementById('zoneFormTitle').textContent = 'Modifier la zone '+z.code;
+  document.getElementById('btnSaveZone').textContent = 'Enregistrer les modifications';
+  document.getElementById('btnCancelZoneEditRow').style.display = 'block';
+  document.getElementById('z-code').value = z.code;
+  document.getElementById('z-carburantKm').value = z.carburantKm;
+  document.getElementById('z-kmDe').value = z.kmDe;
+  document.getElementById('z-kmA').value = z.kmA;
+  document.getElementById('z-minLivraison').value = z.minLivraison;
+}
+document.getElementById('btnCancelZoneEdit').addEventListener('click', clearZoneForm);
+
+document.getElementById('btnSaveZone').addEventListener('click', async function(){
+  var msg = document.getElementById('zoneMsg');
+  var z = {
+    code: document.getElementById('z-code').value.trim().toUpperCase(),
+    carburantKm: parseFloat(document.getElementById('z-carburantKm').value)||0,
+    kmDe: parseFloat(document.getElementById('z-kmDe').value)||0,
+    kmA: parseFloat(document.getElementById('z-kmA').value)||0,
+    minLivraison: parseFloat(document.getElementById('z-minLivraison').value)||0
+  };
+  if(!z.code){ msg.textContent = 'Saisis un code de zone'; msg.style.color='var(--danger)'; return; }
+  if(zoneEditIdx!=null){ state.zones[zoneEditIdx] = z; msg.textContent = 'Zone modifiée'; }
+  else { state.zones.push(z); msg.textContent = 'Zone ajoutée'; }
+  await saveTarifData();
+  renderZonesList();
+  populateCalcZoneSelect();
+  clearZoneForm();
+  msg.style.color = 'var(--accent)';
+});
+
+// ---------- init ----------
+(async function init(){
+  await loadGlobalSecurity();
+  var unlocked = lsGet('access-unlocked');
+  var agencyCode = lsGet('current-agency');
+  if(unlocked && agencyCode){
+    await startForAgency(agencyCode);
+  } else {
+    showAccessGate();
+  }
+})();
+
+})();
+</script>
+</body>
+</html>
