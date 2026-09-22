@@ -183,6 +183,7 @@
     <button class="tab-btn" data-tab="exit">Scan sortie</button>
     <button class="tab-btn" data-tab="archive">CDE sortie</button>
     <button class="tab-btn" data-tab="planning">Planning</button>
+    <button class="tab-btn" data-tab="tms">TMS STLS</button>
     <button class="tab-btn" data-tab="base">Base</button>
   </nav>
 
@@ -539,6 +540,20 @@
         <label for="planningHideUnplanned" style="margin:0;">Masquer les commandes sans date de livraison assignée</label>
       </div>
       <div id="planningList"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: TMS STLS (modules) ===== -->
+  <section id="tab-tms" style="display:none;">
+    <div class="card">
+      <h2>TMS STLS — Modules</h2>
+      <p class="hint" style="margin:0 0 14px;">Suite d'outils reliés entre eux, connectés aux mêmes données.</p>
+      <div id="modulesGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"></div>
+    </div>
+    <div class="card" id="moduleAccessCard" style="display:none;">
+      <h2>Droits d'accès aux modules</h2>
+      <p class="hint" style="margin:0 0 12px;">Réservé à l'administrateur. Choisis qui peut voir chaque module dans l'écran ci-dessus.</p>
+      <div id="moduleAccessList"></div>
     </div>
   </section>
 
@@ -1003,7 +1018,8 @@ var state = {
   globalSecurity: { masterCode: '2013', adminCode: 'ADMIN1', users: [], sessionVersion: 1 },
   brandName: 'STLS',
   agenciesList: [],
-  siegesList: []
+  siegesList: [],
+  moduleAccess: { tarifs: 'admin' }
 };
 
 function banner(msg){
@@ -1091,7 +1107,8 @@ async function loadGlobalConfig(){
         state.agenciesList = d.agenciesList || [];
         state.siegesList = d.siegesList || [];
         state.brandName = d.brandName || 'STLS';
-        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }));
+        state.moduleAccess = d.moduleAccess || state.moduleAccess;
+        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
         return;
       }
     }catch(e){ console.error('Firestore loadGlobalConfig error', e); }
@@ -1106,6 +1123,7 @@ async function loadGlobalConfig(){
       state.agenciesList = cached.agenciesList || [];
       state.siegesList = cached.siegesList || [];
       state.brandName = cached.brandName || 'STLS';
+      state.moduleAccess = cached.moduleAccess || state.moduleAccess;
     }catch(e){}
   }
   if(!state.agenciesList || !state.agenciesList.length){
@@ -1134,9 +1152,9 @@ async function loadGlobalConfig(){
 }
 
 async function saveGlobalConfig(){
-  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }));
+  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
   if(fsReady()){
-    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }, { merge: true }); }
+    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }, { merge: true }); }
     catch(e){ console.error('Firestore saveGlobalConfig error', e); }
   }
 }
@@ -1165,11 +1183,13 @@ function watchGlobalConfig(){
     state.agenciesList = d.agenciesList || [];
     state.siegesList = d.siegesList || [];
     state.brandName = d.brandName || 'STLS';
-    lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName }));
+    state.moduleAccess = d.moduleAccess || state.moduleAccess;
+    lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
     renderSiegesList();
     renderDepotsList();
     updateBrandingUI();
     updateAgencyCodeLine();
+    renderModulesGrid();
   }, function(err){ console.error('Firestore global config watch error', err); });
 }
 
@@ -4856,7 +4876,7 @@ document.getElementById('btnScanStop').addEventListener('click', stopScan);
 
 // ---------- tabs ----------
 function switchTab(name){
-  ['new','attente','ranger','hist','exit','archive','planning','base'].forEach(function(t){
+  ['new','attente','ranger','hist','exit','archive','planning','tms','base'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
@@ -4893,6 +4913,7 @@ function switchTab(name){
   }
   if(name==='archive'){ renderArchiveList(); }
   if(name==='planning'){ renderPlanningList(); }
+  if(name==='tms'){ renderModulesGrid(); }
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
@@ -5044,6 +5065,60 @@ function updateAgencyCodeLine(){
   el.textContent = 'Dépôt actif : '+(state.brandName||'STLS')+' - Dépôt '+(state.currentAgencyCode||'-')+(ag&&ag.name?' — '+ag.name:'');
 }
 
+// ---------- TMS STLS : écran des modules et droits d'accès ----------
+var TMS_MODULES = [
+  { key: 'depot', label: 'Gestion Dépôt', current: true },
+  { key: 'tarifs', label: 'Tarifs', url: 'tarifs.html' }
+];
+
+function moduleAccessLevel(key){
+  return (state.moduleAccess && state.moduleAccess[key]) || 'admin';
+}
+
+function renderModulesGrid(){
+  var grid = document.getElementById('modulesGrid');
+  if(!grid) return;
+  grid.innerHTML = TMS_MODULES.map(function(m){
+    if(m.current){
+      return '<div style="border:2px solid var(--accent);border-radius:12px;padding:16px;text-align:center;background:var(--accent-light);">'+
+        '<div style="font-weight:700;">'+escapeHtml(m.label)+'</div><div class="hint" style="margin-top:4px;">Module actif</div></div>';
+    }
+    var level = moduleAccessLevel(m.key);
+    var allowed = level==='all' || state.isAdmin;
+    if(!allowed) return '';
+    return '<a href="'+m.url+'" style="display:block;border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;text-decoration:none;color:var(--ink);background:#fff;">'+
+      '<div style="font-weight:700;">'+escapeHtml(m.label)+'</div>'+
+      (level==='admin' ? '<div class="hint" style="margin-top:4px;">Administrateur</div>' : '')+
+      '</a>';
+  }).join('');
+
+  var accessCard = document.getElementById('moduleAccessCard');
+  var accessList = document.getElementById('moduleAccessList');
+  if(state.isAdmin){
+    accessCard.style.display = 'block';
+    accessList.innerHTML = TMS_MODULES.filter(function(m){ return !m.current; }).map(function(m){
+      var level = moduleAccessLevel(m.key);
+      return '<div class="field">'+
+        '<label>'+escapeHtml(m.label)+'</label>'+
+        '<select data-module="'+m.key+'" class="module-access-select" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
+          '<option value="admin"'+(level==='admin'?' selected':'')+'>Administrateur uniquement</option>'+
+          '<option value="all"'+(level==='all'?' selected':'')+'>Tout le monde</option>'+
+        '</select></div>';
+    }).join('');
+    Array.prototype.forEach.call(accessList.querySelectorAll('.module-access-select'), function(sel){
+      sel.addEventListener('change', async function(){
+        if(!state.moduleAccess) state.moduleAccess = {};
+        state.moduleAccess[sel.getAttribute('data-module')] = sel.value;
+        await saveGlobalConfig();
+        renderModulesGrid();
+        banner('Droits d\'accès mis à jour');
+      });
+    });
+  } else {
+    accessCard.style.display = 'none';
+  }
+}
+
 function currentAgencyName(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
@@ -5064,7 +5139,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0024';
+var APP_VERSION = '2026.0025';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -5390,6 +5465,7 @@ async function loadAgencyDataAndShowApp(){
   resetForm();
   renderSiegesList();
   renderDepotsList();
+  renderModulesGrid();
   hideAccessGate();
   updateSecurityIdentityLine();
   updateAgencyCodeLine();
@@ -5550,6 +5626,7 @@ async function refreshGlobalConfigFromServer(){
       state.agenciesList = d.agenciesList || state.agenciesList;
       state.siegesList = d.siegesList || state.siegesList;
       state.brandName = d.brandName || state.brandName;
+      state.moduleAccess = d.moduleAccess || state.moduleAccess;
     }
   }catch(e){ console.error('Firestore refreshGlobalConfigFromServer error', e); }
 }
