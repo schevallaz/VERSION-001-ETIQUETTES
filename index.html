@@ -176,19 +176,19 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab-btn active" data-tab="new">News CDE</button>
+    <button class="tab-btn active" data-tab="tms">TMS STLS</button>
+    <button class="tab-btn" data-tab="new">News CDE</button>
     <button class="tab-btn" data-tab="attente">CDE en attente</button>
     <button class="tab-btn" data-tab="ranger">CDE à Ranger</button>
     <button class="tab-btn" data-tab="hist">CDE en stock</button>
     <button class="tab-btn" data-tab="exit">Scan sortie</button>
     <button class="tab-btn" data-tab="archive">CDE sortie</button>
     <button class="tab-btn" data-tab="planning">Planning</button>
-    <button class="tab-btn" data-tab="tms">TMS STLS</button>
     <button class="tab-btn" data-tab="base">Base</button>
   </nav>
 
   <!-- ===== TAB: NOUVELLE RECEPTION ===== -->
-  <section id="tab-new">
+  <section id="tab-new" style="display:none;">
     <div class="card" id="editBanner" style="display:none;background:var(--accent-light);border-color:#bfe3d4;">
       <div style="font-size:14px;font-weight:600;">Modification de la réception <span id="editBannerNum"></span></div>
       <button class="btn ghost" id="btnCancelEdit" style="margin-top:10px;width:auto;padding:7px 12px;font-size:12.5px;">Annuler et créer une nouvelle réception</button>
@@ -544,7 +544,7 @@
   </section>
 
   <!-- ===== TAB: TMS STLS (modules) ===== -->
-  <section id="tab-tms" style="display:none;">
+  <section id="tab-tms">
     <div class="card">
       <h2>TMS STLS — Modules</h2>
       <p class="hint" style="margin:0 0 14px;">Suite d'outils reliés entre eux, connectés aux mêmes données.</p>
@@ -5067,8 +5067,13 @@ function updateAgencyCodeLine(){
 
 // ---------- TMS STLS : écran des modules et droits d'accès ----------
 var TMS_MODULES = [
-  { key: 'depot', label: 'Gestion Dépôt', current: true },
-  { key: 'tarifs', label: 'Tarifs', url: 'tarifs.html' }
+  { key: 'depot', label: 'Gestion Dépôt', icon: '📦', internalTab: 'new' },
+  { key: 'contremarques', label: 'Gestion Contremarques', icon: '🏠', internalTab: 'base' },
+  { key: 'clients', label: 'Gestion Clients', icon: '🏢', internalTab: 'base' },
+  { key: 'planning', label: 'Gestion Planning', icon: '📅', internalTab: 'planning' },
+  { key: 'livraisons', label: 'Gestion Livraisons', icon: '🚚', comingSoon: true },
+  { key: 'facturation', label: 'Gestion Facturation', icon: '🧾', comingSoon: true },
+  { key: 'tarifs', label: 'Tarifs', icon: '💶', url: 'tarifs.html' }
 ];
 
 function moduleAccessLevel(key){
@@ -5079,27 +5084,44 @@ function renderModulesGrid(){
   var grid = document.getElementById('modulesGrid');
   if(!grid) return;
   grid.innerHTML = TMS_MODULES.map(function(m){
-    if(m.current){
-      return '<div style="border:2px solid var(--accent);border-radius:12px;padding:16px;text-align:center;background:var(--accent-light);">'+
-        '<div style="font-weight:700;">'+escapeHtml(m.label)+'</div><div class="hint" style="margin-top:4px;">Module actif</div></div>';
+    if(m.comingSoon){
+      return '<div style="border:1px dashed var(--line-strong);border-radius:12px;padding:16px;text-align:center;color:var(--ink-soft);">'+
+        '<div style="font-size:28px;margin-bottom:6px;">'+m.icon+'</div>'+
+        '<div style="font-weight:700;">'+escapeHtml(m.label)+'</div><div class="hint" style="margin-top:4px;">À venir</div></div>';
     }
+    if(m.internalTab){
+      return '<button type="button" class="module-btn" data-target-tab="'+m.internalTab+'" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;">'+
+        '<div style="font-size:28px;margin-bottom:6px;">'+m.icon+'</div>'+
+        '<div style="font-weight:700;color:var(--ink);">'+escapeHtml(m.label)+'</div></button>';
+    }
+    // module externe (fichier séparé), soumis aux droits d'accès
     var level = moduleAccessLevel(m.key);
     var allowed = level==='all' || state.isAdmin;
     if(!allowed) return '';
-    return '<a href="'+m.url+'" style="display:block;border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;text-decoration:none;color:var(--ink);background:#fff;">'+
-      '<div style="font-weight:700;">'+escapeHtml(m.label)+'</div>'+
+    return '<a href="'+m.url+'" style="display:block;border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;text-decoration:none;background:#fff;">'+
+      '<div style="font-size:28px;margin-bottom:6px;">'+m.icon+'</div>'+
+      '<div style="font-weight:700;color:var(--ink);">'+escapeHtml(m.label)+'</div>'+
       (level==='admin' ? '<div class="hint" style="margin-top:4px;">Administrateur</div>' : '')+
       '</a>';
   }).join('');
 
+  Array.prototype.forEach.call(grid.querySelectorAll('.module-btn'), function(btn){
+    btn.addEventListener('click', function(){
+      var target = btn.getAttribute('data-target-tab');
+      var navBtn = document.querySelector('.tab-btn[data-tab="'+target+'"]');
+      if(navBtn) navBtn.click();
+    });
+  });
+
   var accessCard = document.getElementById('moduleAccessCard');
   var accessList = document.getElementById('moduleAccessList');
+  var externalModules = TMS_MODULES.filter(function(m){ return m.url; });
   if(state.isAdmin){
     accessCard.style.display = 'block';
-    accessList.innerHTML = TMS_MODULES.filter(function(m){ return !m.current; }).map(function(m){
+    accessList.innerHTML = externalModules.map(function(m){
       var level = moduleAccessLevel(m.key);
       return '<div class="field">'+
-        '<label>'+escapeHtml(m.label)+'</label>'+
+        '<label>'+m.icon+' '+escapeHtml(m.label)+'</label>'+
         '<select data-module="'+m.key+'" class="module-access-select" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
           '<option value="admin"'+(level==='admin'?' selected':'')+'>Administrateur uniquement</option>'+
           '<option value="all"'+(level==='all'?' selected':'')+'>Tout le monde</option>'+
@@ -5139,7 +5161,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0025';
+var APP_VERSION = '2026.0026';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
