@@ -3028,6 +3028,7 @@ function renderHistory(){
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
         '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
         '<button class="btn '+(cmLinked?'accent':'ghost')+'" data-act="cmlink">'+cmBtnLabel+'</button>'+
+        '<button class="btn ghost" data-act="unrange">Remettre à ranger</button>'+
         '<button class="btn accent" data-act="walk">Sortie de commande</button>'+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
       '</div>'+
@@ -3089,6 +3090,19 @@ function renderHistory(){
     });
     item.querySelector('[data-act="cmlink"]').addEventListener('click', function(){
       renderCmLinkPanel(id);
+    });
+    item.querySelector('[data-act="unrange"]').addEventListener('click', async function(){
+      if(!confirm('Remettre '+(labelNumber||'cette commande')+' dans "CDE à Ranger" ? Les emplacements déjà assignés seront effacés.')) return;
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      rec.data.emplacements = {};
+      rec.data.emplacement = '';
+      await saveReceptionRecord(id, rec);
+      var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
+      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      renderHistory();
+      renderToRangeList();
+      banner('Commande remise dans "CDE à Ranger"');
     });
     item.querySelector('[data-act="del"]').addEventListener('click', async function(){
       if(!confirm('Envoyer '+(labelNumber||'cette commande')+' à la corbeille ? Tu pourras la restaurer depuis Base → Corbeille.')) return;
@@ -5073,7 +5087,8 @@ var TMS_MODULES = [
   { key: 'planning', label: 'Gestion Planning', icon: '📅', internalTab: 'planning' },
   { key: 'livraisons', label: 'Gestion Livraisons', icon: '🚚', comingSoon: true },
   { key: 'facturation', label: 'Gestion Facturation', icon: '🧾', comingSoon: true },
-  { key: 'tarifs', label: 'Tarifs', icon: '💶', url: 'tarifs.html' }
+  { key: 'tarifs', label: 'Tarifs', icon: '💶', url: 'tarifs.html' },
+  { key: 'parametres', label: 'Paramètres', icon: '⚙️', internalTab: 'base' }
 ];
 
 function moduleAccessLevel(key){
@@ -5161,7 +5176,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0026';
+var APP_VERSION = '2026.0027';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
