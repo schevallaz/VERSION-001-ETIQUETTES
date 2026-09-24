@@ -557,19 +557,75 @@
     </div>
   </section>
 
-  <!-- ===== TAB: BASE ===== -->
+  <!-- ===== TAB: BASE (données de référence du dépôt) ===== -->
   <section id="tab-base" style="display:none;">
+    <div class="card"><h2 style="margin:0;font-size:13px;color:var(--ink-soft);">📦 Données de référence liées à ce dépôt — fournisseurs, transporteurs, emplacements.</h2></div>
     <div class="card">
-      <h2>Transfert entre appareils</h2>
-      <p class="hint" style="margin:0 0 12px;">La base et l'historique sont stockés uniquement sur cet appareil / ce navigateur. Exporte un fichier de sauvegarde ici, puis importe-le sur ton autre appareil pour retrouver les mêmes données.</p>
-      <div class="btn-row" style="margin-top:0;">
-        <button class="btn primary" id="btnExport">Exporter (fichier)</button>
-        <button class="btn accent" id="btnImport">Importer (fichier)</button>
+      <h2>🏭 Fournisseurs (<span id="cnt-fournisseurs">0000</span>)</h2>
+      <div class="base-list" id="listFournisseurs"></div>
+      <div class="addrow">
+        <input type="text" id="add-fournisseur-nom" placeholder="Nouveau fournisseur">
+        <button class="btn primary" id="add-fournisseur-btn" style="width:auto;">Ajouter</button>
       </div>
-      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
     </div>
     <div class="card">
-      <h2>Clients (<span id="cnt-clients">0000</span>)</h2>
+      <h2>🚛 Transporteurs (<span id="cnt-transporteurs">0000</span>)</h2>
+      <div class="base-list" id="listTransporteurs"></div>
+      <div class="addrow">
+        <input type="text" id="add-transporteur-nom" placeholder="Nouveau transporteur">
+        <button class="btn primary" id="add-transporteur-btn" style="width:auto;">Ajouter</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📍 Emplacements dépôt (<span id="cnt-emplacements">0000</span>)</h2>
+      <div class="base-list" id="listEmplacements"></div>
+      <p class="hint" style="margin:10px 0 0;">Format obligatoire : AA-01-01</p>
+      <div class="addrow">
+        <input type="text" id="emplacement-input" placeholder="AA-01-01" maxlength="8">
+        <button class="btn primary" id="add-emplacement-btn" style="width:auto;">Ajouter</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnPrintEmplacement" style="width:100%;">Imprimer cette étiquette (unique)</button>
+      </div>
+      <h2 style="margin-top:20px;">Impression en masse</h2>
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn ghost" id="btnSelectAllEmp">Tout cocher</button>
+        <button class="btn ghost" id="btnSelectNoneEmp">Tout décocher</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnPrintEmpBatch" style="width:100%;">Imprimer la sélection (lot, paysage)</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🔧 Réparation</h2>
+      <p class="hint" style="margin:0 0 12px;">Si une commande reste bloquée dans "CDE en attente" alors qu'elle est déjà rangée en dépôt, c'est qu'elle n'a jamais été confirmée "reçue" (souvent une commande ancienne). Ce bouton confirme automatiquement la réception (à la date déjà enregistrée) de toutes les commandes concernées, sans rien changer d'autre.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnRepairReceivedAt" style="width:100%;">Réparer les commandes non confirmées</button>
+      </div>
+      <div id="repairMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
+      <h2>💾 Sauvegarde des commandes sorties</h2>
+      <p class="hint" style="margin:0 0 12px;">Exporte une copie complète de toutes les commandes sorties (fichier JSON) avant toute suppression définitive.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnBackupExited" style="width:100%;">Exporter la sauvegarde (JSON)</button>
+      </div>
+      <div id="backupExitedMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: GESTION CLIENTS ===== -->
+  <section id="tab-clients" style="display:none;">
+    <div class="card" id="clientsTileGrid">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <button type="button" class="submodule-tile" data-prefix="clients" data-key="list" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏢</div><div style="font-weight:700;color:var(--ink);">Clients</div></button>
+        <button type="button" class="submodule-tile" data-prefix="clients" data-key="fiche" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📋</div><div style="font-weight:700;color:var(--ink);">Fiche client détaillée</div></button>
+      </div>
+    </div>
+    <div class="btn-row submodule-back-row" data-prefix="clients" style="display:none;"><button class="btn ghost submodule-back" data-prefix="clients" style="width:100%;">← Retour aux modules Clients</button></div>
+    <div class="submodule-content" id="sub-clients-list" style="display:none;">
+    <div class="card">
+      <h2>🏢 Clients (<span id="cnt-clients">0000</span>)</h2>
       <div class="base-list" id="listClients"></div>
       <div class="addrow">
         <input type="text" id="add-client-nom" placeholder="Nouveau client">
@@ -579,8 +635,10 @@
         <input type="email" id="add-client-email" placeholder="Adresse mail du client (facultatif — sinon celle de l'agence)">
       </div>
     </div>
+    </div>
+    <div class="submodule-content" id="sub-clients-fiche" style="display:none;">
     <div class="card">
-      <h2 id="clientFicheTitle">Fiche client détaillée</h2>
+      <h2 id="clientFicheTitle">📋 Fiche client détaillée</h2>
       <p class="hint" style="margin:0 0 12px;">Choisis un client dans la liste ci-dessus puis complète sa fiche — pratique dès que le client t'a transmis ses informations de livraison.</p>
       <div class="field">
         <label for="clientFicheSelect">Client</label>
@@ -643,8 +701,13 @@
       </div>
       <div id="clientFicheMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: GESTION CONTREMARQUES ===== -->
+  <section id="tab-contremarques" style="display:none;">
     <div class="card">
-      <h2>Fiches Contremarque (<span id="cnt-contremarques">0000</span>)</h2>
+      <h2>🏠 Fiches Contremarque (<span id="cnt-contremarques">0000</span>)</h2>
       <p class="hint" style="margin:0 0 12px;">Le client final — celui à qui la marchandise est livrée. À compléter dès que les informations de livraison sont connues.</p>
       <div id="listContremarques" style="margin-bottom:12px;"></div>
 
@@ -658,44 +721,38 @@
       </div>
       <div id="cmFicheMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
-    <div class="card">
-      <h2>Fournisseurs (<span id="cnt-fournisseurs">0000</span>)</h2>
-      <div class="base-list" id="listFournisseurs"></div>
-      <div class="addrow">
-        <input type="text" id="add-fournisseur-nom" placeholder="Nouveau fournisseur">
-        <button class="btn primary" id="add-fournisseur-btn" style="width:auto;">Ajouter</button>
+  </section>
+
+  <!-- ===== TAB: PARAMETRES ===== -->
+  <section id="tab-parametres" style="display:none;">
+    <div class="card" id="parametresTileGrid">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="transfert" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔄</div><div style="font-weight:700;color:var(--ink);">Transfert entre appareils</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="securite" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔒</div><div style="font-weight:700;color:var(--ink);">Sécurité</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="codeadmin" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔑</div><div style="font-weight:700;color:var(--ink);">Code administrateur</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="deconnexion" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔌</div><div style="font-weight:700;color:var(--ink);">Déconnexion forcée</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="corbeille" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🗑️</div><div style="font-weight:700;color:var(--ink);">Corbeille</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="nomapp" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏷️</div><div style="font-weight:700;color:var(--ink);">Nom de l'application</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="sieges" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏛️</div><div style="font-weight:700;color:var(--ink);">Sièges</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="depots" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📦</div><div style="font-weight:700;color:var(--ink);">Dépôts</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="emailtemplates" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">✉️</div><div style="font-weight:700;color:var(--ink);">Modèles d'e-mail</div></button>
       </div>
     </div>
+    <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
+    <div class="submodule-content" id="sub-parametres-transfert" style="display:none;">
     <div class="card">
-      <h2>Transporteurs (<span id="cnt-transporteurs">0000</span>)</h2>
-      <div class="base-list" id="listTransporteurs"></div>
-      <div class="addrow">
-        <input type="text" id="add-transporteur-nom" placeholder="Nouveau transporteur">
-        <button class="btn primary" id="add-transporteur-btn" style="width:auto;">Ajouter</button>
-      </div>
-    </div>
-    <div class="card">
-      <h2>Emplacements dépôt (<span id="cnt-emplacements">0000</span>)</h2>
-      <div class="base-list" id="listEmplacements"></div>
-      <p class="hint" style="margin:10px 0 0;">Format obligatoire : AA-01-01</p>
-      <div class="addrow">
-        <input type="text" id="emplacement-input" placeholder="AA-01-01" maxlength="8">
-        <button class="btn primary" id="add-emplacement-btn" style="width:auto;">Ajouter</button>
-      </div>
-      <div class="btn-row">
-        <button class="btn accent" id="btnPrintEmplacement" style="width:100%;">Imprimer cette étiquette (unique)</button>
-      </div>
-      <h2 style="margin-top:20px;">Impression en masse</h2>
+      <h2>🔄 Transfert entre appareils</h2>
+      <p class="hint" style="margin:0 0 12px;">La base et l'historique sont stockés uniquement sur cet appareil / ce navigateur. Exporte un fichier de sauvegarde ici, puis importe-le sur ton autre appareil pour retrouver les mêmes données.</p>
       <div class="btn-row" style="margin-top:0;">
-        <button class="btn ghost" id="btnSelectAllEmp">Tout cocher</button>
-        <button class="btn ghost" id="btnSelectNoneEmp">Tout décocher</button>
+        <button class="btn primary" id="btnExport">Exporter (fichier)</button>
+        <button class="btn accent" id="btnImport">Importer (fichier)</button>
       </div>
-      <div class="btn-row">
-        <button class="btn accent" id="btnPrintEmpBatch" style="width:100%;">Imprimer la sélection (lot, paysage)</button>
-      </div>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
     </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-securite" style="display:none;">
     <div class="card">
-      <h2>Sécurité — accès à l'application</h2>
+      <h2>🔒 Sécurité — accès à l'application</h2>
       <p class="hint" id="secIdentityLine" style="margin:0 0 14px;"></p>
       <div class="btn-row" style="margin-top:0;margin-bottom:16px;">
         <button class="btn danger" id="btnLogout" style="width:100%;">Changer de compte</button>
@@ -713,8 +770,10 @@
       </div>
       <div id="secChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-codeadmin" style="display:none;">
     <div class="card">
-      <h2>Code administrateur</h2>
+      <h2>🔑 Code administrateur</h2>
       <p class="hint" style="margin:0 0 12px;">Distinct du code équipe — connu de toi seul, il donne accès à la gestion des agences et à ce panneau.</p>
       <div class="field">
         <label for="adminCurrentCode">Code administrateur actuel</label>
@@ -729,8 +788,10 @@
       </div>
       <div id="adminChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-deconnexion" style="display:none;">
     <div class="card">
-      <h2>Déconnexion forcée</h2>
+      <h2>🔌 Déconnexion forcée</h2>
       <p class="hint" style="margin:0 0 12px;">Force tous les utilisateurs (tous appareils) à se reconnecter avec le code à jour, au prochain chargement de l'appli.</p>
       <div class="field">
         <label for="forceLogoutAdminCode">Code administrateur</label>
@@ -741,21 +802,17 @@
       </div>
       <div id="forceLogoutMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
-    <div class="card">
-      <h2>Réparation</h2>
-      <p class="hint" style="margin:0 0 12px;">Si une commande reste bloquée dans "CDE en attente" alors qu'elle est déjà rangée en dépôt, c'est qu'elle n'a jamais été confirmée "reçue" (souvent une commande ancienne). Ce bouton confirme automatiquement la réception (à la date déjà enregistrée) de toutes les commandes concernées, sans rien changer d'autre.</p>
-      <div class="btn-row">
-        <button class="btn primary" id="btnRepairReceivedAt" style="width:100%;">Réparer les commandes non confirmées</button>
-      </div>
-      <div id="repairMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
+    <div class="submodule-content" id="sub-parametres-corbeille" style="display:none;">
     <div class="card">
-      <h2>Corbeille (<span id="cnt-trash">0</span>)</h2>
+      <h2>🗑️ Corbeille (<span id="cnt-trash">0</span>)</h2>
       <p class="hint" style="margin:0 0 12px;">Commandes supprimées depuis "CDE en attente" ou "CDE en stock" — récupérables ici tant qu'elles ne sont pas effacées définitivement.</p>
       <div id="trashList"></div>
     </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-nomapp" style="display:none;">
     <div class="card">
-      <h2>Nom de l'application</h2>
+      <h2>🏷️ Nom de l'application</h2>
       <p class="hint" id="brandCurrentLine" style="margin:0 0 12px;"></p>
       <div class="field">
         <label for="brandAdminCode">Code administrateur</label>
@@ -770,16 +827,10 @@
       </div>
       <div id="brandChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
-    <div class="card">
-      <h2>Sauvegarde des commandes sorties</h2>
-      <p class="hint" style="margin:0 0 12px;">Exporte une copie complète de toutes les commandes sorties (fichier JSON) avant toute suppression définitive.</p>
-      <div class="btn-row">
-        <button class="btn primary" id="btnBackupExited" style="width:100%;">Exporter la sauvegarde (JSON)</button>
-      </div>
-      <div id="backupExitedMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
+    <div class="submodule-content" id="sub-parametres-sieges" style="display:none;">
     <div class="card">
-      <h2>Sièges</h2>
+      <h2>🏛️ Sièges</h2>
       <div id="listSieges" style="margin-bottom:12px;"></div>
 
       <h2 style="margin-top:20px;" id="siegeFormTitle">Ajouter un siège (administrateur)</h2>
@@ -859,9 +910,10 @@
       </div>
       <div id="siegeChangeMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
-
+    </div>
+    <div class="submodule-content" id="sub-parametres-depots" style="display:none;">
     <div class="card">
-      <h2>Dépôts</h2>
+      <h2>📦 Dépôts</h2>
       <p class="hint" id="agencyCurrentLine" style="margin:0 0 14px;"></p>
       <div id="listDepots" style="margin-bottom:12px;"></div>
 
@@ -975,8 +1027,10 @@
       </div>
       <p class="hint" style="margin-top:8px;">À afficher dans le dépôt : en la scannant, l'appli démarre directement dessus.</p>
     </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-emailtemplates" style="display:none;">
     <div class="card">
-      <h2>Modèles d'e-mail</h2>
+      <h2>✉️ Modèles d'e-mail</h2>
       <p class="hint" style="margin:0 0 12px;">Utilise <code>#AGENCE#</code> dans le texte : il sera remplacé par le nom de l'agence active à l'envoi.</p>
       <div class="field">
         <label for="emailTemplateReserve">Message — réserve à réception (avec photos)</label>
@@ -989,6 +1043,7 @@
       <div class="btn-row">
         <button class="btn accent" id="btnSaveEmailTemplates" style="width:100%;">Enregistrer les modèles</button>
       </div>
+    </div>
     </div>
   </section>
 </div>
@@ -1019,7 +1074,7 @@ var state = {
   brandName: 'STLS',
   agenciesList: [],
   siegesList: [],
-  moduleAccess: { tarifs: 'admin' }
+  moduleAccess: { tarifs: 'admin', livraisons: 'admin', depot: 'all', contremarques: 'all', clients: 'all', planning: 'all', parametres: 'admin' }
 };
 
 function banner(msg){
@@ -1109,7 +1164,7 @@ async function loadGlobalConfig(){
         state.agenciesList = d.agenciesList || [];
         state.siegesList = d.siegesList || [];
         state.brandName = d.brandName || 'STLS';
-        state.moduleAccess = d.moduleAccess || state.moduleAccess;
+        state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
         lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
         return;
       }
@@ -1125,7 +1180,7 @@ async function loadGlobalConfig(){
       state.agenciesList = cached.agenciesList || [];
       state.siegesList = cached.siegesList || [];
       state.brandName = cached.brandName || 'STLS';
-      state.moduleAccess = cached.moduleAccess || state.moduleAccess;
+      state.moduleAccess = Object.assign({}, state.moduleAccess, cached.moduleAccess || {});
     }catch(e){}
   }
   if(!state.agenciesList || !state.agenciesList.length){
@@ -1185,7 +1240,7 @@ function watchGlobalConfig(){
     state.agenciesList = d.agenciesList || [];
     state.siegesList = d.siegesList || [];
     state.brandName = d.brandName || 'STLS';
-    state.moduleAccess = d.moduleAccess || state.moduleAccess;
+    state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
     lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
     renderSiegesList();
     renderDepotsList();
@@ -5060,8 +5115,41 @@ document.getElementById('btnScanStart').addEventListener('click', startScan);
 document.getElementById('btnScanStop').addEventListener('click', stopScan);
 
 // ---------- tabs ----------
+// ---------- navigation par tuiles à l'intérieur d'un module (Gestion Clients, Paramètres...) ----------
+function showSubmoduleGrid(prefix){
+  var grid = document.getElementById(prefix+'TileGrid');
+  if(grid) grid.style.display = 'block';
+  var backRow = document.querySelector('.submodule-back-row[data-prefix="'+prefix+'"]');
+  if(backRow) backRow.style.display = 'none';
+  Array.prototype.forEach.call(document.querySelectorAll('.submodule-content[id^="sub-'+prefix+'-"]'), function(el){
+    el.style.display = 'none';
+  });
+}
+
+function showSubmodule(prefix, key){
+  var grid = document.getElementById(prefix+'TileGrid');
+  if(grid) grid.style.display = 'none';
+  var backRow = document.querySelector('.submodule-back-row[data-prefix="'+prefix+'"]');
+  if(backRow) backRow.style.display = 'block';
+  Array.prototype.forEach.call(document.querySelectorAll('.submodule-content[id^="sub-'+prefix+'-"]'), function(el){
+    el.style.display = (el.id === 'sub-'+prefix+'-'+key) ? 'block' : 'none';
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), function(btn){
+  btn.addEventListener('click', function(){
+    showSubmodule(btn.getAttribute('data-prefix'), btn.getAttribute('data-key'));
+  });
+});
+Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), function(btn){
+  btn.addEventListener('click', function(){
+    showSubmoduleGrid(btn.getAttribute('data-prefix'));
+  });
+});
+
 function switchTab(name){
-  ['new','attente','ranger','hist','exit','archive','planning','tms','base'].forEach(function(t){
+  ['new','attente','ranger','hist','exit','archive','planning','tms','base','clients','contremarques','parametres'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
@@ -5099,6 +5187,9 @@ function switchTab(name){
   if(name==='archive'){ renderArchiveList(); }
   if(name==='planning'){ renderPlanningList(); }
   if(name==='tms'){ renderModulesGrid(); }
+  if(name==='clients'){ renderClientsList(); populateClientFicheSelect(); showSubmoduleGrid('clients'); }
+  if(name==='contremarques'){ renderContremarquesList(); }
+  if(name==='parametres'){ renderSiegesList(); renderDepotsList(); renderTrashList(); showSubmoduleGrid('parametres'); }
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
@@ -5253,13 +5344,13 @@ function updateAgencyCodeLine(){
 // ---------- TMS STLS : écran des modules et droits d'accès ----------
 var TMS_MODULES = [
   { key: 'depot', label: 'Gestion Dépôt', icon: '📦', internalTab: 'new' },
-  { key: 'contremarques', label: 'Gestion Contremarques', icon: '🏠', internalTab: 'base' },
-  { key: 'clients', label: 'Gestion Clients', icon: '🏢', internalTab: 'base' },
+  { key: 'contremarques', label: 'Gestion Contremarques', icon: '🏠', internalTab: 'contremarques' },
+  { key: 'clients', label: 'Gestion Clients', icon: '🏢', internalTab: 'clients' },
   { key: 'planning', label: 'Gestion Planning', icon: '📅', internalTab: 'planning' },
   { key: 'livraisons', label: 'Gestion Livraisons', icon: '🚚', url: 'livraisons.html' },
   { key: 'facturation', label: 'Gestion Facturation', icon: '🧾', comingSoon: true },
   { key: 'tarifs', label: 'Tarifs', icon: '💶', url: 'tarifs.html' },
-  { key: 'parametres', label: 'Paramètres', icon: '⚙️', internalTab: 'base' }
+  { key: 'parametres', label: 'Paramètres', icon: '⚙️', internalTab: 'parametres' }
 ];
 
 function moduleAccessLevel(key){
@@ -5276,9 +5367,14 @@ function renderModulesGrid(){
         '<div style="font-weight:700;">'+escapeHtml(m.label)+'</div><div class="hint" style="margin-top:4px;">À venir</div></div>';
     }
     if(m.internalTab){
+      var levelInt = moduleAccessLevel(m.key);
+      var allowedInt = levelInt==='all' || state.isAdmin;
+      if(!allowedInt) return '';
       return '<button type="button" class="module-btn" data-target-tab="'+m.internalTab+'" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;">'+
         '<div style="font-size:28px;margin-bottom:6px;">'+m.icon+'</div>'+
-        '<div style="font-weight:700;color:var(--ink);">'+escapeHtml(m.label)+'</div></button>';
+        '<div style="font-weight:700;color:var(--ink);">'+escapeHtml(m.label)+'</div>'+
+        (levelInt==='admin' ? '<div class="hint" style="margin-top:4px;">Administrateur</div>' : '')+
+        '</button>';
     }
     // module externe (fichier séparé), soumis aux droits d'accès
     var level = moduleAccessLevel(m.key);
@@ -5293,15 +5389,13 @@ function renderModulesGrid(){
 
   Array.prototype.forEach.call(grid.querySelectorAll('.module-btn'), function(btn){
     btn.addEventListener('click', function(){
-      var target = btn.getAttribute('data-target-tab');
-      var navBtn = document.querySelector('.tab-btn[data-tab="'+target+'"]');
-      if(navBtn) navBtn.click();
+      switchTab(btn.getAttribute('data-target-tab'));
     });
   });
 
   var accessCard = document.getElementById('moduleAccessCard');
   var accessList = document.getElementById('moduleAccessList');
-  var externalModules = TMS_MODULES.filter(function(m){ return m.url; });
+  var externalModules = TMS_MODULES.filter(function(m){ return m.url || m.internalTab; });
   if(state.isAdmin){
     accessCard.style.display = 'block';
     accessList.innerHTML = externalModules.map(function(m){
@@ -5347,7 +5441,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0031';
+var APP_VERSION = '2026.0034';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -5834,7 +5928,7 @@ async function refreshGlobalConfigFromServer(){
       state.agenciesList = d.agenciesList || state.agenciesList;
       state.siegesList = d.siegesList || state.siegesList;
       state.brandName = d.brandName || state.brandName;
-      state.moduleAccess = d.moduleAccess || state.moduleAccess;
+      state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
     }
   }catch(e){ console.error('Firestore refreshGlobalConfigFromServer error', e); }
 }
