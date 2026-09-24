@@ -577,7 +577,7 @@
       </div>
     </div>
     <div class="card">
-      <h2>📍 Emplacements dépôt (<span id="cnt-emplacements">0000</span>)</h2>
+      <h2>📍 Emplacements dépôt (<span id="cnt-emplacements">0000</span>) <span id="empFillRate" class="hint" style="font-weight:400;font-size:12.5px;"></span></h2>
       <div class="base-list" id="listEmplacements"></div>
       <p class="hint" style="margin:10px 0 0;">Format obligatoire : AA-01-01</p>
       <div class="addrow">
@@ -1859,6 +1859,15 @@ function renderBaseLists(){
 function renderEmplacementsList(){
   var el = document.getElementById('listEmplacements');
   var arr = state.base.emplacements || [];
+  var fillEl = document.getElementById('empFillRate');
+  if(fillEl){
+    if(!arr.length){ fillEl.textContent = ''; }
+    else{
+      var nbVides = arr.filter(function(e){ return emplacementColorState(e)==='green'; }).length;
+      var tauxRemplissage = Math.round(((arr.length-nbVides)/arr.length)*100);
+      fillEl.textContent = '— '+nbVides+' vide'+(nbVides>1?'s':'')+' · '+tauxRemplissage+'% de remplissage';
+    }
+  }
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
   var sorted = arr.map(function(e, idx){ return { val: e, idx: idx }; }).sort(function(a,b){ return a.val.localeCompare(b.val, 'fr', { numeric: true }); });
   var colorHex = { red:'#c0392b', orange:'#e8792e', green:'#1e8e3e' };
@@ -5517,7 +5526,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0035';
+var APP_VERSION = '2026.0036';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
