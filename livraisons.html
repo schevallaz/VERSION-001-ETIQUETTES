@@ -6,6 +6,7 @@
 <title>Livraisons STLS</title>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     --ink:#1c1c1a; --ink-soft:#5f5e5a; --line:#dcdad2; --line-strong:#b4b2a9;
@@ -154,6 +155,9 @@
         <input type="text" id="livSearch" placeholder="Rechercher : n° BL, contremarque...">
       </div>
       <div id="livList"></div>
+      <div class="btn-row" id="livFicheSortieRow" style="display:none;">
+        <button class="btn primary" id="btnFicheSortie" style="width:100%;">📋 Fiche de sortie des BL sélectionnés</button>
+      </div>
     </div>
   </section>
 
@@ -225,7 +229,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var blColRef = null;
 
-var APP_VERSION = '2026.0001';
+var APP_VERSION = '2026.0002';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -268,16 +272,18 @@ function renderLivList(){
     });
   }
   items.sort(function(a,b){ return (a.dateLivraisonPrevue||'9999-99-99').localeCompare(b.dateLivraisonPrevue||'9999-99-99'); });
-  if(!items.length){ el.innerHTML = '<div class="empty">Aucun Bon de Livraison pour le moment</div>'; return; }
+  if(!items.length){ el.innerHTML = '<div class="empty">Aucun Bon de Livraison pour le moment</div>'; document.getElementById('livFicheSortieRow').style.display='none'; return; }
   el.innerHTML = items.map(function(b){
     return '<div class="hist-item">'+
-      '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></div>'+
+      '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;"><input type="checkbox" class="liv-bl-check" data-numero="'+b.numero+'" style="width:18px;height:18px;">'+
+      '<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></label></div>'+
       '<div class="sub">'+escapeHtml(b.contremarque||'—')+'</div>'+
       '<div class="sub">'+(b.commandeIds?b.commandeIds.length:0)+' commande(s) · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
         '<label>Date de livraison prévue</label>'+
         '<input type="date" data-numero="'+b.numero+'" class="liv-date-input" value="'+(b.dateLivraisonPrevue||'')+'">'+
       '</div>'+
+      '<div class="btn-row"><button class="btn ghost btn-bl-pdf" data-numero="'+b.numero+'" style="width:100%;">📄 Bon de Livraison (PDF)</button></div>'+
     '</div>';
   }).join('');
 
@@ -293,8 +299,160 @@ function renderLivList(){
       banner('Date de livraison enregistrée');
     });
   });
+
+  Array.prototype.forEach.call(el.querySelectorAll('.btn-bl-pdf'), function(btn){
+    btn.addEventListener('click', function(){
+      var numero = btn.getAttribute('data-numero');
+      var b = state.bons.find(function(x){ return x.numero===numero; });
+      if(b) generateBLPdf(b);
+    });
+  });
+
+  var checks = el.querySelectorAll('.liv-bl-check');
+  Array.prototype.forEach.call(checks, function(chk){
+    chk.addEventListener('change', function(){
+      var anyChecked = Array.prototype.some.call(checks, function(c){ return c.checked; });
+      document.getElementById('livFicheSortieRow').style.display = anyChecked ? 'block' : 'none';
+    });
+  });
 }
 document.getElementById('livSearch').addEventListener('input', renderLivList);
+
+document.getElementById('btnFicheSortie').addEventListener('click', function(){
+  var numeros = Array.prototype.slice.call(document.querySelectorAll('.liv-bl-check:checked')).map(function(c){ return c.getAttribute('data-numero'); });
+  var bons = state.bons.filter(function(b){ return numeros.indexOf(b.numero)>=0; });
+  if(bons.length) generateFicheSortiePdf(bons);
+});
+
+// ---------- PDF : Bon de Livraison (pour le transporteur) ----------
+function generateBLPdf(b){
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit:'mm', format:'a4' });
+  var marginX = 15, y = 20, pageW = 210;
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('BON DE LIVRAISON', marginX, y);
+  doc.setFontSize(12);
+  doc.text('N° '+b.numero, pageW-marginX, y, { align:'right' });
+  y += 10;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y);
+  y += 8;
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text('Dépôt expéditeur : '+(b.depotNom||b.depotCode||'—'), marginX, y); y += 6;
+  doc.text('Date d\'édition : '+fmtDate(new Date().toISOString().slice(0,10)), marginX, y);
+  if(b.dateLivraisonPrevue){ doc.text('Livraison prévue : '+fmtDate(b.dateLivraisonPrevue), pageW-marginX, y, { align:'right' }); }
+  y += 10;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Destinataire (contremarque)', marginX, y); y += 6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text(b.contremarque||'—', marginX, y); y += 5;
+  var adr = b.contremarqueAdresse || {};
+  if(adr.adresse1){ doc.text(adr.adresse1, marginX, y); y += 5; }
+  if(adr.adresse2){ doc.text(adr.adresse2, marginX, y); y += 5; }
+  if(adr.cp||adr.ville){ doc.text([adr.cp,adr.ville].filter(Boolean).join(' '), marginX, y); y += 5; }
+  if(adr.tel1){ doc.text('Tél : '+adr.tel1+(adr.tel2?' / '+adr.tel2:''), marginX, y); y += 5; }
+  y += 6;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Détail des commandes', marginX, y); y += 7;
+  var colX = [marginX, marginX+38, marginX+95, marginX+140, marginX+165];
+  doc.setFontSize(9);
+  doc.text('N° étiquette', colX[0], y); doc.text('Client', colX[1], y); doc.text('Fournisseur', colX[2], y);
+  doc.text('Poids', colX[3], y); doc.text('Colis', colX[4], y);
+  y += 2; doc.setLineWidth(0.2); doc.line(marginX, y, pageW-marginX, y); y += 5;
+
+  doc.setFont('helvetica','normal');
+  (b.commandes||[]).forEach(function(c){
+    if(y > 270){ doc.addPage(); y = 20; }
+    doc.text(String(c.labelNumber||''), colX[0], y);
+    doc.text(String(c.client||'').slice(0,28), colX[1], y);
+    doc.text(String(c.fournisseur||'').slice(0,20), colX[2], y);
+    doc.text((c.poids||0)+' kg', colX[3], y);
+    doc.text(String(c.colis||0), colX[4], y);
+    y += 6;
+  });
+
+  y += 2; doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y); y += 7;
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Total : '+(b.poidsTotal||0).toFixed(1)+' kg — '+(b.nbColisTotal||0)+' colis', marginX, y);
+  y += 20;
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('Signature expéditeur', marginX, y);
+  doc.text('Signature destinataire (réception)', pageW-marginX, y, { align:'right' });
+  doc.rect(marginX, y+3, 70, 25);
+  doc.rect(pageW-marginX-70, y+3, 70, 25);
+
+  downloadPdf(doc, 'BL_'+b.numero+'.pdf');
+}
+
+// ---------- PDF : Fiche de sortie globale (plusieurs BL, triée par emplacement) ----------
+function generateFicheSortiePdf(bons){
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit:'mm', format:'a4' });
+  var marginX = 15, y = 20, pageW = 210;
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('FICHE DE SORTIE DE MARCHANDISES', marginX, y); y += 8;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text('Édité le '+fmtDate(new Date().toISOString().slice(0,10))+' — '+bons.length+' Bon(s) de Livraison', marginX, y); y += 8;
+  doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y); y += 8;
+
+  var lignes = [];
+  bons.forEach(function(b){
+    (b.commandes||[]).forEach(function(c){
+      lignes.push({ emplacement: c.emplacement||'—', labelNumber: c.labelNumber||'', client: c.client||'', bl: b.numero, poids: c.poids||0, colis: c.colis||0 });
+    });
+  });
+  lignes.sort(function(a,b){ return a.emplacement.localeCompare(b.emplacement); });
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Liste à récupérer (triée par emplacement)', marginX, y); y += 7;
+  var colX = [marginX, marginX+30, marginX+65, marginX+110, marginX+145, marginX+168];
+  doc.setFontSize(9);
+  doc.text('Emplacement', colX[0], y); doc.text('N° étiquette', colX[1], y); doc.text('Client', colX[2], y);
+  doc.text('BL', colX[3], y); doc.text('Poids', colX[4], y); doc.text('Colis', colX[5], y);
+  y += 2; doc.setLineWidth(0.2); doc.line(marginX, y, pageW-marginX, y); y += 5;
+
+  doc.setFont('helvetica','normal');
+  lignes.forEach(function(l){
+    if(y > 270){ doc.addPage(); y = 20; }
+    doc.text(l.emplacement, colX[0], y);
+    doc.text(l.labelNumber, colX[1], y);
+    doc.text(String(l.client).slice(0,22), colX[2], y);
+    doc.text(l.bl, colX[3], y);
+    doc.text(l.poids+' kg', colX[4], y);
+    doc.text(String(l.colis), colX[5], y);
+    y += 6;
+  });
+
+  y += 3; doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y); y += 8;
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Récapitulatif par Bon de Livraison', marginX, y); y += 7;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  bons.forEach(function(b){
+    if(y > 270){ doc.addPage(); y = 20; }
+    doc.text('BL '+b.numero+' — '+(b.contremarque||'—')+' : '+(b.poidsTotal||0).toFixed(1)+' kg, '+(b.nbColisTotal||0)+' colis', marginX, y);
+    y += 6;
+  });
+  var poidsGlobal = bons.reduce(function(s,b){ return s+(b.poidsTotal||0); }, 0);
+  var colisGlobal = bons.reduce(function(s,b){ return s+(b.nbColisTotal||0); }, 0);
+  y += 3; doc.setFont('helvetica','bold');
+  doc.text('Total général : '+poidsGlobal.toFixed(1)+' kg — '+colisGlobal+' colis', marginX, y);
+
+  downloadPdf(doc, 'fiche_sortie_'+new Date().toISOString().slice(0,10)+'.pdf');
+}
+
+function downloadPdf(doc, filename){
+  try{
+    var blob = doc.output('blob');
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }catch(e){ console.error('downloadPdf error', e); banner('Le téléchargement du PDF a échoué'); }
+}
 
 async function startForAgency(code){
   state.currentAgencyCode = code;

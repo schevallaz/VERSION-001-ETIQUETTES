@@ -2363,18 +2363,30 @@ async function nextBLNumero(){
 async function createBonLivraison(contremarque, commandeIds){
   var numero = await nextBLNumero();
   var poidsTotal = 0, nbColisTotal = 0;
+  var commandesSnapshot = [];
   for(var i=0;i<commandeIds.length;i++){
     var rec = await getReceptionRecord(commandeIds[i]);
     if(!rec) continue;
-    poidsTotal += parseFloat(rec.data.poids)||0;
-    nbColisTotal += (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
+    var poids = parseFloat(rec.data.poids)||0;
+    var colis = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
+    poidsTotal += poids;
+    nbColisTotal += colis;
     rec.data.bonLivraisonId = numero;
     await saveReceptionRecord(commandeIds[i], rec);
     var idx = state.historyIndex.findIndex(function(x){ return x.id===commandeIds[i]; });
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+    commandesSnapshot.push({
+      id: commandeIds[i], labelNumber: rec.data.labelNumber||'', client: rec.data.client||'',
+      fournisseur: rec.data.fournisseur||'', poids: poids, colis: colis,
+      emplacement: recordToIndexEntry(rec).emplacement || rec.data.emplacement || ''
+    });
   }
+  var cmProfile = findContremarqueProfile(contremarque) || {};
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
   var bl = {
-    numero: numero, contremarque: contremarque, commandeIds: commandeIds,
+    numero: numero, contremarque: contremarque, commandeIds: commandeIds, commandes: commandesSnapshot,
+    contremarqueAdresse: { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' },
+    depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
     dateLivraisonPrevue: '', statut: 'preparation', createdAt: new Date().toISOString()
   };
@@ -5323,7 +5335,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0028';
+var APP_VERSION = '2026.0029';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
