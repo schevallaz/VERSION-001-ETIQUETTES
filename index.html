@@ -569,7 +569,7 @@
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
     </div>
     <div class="card">
-      <h2>Clients (<span id="cnt-clients">0</span>)</h2>
+      <h2>Clients (<span id="cnt-clients">0000</span>)</h2>
       <div class="base-list" id="listClients"></div>
       <div class="addrow">
         <input type="text" id="add-client-nom" placeholder="Nouveau client">
@@ -644,7 +644,7 @@
       <div id="clientFicheMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
-      <h2>Fiches Contremarque (<span id="cnt-contremarques">0</span>)</h2>
+      <h2>Fiches Contremarque (<span id="cnt-contremarques">0000</span>)</h2>
       <p class="hint" style="margin:0 0 12px;">Le client final — celui à qui la marchandise est livrée. À compléter dès que les informations de livraison sont connues.</p>
       <div id="listContremarques" style="margin-bottom:12px;"></div>
 
@@ -659,7 +659,7 @@
       <div id="cmFicheMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
-      <h2>Fournisseurs (<span id="cnt-fournisseurs">0</span>)</h2>
+      <h2>Fournisseurs (<span id="cnt-fournisseurs">0000</span>)</h2>
       <div class="base-list" id="listFournisseurs"></div>
       <div class="addrow">
         <input type="text" id="add-fournisseur-nom" placeholder="Nouveau fournisseur">
@@ -667,7 +667,7 @@
       </div>
     </div>
     <div class="card">
-      <h2>Transporteurs (<span id="cnt-transporteurs">0</span>)</h2>
+      <h2>Transporteurs (<span id="cnt-transporteurs">0000</span>)</h2>
       <div class="base-list" id="listTransporteurs"></div>
       <div class="addrow">
         <input type="text" id="add-transporteur-nom" placeholder="Nouveau transporteur">
@@ -675,7 +675,7 @@
       </div>
     </div>
     <div class="card">
-      <h2>Emplacements dépôt (<span id="cnt-emplacements">0</span>)</h2>
+      <h2>Emplacements dépôt (<span id="cnt-emplacements">0000</span>)</h2>
       <div class="base-list" id="listEmplacements"></div>
       <p class="hint" style="margin:10px 0 0;">Format obligatoire : AA-01-01</p>
       <div class="addrow">
@@ -1604,14 +1604,15 @@ function renderTrashList(){
 
 // ---------- datalist / base rendering ----------
 function refreshDatalists(){
+  function sortedNoms(arr){ return arr.slice().sort(function(a,b){ return String(a.nom||'').localeCompare(String(b.nom||''), 'fr', { numeric: true }); }); }
   var dc = document.getElementById('dl-clients');
-  dc.innerHTML = state.base.clients.map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
+  dc.innerHTML = sortedNoms(state.base.clients).map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
   var df = document.getElementById('dl-fournisseurs');
-  df.innerHTML = state.base.fournisseurs.map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
+  df.innerHTML = sortedNoms(state.base.fournisseurs).map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
   var dt = document.getElementById('dl-transporteurs');
-  dt.innerHTML = state.base.transporteurs.map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
+  dt.innerHTML = sortedNoms(state.base.transporteurs).map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
   var de = document.getElementById('dl-emplacements');
-  de.innerHTML = (state.base.emplacements||[]).map(function(e){ return '<option value="'+escapeHtml(e)+'">'; }).join('');
+  de.innerHTML = (state.base.emplacements||[]).slice().sort(function(a,b){ return a.localeCompare(b,'fr',{numeric:true}); }).map(function(e){ return '<option value="'+escapeHtml(e)+'">'; }).join('');
 }
 
 // masque un champ de code sensible (type password) avec un petit bouton "Afficher/Masquer" à côté
@@ -1735,6 +1736,9 @@ function fillProfileFields(p, obj){
 
 function clearProfileFields(p){ fillProfileFields(p, {}); }
 
+// affiche un compteur sur 4 chiffres (ex. 0007) pour qu'on comprenne immédiatement qu'il s'agit d'un total
+function pad4(n){ return String(n||0).padStart(4,'0'); }
+
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -1742,11 +1746,11 @@ function escapeHtml(s){
 }
 
 function renderBaseLists(){
-  document.getElementById('cnt-clients').textContent = state.base.clients.length;
-  document.getElementById('cnt-fournisseurs').textContent = state.base.fournisseurs.length;
-  document.getElementById('cnt-transporteurs').textContent = state.base.transporteurs.length;
-  document.getElementById('cnt-emplacements').textContent = (state.base.emplacements||[]).length;
-  document.getElementById('cnt-contremarques').textContent = (state.base.contremarques||[]).length;
+  document.getElementById('cnt-clients').textContent = pad4(state.base.clients.length);
+  document.getElementById('cnt-fournisseurs').textContent = pad4(state.base.fournisseurs.length);
+  document.getElementById('cnt-transporteurs').textContent = pad4(state.base.transporteurs.length);
+  document.getElementById('cnt-emplacements').textContent = pad4((state.base.emplacements||[]).length);
+  document.getElementById('cnt-contremarques').textContent = pad4((state.base.contremarques||[]).length);
 
   renderClientsList();
   populateClientFicheSelect();
@@ -1766,7 +1770,9 @@ function renderEmplacementsList(){
   var el = document.getElementById('listEmplacements');
   var arr = state.base.emplacements || [];
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
-  el.innerHTML = arr.map(function(e, idx){
+  var sorted = arr.map(function(e, idx){ return { val: e, idx: idx }; }).sort(function(a,b){ return a.val.localeCompare(b.val, 'fr', { numeric: true }); });
+  el.innerHTML = sorted.map(function(row){
+    var e = row.val, idx = row.idx;
     return '<div class="base-row"><span style="display:flex;align-items:center;gap:9px;">'+
       '<input type="checkbox" class="emp-check" data-val="'+escapeHtml(e)+'" style="width:17px;height:17px;flex-shrink:0;">'+
       escapeHtml(e)+'</span><button data-idx="'+idx+'">Suppr.</button></div>';
@@ -1783,9 +1789,10 @@ function renderEmplacementsList(){
 function renderOneBaseList(elId, arr, nomField, codeField, onDelete){
   var el = document.getElementById(elId);
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
-  el.innerHTML = arr.map(function(item, idx){
-    return '<div class="base-row"><span>'+escapeHtml(item[nomField])+' <span class="code">'+escapeHtml(item[codeField]||'')+'</span></span>'+
-      '<button data-idx="'+idx+'">Suppr.</button></div>';
+  var sorted = arr.map(function(item, idx){ return { item: item, idx: idx }; }).sort(function(a,b){ return String(a.item[nomField]||'').localeCompare(String(b.item[nomField]||''), 'fr', { numeric: true }); });
+  el.innerHTML = sorted.map(function(row){
+    return '<div class="base-row"><span>'+escapeHtml(row.item[nomField])+' <span class="code">'+escapeHtml(row.item[codeField]||'')+'</span></span>'+
+      '<button data-idx="'+row.idx+'">Suppr.</button></div>';
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('button'), function(btn){
     btn.addEventListener('click', function(){ onDelete(parseInt(btn.getAttribute('data-idx'),10)); });
@@ -1796,7 +1803,9 @@ function renderClientsList(){
   var el = document.getElementById('listClients');
   var arr = state.base.clients;
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
-  el.innerHTML = arr.map(function(c, idx){
+  var sorted = arr.map(function(c, idx){ return { item: c, idx: idx }; }).sort(function(a,b){ return String(a.item.nom||'').localeCompare(String(b.item.nom||''), 'fr', { numeric: true }); });
+  el.innerHTML = sorted.map(function(row){
+    var c = row.item, idx = row.idx;
     return '<div class="base-row" style="flex-direction:column;align-items:stretch;gap:6px;">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;">'+
         '<span>'+escapeHtml(c.nom)+' <span class="code">'+escapeHtml(c.code||'')+'</span></span>'+
@@ -1827,8 +1836,9 @@ function populateClientFicheSelect(){
   var sel = document.getElementById('clientFicheSelect');
   if(!sel) return;
   var prevVal = sel.value;
-  sel.innerHTML = '<option value="">— Choisir un client —</option>'+state.base.clients.map(function(c, idx){
-    return '<option value="'+idx+'">'+escapeHtml(c.nom)+'</option>';
+  var sorted = state.base.clients.map(function(c, idx){ return { item: c, idx: idx }; }).sort(function(a,b){ return String(a.item.nom||'').localeCompare(String(b.item.nom||''), 'fr', { numeric: true }); });
+  sel.innerHTML = '<option value="">— Choisir un client —</option>'+sorted.map(function(row){
+    return '<option value="'+row.idx+'">'+escapeHtml(row.item.nom)+'</option>';
   }).join('');
   if(prevVal && sel.querySelector('option[value="'+prevVal+'"]')){ sel.value = prevVal; }
 }
@@ -1897,7 +1907,9 @@ function renderContremarquesList(){
   if(!el) return;
   var arr = state.base.contremarques || [];
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucune fiche contremarque enregistrée</div>'; return; }
-  el.innerHTML = arr.map(function(cm, idx){
+  var sorted = arr.map(function(cm, idx){ return { item: cm, idx: idx }; }).sort(function(a,b){ return String(a.item.nom||'').localeCompare(String(b.item.nom||''), 'fr', { numeric: true }); });
+  el.innerHTML = sorted.map(function(row){
+    var cm = row.item, idx = row.idx;
     var adr = [cm.adresse1, cm.cp, cm.ville].filter(Boolean).join(' · ');
     return '<div class="hist-item" data-idx="'+idx+'" data-nom="'+escapeHtml(cm.nom||'')+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+'</span></div>'+
@@ -2022,7 +2034,7 @@ document.getElementById('btnSaveContremarqueFiche').addEventListener('click', as
     msg.textContent = 'Fiche ajoutée';
   }
   await saveBase();
-  document.getElementById('cnt-contremarques').textContent = (state.base.contremarques||[]).length;
+  document.getElementById('cnt-contremarques').textContent = pad4((state.base.contremarques||[]).length);
   renderContremarquesList();
   clearContremarqueForm();
   msg.style.color = 'var(--accent)';
@@ -3489,7 +3501,7 @@ async function renderCmLinkPanel(id){
   html += '<div class="field"><label>Associer à une fiche existante</label>'+
     '<select id="cmlinkSelect-'+id+'" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
     '<option value="">— Choisir une fiche —</option>'+
-    list.map(function(cm, idx){ return '<option value="'+idx+'">'+escapeHtml(cm.nom)+(cm.prenom?' '+escapeHtml(cm.prenom):'')+'</option>'; }).join('')+
+    list.map(function(cm, idx){ return { item: cm, idx: idx }; }).sort(function(a,b){ return String(a.item.nom||'').localeCompare(String(b.item.nom||''), 'fr', { numeric: true }); }).map(function(row){ return '<option value="'+row.idx+'">'+escapeHtml(row.item.nom)+(row.item.prenom?' '+escapeHtml(row.item.prenom):'')+'</option>'; }).join('')+
     '</select></div>'+
     '<div class="btn-row"><button class="btn accent" id="cmlinkAssocBtn-'+id+'" style="width:100%;">Associer cette fiche</button></div>';
 
@@ -3521,7 +3533,7 @@ async function renderCmLinkPanel(id){
       state.base.contremarques.push({ nom: current, pays: 'FR-France' });
       await saveBase();
       renderContremarquesList();
-      document.getElementById('cnt-contremarques').textContent = state.base.contremarques.length;
+      document.getElementById('cnt-contremarques').textContent = pad4(state.base.contremarques.length);
       renderHistory();
       banner('Fiche « '+current+' » créée — complète-la dans Base → Fiches Contremarque');
     });
@@ -5335,7 +5347,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0029';
+var APP_VERSION = '2026.0031';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -5352,7 +5364,7 @@ var siegeEditId = null;
 function renderSiegesList(){
   var el = document.getElementById('listSieges');
   if(!el) return;
-  var list = state.siegesList||[];
+  var list = (state.siegesList||[]).slice().sort(function(a,b){ return String(a.nom||'').localeCompare(String(b.nom||''), 'fr', { numeric: true }); });
   el.innerHTML = list.length ? list.map(function(s){
     var adr = [s.adresse1, s.cp, s.ville].filter(Boolean).join(' · ');
     return '<div class="base-row"><span>'+escapeHtml(s.nom||'')+(adr?' — '+escapeHtml(adr):'')+'</span>'+
@@ -5450,7 +5462,7 @@ var depotEditId = null;
 function renderDepotsList(){
   var el = document.getElementById('listDepots');
   if(!el) return;
-  var list = state.agenciesList||[];
+  var list = (state.agenciesList||[]).slice().sort(function(a,b){ return String(a.code||'').localeCompare(String(b.code||''), 'fr', { numeric: true }); });
   el.innerHTML = list.length ? list.map(function(a){
     var siege = (state.siegesList||[]).find(function(s){ return s.id===a.siegeId; });
     return '<div class="base-row"><span>'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+(siege?' ('+escapeHtml(siege.nom)+')':'')+(a.email?' · '+escapeHtml(a.email):'')+(a.code===state.currentAgencyCode?' <b style="color:var(--accent);">(actif)</b>':'')+'</span>'+
