@@ -123,7 +123,7 @@
 <body>
 <div class="app">
   <header class="top">
-    <h1 id="appTitle">Tarifs STLS <span id="appVersion" style="font-size:13px;font-weight:500;color:var(--ink-soft);vertical-align:middle;">Version 2026.0003</span></h1>
+    <h1 id="appTitle">Tarifs STLS <span id="appVersion" style="font-size:13px;font-weight:500;color:var(--ink-soft);vertical-align:middle;"></span></h1>
     <p>Moteur de calcul des prestations de livraison</p>
   </header>
 
@@ -352,7 +352,8 @@ function banner(msg){
 var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 
-var APP_VERSION = '2026.0005';
+var APP_VERSION = '2026.0006';
+document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
   agenciesList: [],

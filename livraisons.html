@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Livraisons STLS</title>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --ink:#1c1c1a; --ink-soft:#5f5e5a; --line:#dcdad2; --line-strong:#b4b2a9;
+    --bg:#f6f5f0; --card:#ffffff; --accent:#0f6e56; --accent-light:#e1f5ee;
+    --danger:#a32d2d; --danger-light:#fcebeb;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-tap-highlight-color:transparent;
+  }
+  .app{max-width:760px;margin:0 auto;padding:12px 12px 60px;}
+  header.top{padding:14px 4px 10px;}
+  header.top h1{font-size:19px;font-weight:600;margin:0;}
+  header.top p{font-size:13px;color:var(--ink-soft);margin:4px 0 0;}
+  nav.tabs{display:flex;gap:6px;position:sticky;top:0;background:var(--bg);padding:8px 0 10px;z-index:5;}
+  nav.tabs button{
+    flex:1;padding:10px 4px;border-radius:10px;border:1px solid var(--line);
+    background:var(--card);font-size:13px;font-weight:500;color:var(--ink-soft);cursor:pointer;
+  }
+  nav.tabs button.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
+  .card h2{font-size:15px;margin:0 0 12px;font-weight:600;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;font-weight:500;}
+  .field input, .field select, .field textarea{
+    width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;
+    font-size:15px;background:#fff;color:var(--ink);font-family:inherit;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:11px 16px;border-radius:9px;border:1px solid var(--line-strong);
+    background:#fff;color:var(--ink);font-size:14px;font-weight:500;cursor:pointer;width:100%;
+  }
+  .btn:active{transform:scale(0.98);}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .btn.accent{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .btn.danger{background:var(--danger-light);color:var(--danger);border-color:#f0c9c9;}
+  .btn.ghost{background:transparent;}
+  .btn-row{display:flex;gap:8px;margin-top:14px;}
+  .btn-row .btn{width:auto;flex:1;}
+  .err{color:var(--danger);font-size:12.5px;margin-top:4px;display:none;}
+  .err.show{display:block;}
+  input.invalid, select.invalid{border-color:var(--danger);}
+
+  /* --- label preview: emulates a 100x150mm zebra label --- */
+  .label-wrap{display:flex;justify-content:center;padding:6px 0 4px;}
+  .label{
+    width:280px;height:420px;background:#fff;border:1.5px solid #000;
+    display:flex;flex-direction:column;font-family:Arial,Helvetica,sans-serif;color:#000;
+    font-size:10px;overflow:hidden;
+  }
+  .label .top{display:flex;border-bottom:1.5px solid #000;min-height:112px;}
+  .label .qrzone{width:112px;border-right:1.5px solid #000;display:flex;align-items:center;justify-content:center;padding:6px;flex-shrink:0;}
+  .label .qrzone canvas, .label .qrzone img{width:100%;height:auto;}
+  .label .idzone{flex:1;padding:8px;display:flex;flex-direction:column;justify-content:center;gap:6px;}
+  .label .idzone .client{font-size:14px;font-weight:700;line-height:1.15;word-break:break-word;}
+  .label .idzone .codewrap{font-size:9px;color:#000;}
+  .label .idzone .codewrap b{font-size:11px;}
+  .label .contremarque{
+    border-bottom:1.5px solid #000;padding:10px 8px;text-align:center;
+    display:flex;align-items:center;justify-content:center;min-height:64px;
+  }
+  .label .contremarque b{font-size:16px;word-break:break-word;}
+  .label .midrow{display:flex;border-bottom:1.5px solid #000;}
+  .label .midrow .cell{flex:1;padding:6px 8px;}
+  .label .midrow .cell:first-child{border-right:1.5px solid #000;}
+  .label .cell .k{font-size:8px;color:#333;text-transform:uppercase;letter-spacing:.02em;}
+  .label .cell .v{font-size:11px;font-weight:600;margin-top:2px;word-break:break-word;}
+  .label .qtyrow{display:flex;flex:1;}
+  .label .qtyrow .left{width:112px;border-right:1.5px solid #000;display:flex;flex-direction:column;}
+  .label .qtyrow .left .sub{flex:1;padding:6px 8px;border-bottom:1.5px solid #000;}
+  .label .qtyrow .left .sub:last-child{border-bottom:none;}
+  .label .qtyrow .right{flex:1;display:flex;flex-direction:column;}
+  .label .qtyrow .right .sub{flex:1;padding:6px 8px;border-bottom:1.5px solid #000;display:flex;flex-direction:column;justify-content:center;}
+  .label .qtyrow .right .sub:last-child{border-bottom:none;}
+  .label .qtyrow .right .sub .v{font-size:15px;}
+  .label .qtyrow .left .sub .v{font-size:13px;}
+
+  #qrHidden{position:absolute;left:-9999px;top:-9999px;}
+
+  .hist-item{border:1px solid var(--line);border-radius:11px;padding:12px;margin-bottom:10px;}
+  .hist-item .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .hist-item .hd .nom{font-weight:600;font-size:14.5px;}
+  .hist-item .hd .date{font-size:12px;color:var(--ink-soft);white-space:nowrap;}
+  .hist-item .sub{font-size:12.5px;color:var(--ink-soft);margin-top:3px;}
+  .hist-item .actions{display:flex;gap:8px;margin-top:10px;}
+  .hist-item .actions .btn{padding:8px 10px;font-size:13px;}
+  .empty{color:var(--ink-soft);font-size:13.5px;text-align:center;padding:28px 10px;}
+
+  .base-list{max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:9px;}
+  .base-row{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13.5px;}
+  .base-row:last-child{border-bottom:none;}
+  .base-row .code{color:var(--ink-soft);font-size:12px;}
+  .base-row button{background:none;border:none;color:var(--danger);font-size:12px;cursor:pointer;padding:4px 6px;}
+  .addrow{display:flex;gap:8px;margin-top:10px;}
+  .addrow input{flex:1;}
+  .addrow button{white-space:nowrap;}
+
+  .save-banner{
+    position:fixed;left:12px;right:12px;bottom:14px;max-width:736px;margin:0 auto;
+    background:var(--ink);color:#fff;padding:12px 16px;border-radius:11px;font-size:13.5px;
+    text-align:center;display:none;z-index:20;
+  }
+  .save-banner.show{display:block;}
+
+  @media (min-width:600px){
+    .label{width:320px;height:480px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1 id="appTitle">Livraisons STLS <span id="appVersion" style="font-size:13px;font-weight:500;color:var(--ink-soft);vertical-align:middle;"></span></h1>
+    <p>Bons de Livraison à préparer et à expédier</p>
+  </header>
+
+  <div id="accessGateOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:55;align-items:center;justify-content:center;padding:20px 12px;">
+    <div class="card" style="max-width:360px;width:100%;">
+      <h2 style="margin-bottom:6px;">Code d'accès</h2>
+      <p class="hint" style="margin:0 0 14px;">Utilise le même code que sur Gestion Dépôt (équipe ou personnel).</p>
+      <div class="field">
+        <input type="text" id="accessCodeInput" placeholder="Code" maxlength="10" style="text-align:center;font-size:20px;letter-spacing:2px;">
+      </div>
+      <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnAccessSubmit" style="width:100%;">Valider</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="alivrer">Commandes à Livrer</button>
+  </nav>
+
+  <!-- ===== TAB: COMMANDES A LIVRER ===== -->
+  <section id="tab-alivrer" style="display:block;">
+    <div class="card">
+      <h2>Commandes à Livrer</h2>
+      <p class="hint" id="livDepotLine" style="margin:0 0 14px;"></p>
+      <div class="field">
+        <input type="text" id="livSearch" placeholder="Rechercher : n° BL, contremarque...">
+      </div>
+      <div id="livList"></div>
+    </div>
+  </section>
+
+</div>
+<div class="save-banner" id="saveBanner"></div>
+<script>
+(function(){
+
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c",
+  measurementId: "G-2M8ENNG05B"
+};
+var fsAvailable = false;
+var db = null;
+function fsReady(){ return fsAvailable && !!db; }
+
+// initialisation robuste : attend que les scripts Firebase (chargés depuis gstatic.com) soient bien prêts,
+// avec plusieurs tentatives espacées au cas où ils mettent un peu de temps à s'exécuter
+function initFirebase(retriesLeft){
+  return new Promise(function(resolve){
+    function attempt(remaining){
+      if(typeof firebase !== 'undefined'){
+        try{
+          firebase.initializeApp(firebaseConfig);
+          db = firebase.firestore();
+          fsAvailable = true;
+        }catch(e){ console.error('Firebase init error', e); }
+        resolve();
+        return;
+      }
+      if(remaining <= 0){
+        console.error('Firebase toujours indisponible après plusieurs tentatives (scripts non chargés)');
+        resolve();
+        return;
+      }
+      setTimeout(function(){ attempt(remaining-1); }, 300);
+    }
+    attempt(retriesLeft);
+  });
+}
+
+var LS_PREFIX = 'stls_etiquettes_'; // même préfixe que Gestion Dépôt pour partager la session
+function lsGet(key){ try{ return localStorage.getItem(LS_PREFIX+key); }catch(e){ return null; } }
+function lsSet(key, val){ try{ localStorage.setItem(LS_PREFIX+key, val); }catch(e){} }
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function banner(msg){
+  var b = document.getElementById('saveBanner');
+  b.textContent = msg; b.classList.add('show');
+  setTimeout(function(){ b.classList.remove('show'); }, 2200);
+}
+function fmtDate(iso){
+  if(!iso) return '';
+  var p = iso.split('-');
+  if(p.length!==3) return iso;
+  return p[2]+'/'+p[1]+'/'+p[0];
+}
+
+var globalDocRef = null;
+function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
+var blColRef = null;
+
+var APP_VERSION = '2026.0001';
+document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
+
+var state = {
+  agenciesList: [],
+  currentAgencyCode: null,
+  agencyName: '',
+  bons: []
+};
+
+var globalSecurity = { masterCode:'2013', adminCode:'ADMIN1', users:[] };
+
+async function loadGlobalSecurity(){
+  if(!fsReady()) return;
+  try{
+    var snap = await globalDocRef.get();
+    if(snap.exists){
+      var d = snap.data();
+      globalSecurity = d.globalSecurity || globalSecurity;
+      state.agenciesList = d.agenciesList || [];
+    }
+  }catch(e){ console.error('Firestore loadGlobalSecurity error', e); }
+}
+
+async function loadBons(){
+  state.bons = [];
+  if(!fsReady() || !blColRef) return;
+  try{
+    var snap = await blColRef.get();
+    snap.forEach(function(doc){ state.bons.push(doc.data()); });
+  }catch(e){ console.error('Firestore loadBons error', e); }
+}
+
+function renderLivList(){
+  var el = document.getElementById('livList');
+  var q = (document.getElementById('livSearch').value || '').trim().toLowerCase();
+  var items = state.bons.slice();
+  if(q){
+    items = items.filter(function(b){
+      return (b.numero||'').toLowerCase().indexOf(q)>=0 || (b.contremarque||'').toLowerCase().indexOf(q)>=0;
+    });
+  }
+  items.sort(function(a,b){ return (a.dateLivraisonPrevue||'9999-99-99').localeCompare(b.dateLivraisonPrevue||'9999-99-99'); });
+  if(!items.length){ el.innerHTML = '<div class="empty">Aucun Bon de Livraison pour le moment</div>'; return; }
+  el.innerHTML = items.map(function(b){
+    return '<div class="hist-item">'+
+      '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></div>'+
+      '<div class="sub">'+escapeHtml(b.contremarque||'—')+'</div>'+
+      '<div class="sub">'+(b.commandeIds?b.commandeIds.length:0)+' commande(s) · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
+      '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
+        '<label>Date de livraison prévue</label>'+
+        '<input type="date" data-numero="'+b.numero+'" class="liv-date-input" value="'+(b.dateLivraisonPrevue||'')+'">'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.liv-date-input'), function(input){
+    input.addEventListener('change', async function(){
+      var numero = input.getAttribute('data-numero');
+      if(fsReady()){
+        try{ await blColRef.doc(numero).set({ dateLivraisonPrevue: input.value }, { merge: true }); }
+        catch(e){ console.error('Firestore save date error', e); }
+      }
+      var b = state.bons.find(function(x){ return x.numero===numero; });
+      if(b) b.dateLivraisonPrevue = input.value;
+      banner('Date de livraison enregistrée');
+    });
+  });
+}
+document.getElementById('livSearch').addEventListener('input', renderLivList);
+
+async function startForAgency(code){
+  state.currentAgencyCode = code;
+  lsSet('current-agency', code);
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===code; });
+  state.agencyName = ag ? ag.name : code;
+  document.getElementById('accessGateOverlay').style.display = 'none';
+  blColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('bonsLivraison') : null;
+  document.getElementById('livDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
+  await loadBons();
+  renderLivList();
+}
+
+function showAccessGate(){
+  document.getElementById('accessGateOverlay').style.display = 'flex';
+}
+
+document.getElementById('btnAccessSubmit').addEventListener('click', async function(){
+  var val = document.getElementById('accessCodeInput').value.trim();
+  var err = document.getElementById('accessGateError');
+  err.style.display = 'none';
+  if(!val) return;
+  var isKnown = val.toUpperCase()===globalSecurity.masterCode.toUpperCase() ||
+    val.toUpperCase()===globalSecurity.adminCode.toUpperCase() ||
+    (globalSecurity.users||[]).some(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
+  if(!isKnown){
+    err.textContent = 'Code invalide';
+    err.style.display = 'block';
+    return;
+  }
+  var userMatch = (globalSecurity.users||[]).find(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
+  var agencyCode = (userMatch && userMatch.agencyCode) || (state.agenciesList[0] && state.agenciesList[0].code);
+  if(!agencyCode){ err.textContent = 'Aucun dépôt disponible'; err.style.display='block'; return; }
+  lsSet('access-unlocked','1');
+  lsSet('access-identity', userMatch ? userMatch.name : val.toUpperCase());
+  await startForAgency(agencyCode);
+});
+
+// ---------- init ----------
+(async function init(){
+  await initFirebase(10);
+  if(fsReady()){ globalDocRef = db.collection('stls_depot').doc('global'); }
+  await loadGlobalSecurity();
+  var unlocked = lsGet('access-unlocked');
+  var agencyCode = lsGet('current-agency');
+  if(unlocked && agencyCode){
+    await startForAgency(agencyCode);
+  } else {
+    showAccessGate();
+  }
+})();
+
+})();
+</script>
+</body>
+</html>

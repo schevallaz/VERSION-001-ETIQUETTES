@@ -1083,6 +1083,7 @@ try{
 
 var configDocRef = null;      // liée à l'agence active une fois choisie (voir setActiveAgency)
 var receptionsColRef = null;  // idem
+var blColRef = null; // Bons de Livraison du dépôt actif
 var globalDocRef = fsAvailable ? db.collection('stls_depot').doc('global') : null;
 var oldConfigDocRef = fsAvailable ? db.collection('stls_depot').doc('config') : null; // ancien emplacement (avant multi-agences), utilisé pour la migration uniquement
 
@@ -1091,6 +1092,7 @@ function setActiveAgency(code){
   state.currentAgencyCode = code;
   configDocRef = agencyDocRef(code);
   receptionsColRef = configDocRef ? configDocRef.collection('receptions') : null;
+  blColRef = configDocRef ? configDocRef.collection('bonsLivraison') : null;
 }
 
 function fsReady(){ return fsAvailable && !!db; }
@@ -1450,6 +1452,7 @@ function recordToIndexEntry(rec){
   var entry = {
     id: rec.id, date: d.date, receivedAt: d.receivedAt, weekNumber: d.weekNumber, client: d.client, contremarque: d.contremarque,
     fournisseur: d.fournisseur, transporteur: d.transporteur, poids: d.poids,
+    colis: d.colis, palettes: d.palettes, bonLivraisonId: d.bonLivraisonId || '',
     savedAt: rec.savedAt, labelNumber: d.labelNumber,
     itemsTotal: items.length, itemsRanged: rangedCount,
     avarieCount: d.avarieCount || 0,
@@ -1896,12 +1899,94 @@ function renderContremarquesList(){
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucune fiche contremarque enregistrée</div>'; return; }
   el.innerHTML = arr.map(function(cm, idx){
     var adr = [cm.adresse1, cm.cp, cm.ville].filter(Boolean).join(' · ');
-    return '<div class="base-row"><span>'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+(adr?' — '+escapeHtml(adr):'')+'</span>'+
-      '<button data-idx="'+idx+'" data-act="editcm">Modifier</button></div>';
+    return '<div class="hist-item" data-idx="'+idx+'" data-nom="'+escapeHtml(cm.nom||'')+'">'+
+      '<div class="hd"><span class="nom">'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+'</span></div>'+
+      (adr ? '<div class="sub">'+escapeHtml(adr)+'</div>' : '')+
+      '<div class="actions">'+
+        '<button class="btn ghost" data-act="editcm">Modifier</button>'+
+        '<button class="btn accent" data-act="blcm">Bons de Livraison</button>'+
+      '</div>'+
+      '<div id="blpanel-'+idx+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '</div>';
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="editcm"]'), function(btn){
-    btn.addEventListener('click', function(){ startEditContremarque(parseInt(btn.getAttribute('data-idx'),10)); });
+    btn.addEventListener('click', function(){ startEditContremarque(parseInt(btn.closest('.hist-item').getAttribute('data-idx'),10)); });
   });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="blcm"]'), function(btn){
+    btn.addEventListener('click', function(){
+      var item = btn.closest('.hist-item');
+      renderBLPanel(parseInt(item.getAttribute('data-idx'),10), item.getAttribute('data-nom'));
+    });
+  });
+}
+
+// ---------- panneau Bons de Livraison d'une fiche contremarque ----------
+async function renderBLPanel(idx, contremarqueNom, forceOpen){
+  var box = document.getElementById('blpanel-'+idx);
+  if(!box) return;
+  if(!forceOpen && box.style.display === 'block'){ box.style.display = 'none'; return; }
+  box.innerHTML = '<div class="hint">Chargement…</div>';
+  box.style.display = 'block';
+
+  var existingBLs = await loadBonsLivraisonForContremarque(contremarqueNom);
+  var enStock = state.historyIndex.filter(function(h){
+    return isStockEntry(h) && (h.contremarque||'').toLowerCase()===contremarqueNom.toLowerCase() && !h.bonLivraisonId;
+  });
+
+  var html = '';
+  if(existingBLs.length){
+    html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Bons de Livraison existants</div>';
+    html += existingBLs.map(function(bl){
+      return '<div class="sub" style="margin-bottom:4px;">BL '+escapeHtml(bl.numero)+' — '+bl.commandeIds.length+' commande(s) · '+bl.poidsTotal.toFixed(1)+' kg · '+bl.nbColisTotal+' colis'+(bl.dateLivraisonPrevue?' · livraison prévue '+fmtDate(bl.dateLivraisonPrevue):'')+'</div>';
+    }).join('');
+  } else {
+    html += '<div class="hint" style="margin-bottom:8px;">Aucun Bon de Livraison pour cette contremarque pour l\'instant.</div>';
+  }
+
+  html += '<div class="hint" style="font-weight:600;margin:12px 0 6px;">Commandes en stock disponibles</div>';
+  if(!enStock.length){
+    html += '<div class="hint">Aucune commande en stock, non encore affectée à un BL, pour « '+escapeHtml(contremarqueNom)+' ».</div>';
+  } else {
+    html += enStock.map(function(h){
+      return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:400;">'+
+        '<input type="checkbox" class="bl-cde-check" data-id="'+h.id+'" data-poids="'+(h.poids||0)+'" data-colis="'+((parseFloat(h.colis)||0)+(parseFloat(h.palettes)||0))+'" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
+        '<span>'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+' · '+escapeHtml(h.emplacement||'—')+'</span>'+
+        '</label>';
+    }).join('');
+    html += '<div class="hint" id="blTotals-'+idx+'" style="margin:8px 0;font-weight:600;color:var(--accent);">0 commande sélectionnée</div>';
+    html += '<div class="btn-row"><button class="btn accent" id="btnCreateBL-'+idx+'" style="width:100%;" disabled>Créer le Bon de Livraison</button></div>';
+  }
+  html += '<div id="blMsg-'+idx+'" style="margin-top:8px;font-size:12.5px;"></div>';
+  box.innerHTML = html;
+
+  function updateTotals(){
+    var checked = Array.prototype.slice.call(box.querySelectorAll('.bl-cde-check:checked'));
+    var poids = checked.reduce(function(s,c){ return s+parseFloat(c.getAttribute('data-poids')||0); }, 0);
+    var colis = checked.reduce(function(s,c){ return s+parseFloat(c.getAttribute('data-colis')||0); }, 0);
+    var totalsEl = document.getElementById('blTotals-'+idx);
+    if(totalsEl) totalsEl.textContent = checked.length+' commande(s) sélectionnée(s) — '+poids.toFixed(1)+' kg · '+colis+' colis';
+    var btn = document.getElementById('btnCreateBL-'+idx);
+    if(btn) btn.disabled = checked.length===0;
+  }
+  Array.prototype.forEach.call(box.querySelectorAll('.bl-cde-check'), function(chk){
+    chk.addEventListener('change', updateTotals);
+  });
+
+  var createBtn = document.getElementById('btnCreateBL-'+idx);
+  if(createBtn){
+    createBtn.addEventListener('click', async function(){
+      var ids = Array.prototype.slice.call(box.querySelectorAll('.bl-cde-check:checked')).map(function(c){ return c.getAttribute('data-id'); });
+      if(!ids.length) return;
+      createBtn.disabled = true;
+      createBtn.textContent = 'Création…';
+      var bl = await createBonLivraison(contremarqueNom, ids);
+      var msg = document.getElementById('blMsg-'+idx);
+      msg.textContent = 'Bon de Livraison '+bl.numero+' créé';
+      msg.style.color = 'var(--accent)';
+      renderHistory();
+      renderBLPanel(idx, contremarqueNom, true);
+    });
+  }
 }
 
 function clearContremarqueForm(){
@@ -2248,6 +2333,67 @@ async function ensureBaseEntry(kind, nom){
     if(kind==='client'){ arr.push({code: code, nom: nom, email: currentAgencyEmail()}); }
     else { arr.push({nom: nom, code: code}); }
   }
+}
+
+// ---------- Bons de Livraison (numéro YYMM + compteur 4 chiffres, remis à zéro chaque mois) ----------
+async function nextBLNumero(){
+  var now = new Date();
+  var yymm = String(now.getFullYear()).slice(2)+String(now.getMonth()+1).padStart(2,'0');
+  if(fsReady()){
+    try{
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var counters = (snap.exists && snap.data().blCounters) || {};
+        var current = counters[yymm] || 0;
+        var next = current + 1;
+        counters[yymm] = next;
+        tx.set(configDocRef, { blCounters: counters }, { merge: true });
+        return next;
+      });
+      return yymm+String(n).padStart(4,'0');
+    }catch(e){ console.error('Firestore nextBLNumero error', e); }
+  }
+  var key = 'bl-counter-'+yymm;
+  var raw = lsGet(key);
+  var next2 = (raw ? parseInt(raw,10) : 0) + 1;
+  lsSet(key, String(next2));
+  return yymm+String(next2).padStart(4,'0');
+}
+
+async function createBonLivraison(contremarque, commandeIds){
+  var numero = await nextBLNumero();
+  var poidsTotal = 0, nbColisTotal = 0;
+  for(var i=0;i<commandeIds.length;i++){
+    var rec = await getReceptionRecord(commandeIds[i]);
+    if(!rec) continue;
+    poidsTotal += parseFloat(rec.data.poids)||0;
+    nbColisTotal += (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
+    rec.data.bonLivraisonId = numero;
+    await saveReceptionRecord(commandeIds[i], rec);
+    var idx = state.historyIndex.findIndex(function(x){ return x.id===commandeIds[i]; });
+    if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+  }
+  var bl = {
+    numero: numero, contremarque: contremarque, commandeIds: commandeIds,
+    poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
+    dateLivraisonPrevue: '', statut: 'preparation', createdAt: new Date().toISOString()
+  };
+  if(fsReady()){
+    try{ await blColRef.doc(numero).set(bl); }
+    catch(e){ console.error('Firestore createBonLivraison error', e); }
+  }
+  return bl;
+}
+
+async function loadBonsLivraisonForContremarque(contremarque){
+  if(!fsReady()) return [];
+  try{
+    var snap = await blColRef.where('contremarque','==',contremarque).get();
+    var arr = [];
+    snap.forEach(function(doc){ arr.push(doc.data()); });
+    arr.sort(function(a,b){ return (b.numero||'').localeCompare(a.numero||''); });
+    return arr;
+  }catch(e){ console.error('Firestore loadBonsLivraisonForContremarque error', e); return []; }
 }
 
 // ---------- numéro d'étiquette unique (compteur atomique partagé via Firestore quand disponible) ----------
@@ -3017,12 +3163,13 @@ function renderHistory(){
     var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
     var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
+    var blBadge = h.bonLivraisonId ? '<span style="color:var(--accent);font-weight:600;">🚚 BL '+escapeHtml(h.bonLivraisonId)+'</span>' : '';
     var walkPanel = renderWalkPanel(h.labelNumber);
     var cmLinked = findContremarqueProfile(h.contremarque);
     var cmBtnLabel = cmLinked ? 'Fiche contremarque ✓' : 'Fiche contremarque';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span><span class="date">'+fmtDate(h.receivedAt||h.date)+'</span></div>'+
-      '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+'</div>'+
+      '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+(blBadge?' · '+blBadge:'')+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
@@ -5085,7 +5232,7 @@ var TMS_MODULES = [
   { key: 'contremarques', label: 'Gestion Contremarques', icon: '🏠', internalTab: 'base' },
   { key: 'clients', label: 'Gestion Clients', icon: '🏢', internalTab: 'base' },
   { key: 'planning', label: 'Gestion Planning', icon: '📅', internalTab: 'planning' },
-  { key: 'livraisons', label: 'Gestion Livraisons', icon: '🚚', comingSoon: true },
+  { key: 'livraisons', label: 'Gestion Livraisons', icon: '🚚', url: 'livraisons.html' },
   { key: 'facturation', label: 'Gestion Facturation', icon: '🧾', comingSoon: true },
   { key: 'tarifs', label: 'Tarifs', icon: '💶', url: 'tarifs.html' },
   { key: 'parametres', label: 'Paramètres', icon: '⚙️', internalTab: 'base' }
@@ -5176,7 +5323,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0027';
+var APP_VERSION = '2026.0028';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
