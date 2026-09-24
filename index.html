@@ -1338,7 +1338,7 @@ async function loadBase(){
         var d0 = snap.data();
         state.base = {
           clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice(),
-          contremarques: d0.contremarques||[],
+          contremarques: d0.contremarques||[], emplacementStatus: d0.emplacementStatus||{},
           emailTemplateReserve: d0.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
           emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
           receivedAtMigrated: !!d0.receivedAtMigrated
@@ -1351,8 +1351,9 @@ async function loadBase(){
   }
   // pas encore de données dans le cloud : on part du cache local (ou des valeurs par défaut), puis on le pousse en ligne
   var raw = lsGet('base-data');
+  var hadCache = false;
   if(raw){
-    try{ state.base = JSON.parse(raw); }catch(e){ state.base = null; }
+    try{ state.base = JSON.parse(raw); hadCache = true; }catch(e){ state.base = null; }
   }
   if(!state.base){
     state.base = {
@@ -1362,9 +1363,13 @@ async function loadBase(){
       emplacements: DEFAULT_EMPLACEMENTS.slice()
     };
   }
-  if(!state.base.emplacements){ state.base.emplacements = DEFAULT_EMPLACEMENTS.slice(); }
+  // ne comble avec les emplacements par défaut que si aucune donnée n'existait déjà (nouveau dépôt) —
+  // une liste vidée volontairement par l'utilisateur sur un dépôt déjà utilisé n'est jamais réécrasée
+  if(!hadCache && (!state.base.emplacements || !state.base.emplacements.length)){ state.base.emplacements = DEFAULT_EMPLACEMENTS.slice(); }
+  if(!state.base.emplacements){ state.base.emplacements = []; }
   if(!state.base.emailTemplateReserve){ state.base.emailTemplateReserve = DEFAULT_EMAIL_RESERVE; }
   if(!state.base.contremarques){ state.base.contremarques = []; }
+  if(!state.base.emplacementStatus){ state.base.emplacementStatus = {}; }
   if(!state.base.emailTemplateReception){ state.base.emailTemplateReception = DEFAULT_EMAIL_RECEPTION; }
   await saveBase();
   watchBase();
@@ -1387,13 +1392,14 @@ function watchBase(){
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
     state.base = {
       clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[],
-      contremarques: d.contremarques||[],
+      contremarques: d.contremarques||[], emplacementStatus: d.emplacementStatus||{},
       emailTemplateReserve: d.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
       emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
       receivedAtMigrated: !!d.receivedAtMigrated
     };
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
+    renderEmplacementsList();
     renderBaseLists();
     renderTrashList();
     updateEmailTemplateFields();
@@ -1553,6 +1559,7 @@ function watchReceptions(){
     renderArchiveList();
     renderPlanningList();
     renderExitSessions();
+    renderEmplacementsList();
     repairDuplicateLabelNumbers();
   }, function(err){ console.error('Firestore receptions watch error', err); });
 }
@@ -1667,7 +1674,7 @@ function refreshDatalists(){
   var dt = document.getElementById('dl-transporteurs');
   dt.innerHTML = sortedNoms(state.base.transporteurs).map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('');
   var de = document.getElementById('dl-emplacements');
-  de.innerHTML = (state.base.emplacements||[]).slice().sort(function(a,b){ return a.localeCompare(b,'fr',{numeric:true}); }).map(function(e){ return '<option value="'+escapeHtml(e)+'">'; }).join('');
+  de.innerHTML = (state.base.emplacements||[]).filter(function(e){ return !isEmplacementNonUtilisable(e); }).sort(function(a,b){ return a.localeCompare(b,'fr',{numeric:true}); }).map(function(e){ return '<option value="'+escapeHtml(e)+'">'; }).join('');
 }
 
 // masque un champ de code sensible (type password) avec un petit bouton "Afficher/Masquer" à côté
@@ -1794,6 +1801,34 @@ function clearProfileFields(p){ fillProfileFields(p, {}); }
 // affiche un compteur sur 4 chiffres (ex. 0007) pour qu'on comprenne immédiatement qu'il s'agit d'un total
 function pad4(n){ return String(n||0).padStart(4,'0'); }
 
+// ---------- statut visuel des emplacements (occupation + décision magasinier) ----------
+// rouge = occupé sans place restante, ou marqué non utilisable · orange = occupé mais de la place reste (décision manuelle)
+// vert = vide et disponible (automatique)
+function getEmpStatus(code){
+  return (state.base.emplacementStatus && state.base.emplacementStatus[code]) || {};
+}
+function isEmplacementOccupied(code){
+  return state.historyIndex.some(function(h){
+    if(h.exitedAt || h.deletedAt || !h.emplacement) return false;
+    return h.emplacement.split(', ').indexOf(code) >= 0;
+  });
+}
+function isEmplacementNonUtilisable(code){
+  return !!getEmpStatus(code).nonUtilisable;
+}
+function emplacementColorState(code){
+  var st = getEmpStatus(code);
+  if(st.nonUtilisable) return 'red';
+  if(!isEmplacementOccupied(code)) return 'green';
+  return st.orange ? 'orange' : 'red';
+}
+async function setEmplacementStatus(code, patch){
+  if(!state.base.emplacementStatus) state.base.emplacementStatus = {};
+  var cur = state.base.emplacementStatus[code] || {};
+  state.base.emplacementStatus[code] = Object.assign({}, cur, patch);
+  await saveBase();
+}
+
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -1826,17 +1861,55 @@ function renderEmplacementsList(){
   var arr = state.base.emplacements || [];
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucun élément</div>'; return; }
   var sorted = arr.map(function(e, idx){ return { val: e, idx: idx }; }).sort(function(a,b){ return a.val.localeCompare(b.val, 'fr', { numeric: true }); });
+  var colorHex = { red:'#c0392b', orange:'#e8792e', green:'#1e8e3e' };
+  sorted.forEach(function(row){
+    // remet l'orange à zéro pour un emplacement redevenu vide, pour forcer une nouvelle décision la prochaine fois
+    var st = getEmpStatus(row.val);
+    if(st.orange && !isEmplacementOccupied(row.val)){ setEmplacementStatus(row.val, { orange: false }); }
+  });
   el.innerHTML = sorted.map(function(row){
     var e = row.val, idx = row.idx;
+    var cur = emplacementColorState(e);
+    var nonUtil = isEmplacementNonUtilisable(e);
+    var occupied = isEmplacementOccupied(e);
+    var dots = ['red','orange','green'].map(function(c){
+      var active = (c===cur);
+      var clickable = (c==='orange' && !nonUtil && (occupied || cur==='orange'));
+      return '<span class="emp-dot'+(clickable?' emp-dot-click':'')+'" data-code="'+escapeHtml(e)+'" data-color="'+c+'" title="'+c+'" style="display:inline-block;width:13px;height:13px;border-radius:50%;margin-left:4px;background:'+(active?colorHex[c]:'#dcdad2')+';'+(clickable?'cursor:pointer;':'')+'"></span>';
+    }).join('');
     return '<div class="base-row"><span style="display:flex;align-items:center;gap:9px;">'+
       '<input type="checkbox" class="emp-check" data-val="'+escapeHtml(e)+'" style="width:17px;height:17px;flex-shrink:0;">'+
-      escapeHtml(e)+'</span><button data-idx="'+idx+'">Suppr.</button></div>';
+      escapeHtml(e)+dots+
+      '<label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12px;color:var(--ink-soft);margin-left:8px;"><input type="checkbox" class="emp-nonutil" data-code="'+escapeHtml(e)+'" '+(nonUtil?'checked':'')+' style="width:14px;height:14px;">Non utilisable</label>'+
+      '</span><button data-idx="'+idx+'">Suppr.</button></div>';
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('button[data-idx]'), function(btn){
     btn.addEventListener('click', function(){
       if(!confirm('Supprimer cet emplacement de la base ?')) return;
       state.base.emplacements.splice(parseInt(btn.getAttribute('data-idx'),10),1);
       saveBase(); renderEmplacementsList(); refreshDatalists();
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('.emp-dot-click'), function(dot){
+    dot.addEventListener('click', async function(){
+      var code = dot.getAttribute('data-code');
+      var cur = emplacementColorState(code);
+      if(cur==='red'){
+        if(!confirm('Cet emplacement est déjà occupé.\nConfirmez-vous qu\'il reste suffisamment de place pour y ranger une ou plusieurs commandes supplémentaires ?')) return;
+        await setEmplacementStatus(code, { orange: true });
+      } else if(cur==='orange'){
+        if(!confirm('Confirmez-vous que cet emplacement est maintenant complet et ne doit plus recevoir de nouvelle commande ?')) return;
+        await setEmplacementStatus(code, { orange: false });
+      }
+      renderEmplacementsList();
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('.emp-nonutil'), function(chk){
+    chk.addEventListener('change', async function(){
+      var code = chk.getAttribute('data-code');
+      await setEmplacementStatus(code, { nonUtilisable: chk.checked, orange: chk.checked ? false : getEmpStatus(code).orange });
+      renderEmplacementsList();
+      refreshDatalists();
     });
   });
 }
@@ -4295,6 +4368,7 @@ document.getElementById('btnRangerSave').addEventListener('click', async functio
   var code = document.getElementById('rangerEmpInput').value.trim();
   if(!rangerReceptionId || !rangerActiveItemId){ banner('Sélectionne d\'abord une étiquette à ranger'); return; }
   if(!EMPLACEMENT_RE.test(code)){ banner('Format attendu : AA-01-01'); return; }
+  if(isEmplacementNonUtilisable(code)){ banner('Cet emplacement est marqué non utilisable — choisis-en un autre'); return; }
 
   var rec = rangerRecordCache;
   if(!rec.data.emplacements) rec.data.emplacements = {};
@@ -4480,6 +4554,7 @@ document.getElementById('btnMoveSave').addEventListener('click', async function(
   var code = document.getElementById('moveEmpInput').value.trim();
   if(!moveReceptionId || !moveActiveItemId){ banner('Sélectionne d\'abord une étiquette à déplacer'); return; }
   if(!EMPLACEMENT_RE.test(code)){ banner('Format attendu : AA-01-01'); return; }
+  if(isEmplacementNonUtilisable(code)){ banner('Cet emplacement est marqué non utilisable — choisis-en un autre'); return; }
   if(!confirm('Confirmer le déplacement vers '+code+' ?')) return;
 
   // relit le document depuis Firestore juste avant d'écrire, pour éviter d'écraser un changement concurrent avec une version en cache
@@ -5190,6 +5265,7 @@ function switchTab(name){
   if(name==='clients'){ renderClientsList(); populateClientFicheSelect(); showSubmoduleGrid('clients'); }
   if(name==='contremarques'){ renderContremarquesList(); }
   if(name==='parametres'){ renderSiegesList(); renderDepotsList(); renderTrashList(); showSubmoduleGrid('parametres'); }
+  if(name==='base'){ renderEmplacementsList(); }
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
@@ -5441,7 +5517,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0034';
+var APP_VERSION = '2026.0035';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
