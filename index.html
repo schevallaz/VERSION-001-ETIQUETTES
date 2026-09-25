@@ -2537,11 +2537,52 @@ async function createBonLivraison(contremarque, commandeIds){
     contremarqueAdresse: { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' },
     depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
-    dateLivraisonPrevue: '', statut: 'preparation', createdAt: new Date().toISOString()
+    dateLivraisonPrevue: '', statut: 'preparation', type: 'livraison', createdAt: new Date().toISOString()
   };
   if(fsReady()){
     try{ await blColRef.doc(numero).set(bl); }
     catch(e){ console.error('Firestore createBonLivraison error', e); }
+  }
+  return bl;
+}
+
+// crée un BL pour une seule commande déjà sortie (depuis "CDE Sortie") — soit avec l'adresse de la
+// contremarque (BL Livraison), soit avec l'adresse du dépôt lui-même quand le client vient récupérer sa
+// marchandise sur place (Emporté Dépôt) ; le nom de la contremarque reste toujours indiqué pour repère
+async function createBonLivraisonForExit(recId, type){
+  var rec = await getReceptionRecord(recId);
+  if(!rec) return null;
+  var numero = await nextBLNumero();
+  var poids = parseFloat(rec.data.poids)||0;
+  var colis = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
+  var contremarque = rec.data.contremarque || '';
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
+  var adresse;
+  if(type==='emporte'){
+    adresse = { adresse1: (ag&&ag.adresse1)||'', adresse2: (ag&&ag.adresse2)||'', cp: (ag&&ag.cp)||'', ville: (ag&&ag.ville)||'', tel1: (ag&&ag.telephone)||'', tel2: '' };
+  } else {
+    var cmProfile = findContremarqueProfile(contremarque) || {};
+    adresse = { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' };
+  }
+  var bl = {
+    numero: numero, contremarque: contremarque, commandeIds: [recId],
+    commandes: [{
+      id: recId, labelNumber: rec.data.labelNumber||'', client: rec.data.client||'',
+      fournisseur: rec.data.fournisseur||'', poids: poids, colis: colis,
+      emplacement: rec.data.emplacement||''
+    }],
+    contremarqueAdresse: adresse,
+    depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
+    poidsTotal: poids, nbColisTotal: colis,
+    dateLivraisonPrevue: '', statut: 'preparation', type: (type==='emporte'?'emporte':'livraison'), createdAt: new Date().toISOString()
+  };
+  rec.data.bonLivraisonId = numero;
+  await saveReceptionRecord(recId, rec);
+  var idx = state.historyIndex.findIndex(function(x){ return x.id===recId; });
+  if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+  if(fsReady()){
+    try{ await blColRef.doc(numero).set(bl); }
+    catch(e){ console.error('Firestore createBonLivraisonForExit error', e); }
   }
   return bl;
 }
@@ -3836,8 +3877,11 @@ function renderArchiveList(){
       '<div class="actions">'+
         '<button class="btn accent" data-act="pdfexit">PDF sortie</button>'+
         '<button class="btn ghost" data-act="restock">Remettre en stock</button>'+
+        '<button class="btn ghost" data-act="editbl">Editer BL</button>'+
         (state.isAdmin ? '<button class="btn danger" data-act="del">Supprimer</button>' : '')+
-      '</div></div>';
+      '</div>'+
+      '<div id="editbl-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
+      '</div>';
   }).join('');
 
   document.getElementById('btnDeleteRangeRow').style.display = state.isAdmin ? 'block' : 'none';
@@ -3860,6 +3904,32 @@ function renderArchiveList(){
       renderToRangeList();
       renderHistory();
       banner('Commande '+(labelNumber||'')+' remise dans "CDE à Ranger"');
+    });
+    item.querySelector('[data-act="editbl"]').addEventListener('click', function(){
+      var box = document.getElementById('editbl-'+id);
+      if(!box) return;
+      if(box.style.display==='block'){ box.style.display='none'; return; }
+      box.innerHTML =
+        '<div class="hint" style="margin-bottom:8px;">Créer un Bon de Livraison pour cette commande :</div>'+
+        '<div class="btn-row"><button class="btn accent" data-bltype="livraison" style="width:100%;">BL Livraison (adresse de la contremarque)</button></div>'+
+        '<div class="btn-row"><button class="btn ghost" data-bltype="emporte" style="width:100%;">Emporté Dépôt (retrait sur place)</button></div>'+
+        '<div id="editblMsg-'+id+'" style="margin-top:8px;font-size:12.5px;"></div>';
+      box.style.display = 'block';
+      Array.prototype.forEach.call(box.querySelectorAll('[data-bltype]'), function(btn){
+        btn.addEventListener('click', async function(){
+          btn.disabled = true;
+          var bl = await createBonLivraisonForExit(id, btn.getAttribute('data-bltype'));
+          var msg = document.getElementById('editblMsg-'+id);
+          if(bl){
+            msg.textContent = 'Bon de Livraison '+bl.numero+' créé ('+(btn.getAttribute('data-bltype')==='emporte'?'Emporté Dépôt':'BL Livraison')+')';
+            msg.style.color = 'var(--accent)';
+          } else {
+            msg.textContent = 'Erreur lors de la création du BL';
+            msg.style.color = 'var(--danger)';
+          }
+          btn.disabled = false;
+        });
+      });
     });
     var delBtn = item.querySelector('[data-act="del"]');
     if(delBtn){
@@ -5553,7 +5623,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0038';
+var APP_VERSION = '2026.0039';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';

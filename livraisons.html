@@ -144,6 +144,7 @@
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="alivrer">Commandes à Livrer</button>
+    <button class="tab-btn" data-tab="emporte">Commandes Emporté</button>
   </nav>
 
   <!-- ===== TAB: COMMANDES A LIVRER ===== -->
@@ -158,6 +159,18 @@
       <div class="btn-row" id="livFicheSortieRow" style="display:none;">
         <button class="btn primary" id="btnFicheSortie" style="width:100%;">📋 Fiche de sortie des BL sélectionnés</button>
       </div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: COMMANDES EMPORTE ===== -->
+  <section id="tab-emporte" style="display:none;">
+    <div class="card">
+      <h2>Commandes Emporté</h2>
+      <p class="hint" style="margin:0 0 14px;">Retraits sur place — le client vient récupérer sa marchandise au dépôt.</p>
+      <div class="field">
+        <input type="text" id="emporteSearch" placeholder="Rechercher : n° BL, contremarque...">
+      </div>
+      <div id="emporteList"></div>
     </div>
   </section>
 
@@ -229,7 +242,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var blColRef = null;
 
-var APP_VERSION = '2026.0002';
+var APP_VERSION = '2026.0003';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -262,32 +275,38 @@ async function loadBons(){
   }catch(e){ console.error('Firestore loadBons error', e); }
 }
 
-function renderLivList(){
-  var el = document.getElementById('livList');
-  var q = (document.getElementById('livSearch').value || '').trim().toLowerCase();
-  var items = state.bons.slice();
+function renderBonList(opts){
+  // opts: { elId, searchId, typeFilter, checkboxes (bool), ficheSortieRowId }
+  var el = document.getElementById(opts.elId);
+  var q = (document.getElementById(opts.searchId).value || '').trim().toLowerCase();
+  var items = state.bons.filter(function(b){ return opts.typeFilter((b.type||'livraison')); });
   if(q){
     items = items.filter(function(b){
       return (b.numero||'').toLowerCase().indexOf(q)>=0 || (b.contremarque||'').toLowerCase().indexOf(q)>=0;
     });
   }
   items.sort(function(a,b){ return (a.dateLivraisonPrevue||'9999-99-99').localeCompare(b.dateLivraisonPrevue||'9999-99-99'); });
-  if(!items.length){ el.innerHTML = '<div class="empty">Aucun Bon de Livraison pour le moment</div>'; document.getElementById('livFicheSortieRow').style.display='none'; return; }
+  if(!items.length){
+    el.innerHTML = '<div class="empty">Aucun Bon de Livraison pour le moment</div>';
+    if(opts.ficheSortieRowId) document.getElementById(opts.ficheSortieRowId).style.display='none';
+    return;
+  }
   el.innerHTML = items.map(function(b){
+    var checkbox = opts.checkboxes ? '<input type="checkbox" class="bl-check-'+opts.elId+'" data-numero="'+b.numero+'" style="width:18px;height:18px;">' : '';
     return '<div class="hist-item">'+
-      '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;"><input type="checkbox" class="liv-bl-check" data-numero="'+b.numero+'" style="width:18px;height:18px;">'+
+      '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;">'+checkbox+
       '<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></label></div>'+
       '<div class="sub">'+escapeHtml(b.contremarque||'—')+'</div>'+
       '<div class="sub">'+(b.commandeIds?b.commandeIds.length:0)+' commande(s) · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
         '<label>Date de livraison prévue</label>'+
-        '<input type="date" data-numero="'+b.numero+'" class="liv-date-input" value="'+(b.dateLivraisonPrevue||'')+'">'+
+        '<input type="date" data-numero="'+b.numero+'" class="liv-date-input-'+opts.elId+'" value="'+(b.dateLivraisonPrevue||'')+'">'+
       '</div>'+
-      '<div class="btn-row"><button class="btn ghost btn-bl-pdf" data-numero="'+b.numero+'" style="width:100%;">📄 Bon de Livraison (PDF)</button></div>'+
+      '<div class="btn-row"><button class="btn ghost btn-bl-pdf-'+opts.elId+'" data-numero="'+b.numero+'" style="width:100%;">📄 Bon de Livraison (PDF)</button></div>'+
     '</div>';
   }).join('');
 
-  Array.prototype.forEach.call(el.querySelectorAll('.liv-date-input'), function(input){
+  Array.prototype.forEach.call(el.querySelectorAll('.liv-date-input-'+opts.elId), function(input){
     input.addEventListener('change', async function(){
       var numero = input.getAttribute('data-numero');
       if(fsReady()){
@@ -300,7 +319,7 @@ function renderLivList(){
     });
   });
 
-  Array.prototype.forEach.call(el.querySelectorAll('.btn-bl-pdf'), function(btn){
+  Array.prototype.forEach.call(el.querySelectorAll('.btn-bl-pdf-'+opts.elId), function(btn){
     btn.addEventListener('click', function(){
       var numero = btn.getAttribute('data-numero');
       var b = state.bons.find(function(x){ return x.numero===numero; });
@@ -308,18 +327,42 @@ function renderLivList(){
     });
   });
 
-  var checks = el.querySelectorAll('.liv-bl-check');
-  Array.prototype.forEach.call(checks, function(chk){
-    chk.addEventListener('change', function(){
-      var anyChecked = Array.prototype.some.call(checks, function(c){ return c.checked; });
-      document.getElementById('livFicheSortieRow').style.display = anyChecked ? 'block' : 'none';
+  if(opts.checkboxes){
+    var checks = el.querySelectorAll('.bl-check-'+opts.elId);
+    Array.prototype.forEach.call(checks, function(chk){
+      chk.addEventListener('change', function(){
+        var anyChecked = Array.prototype.some.call(checks, function(c){ return c.checked; });
+        document.getElementById(opts.ficheSortieRowId).style.display = anyChecked ? 'block' : 'none';
+      });
     });
-  });
+  }
+}
+
+function renderLivList(){
+  renderBonList({ elId:'livList', searchId:'livSearch', typeFilter: function(t){ return t!=='emporte'; }, checkboxes:true, ficheSortieRowId:'livFicheSortieRow' });
+}
+function renderEmporteList(){
+  renderBonList({ elId:'emporteList', searchId:'emporteSearch', typeFilter: function(t){ return t==='emporte'; }, checkboxes:false });
 }
 document.getElementById('livSearch').addEventListener('input', renderLivList);
+document.getElementById('emporteSearch').addEventListener('input', renderEmporteList);
+
+Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
+  btn.addEventListener('click', function(){
+    var name = btn.getAttribute('data-tab');
+    ['alivrer','emporte'].forEach(function(t){
+      document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(b){
+      b.classList.toggle('active', b===btn);
+    });
+    if(name==='emporte') renderEmporteList();
+    if(name==='alivrer') renderLivList();
+  });
+});
 
 document.getElementById('btnFicheSortie').addEventListener('click', function(){
-  var numeros = Array.prototype.slice.call(document.querySelectorAll('.liv-bl-check:checked')).map(function(c){ return c.getAttribute('data-numero'); });
+  var numeros = Array.prototype.slice.call(document.querySelectorAll('.bl-check-livList:checked')).map(function(c){ return c.getAttribute('data-numero'); });
   var bons = state.bons.filter(function(b){ return numeros.indexOf(b.numero)>=0; });
   if(bons.length) generateFicheSortiePdf(bons);
 });
@@ -464,6 +507,7 @@ async function startForAgency(code){
   document.getElementById('livDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
   await loadBons();
   renderLivList();
+  renderEmporteList();
 }
 
 function showAccessGate(){

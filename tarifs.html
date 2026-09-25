@@ -352,7 +352,7 @@ function banner(msg){
 var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 
-var APP_VERSION = '2026.0006';
+var APP_VERSION = '2026.0007';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -549,8 +549,9 @@ Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn
 // ---------- calculateur ----------
 function populateCalcZoneSelect(){
   var sel = document.getElementById('calcZone');
-  sel.innerHTML = state.zones.map(function(z, idx){
-    return '<option value="'+idx+'">'+escapeHtml(z.code)+' — '+z.kmDe+' à '+z.kmA+' km</option>';
+  var sorted = state.zones.map(function(z, idx){ return { item: z, idx: idx }; }).sort(function(a,b){ return (a.item.kmDe||0)-(b.item.kmDe||0); });
+  sel.innerHTML = sorted.map(function(row){
+    return '<option value="'+row.idx+'">'+escapeHtml(row.item.code)+' — '+row.item.kmDe+' à '+row.item.kmA+' km</option>';
   }).join('');
 }
 
@@ -639,7 +640,9 @@ var zoneEditIdx = null;
 function renderZonesList(){
   var el = document.getElementById('listZones');
   if(!state.zones.length){ el.innerHTML = '<div class="empty">Aucune zone enregistrée</div>'; return; }
-  el.innerHTML = state.zones.map(function(z, idx){
+  var sorted = state.zones.map(function(z, idx){ return { item: z, idx: idx }; }).sort(function(a,b){ return (a.item.kmDe||0)-(b.item.kmDe||0); });
+  el.innerHTML = sorted.map(function(row){
+    var z = row.item, idx = row.idx;
     return '<div class="base-row"><span>'+escapeHtml(z.code)+' — '+z.kmDe+' à '+z.kmA+' km · '+z.carburantKm+' €/km · '+z.minLivraison+' min</span>'+
       '<button data-idx="'+idx+'" data-act="editzone">Modifier</button></div>';
   }).join('');
