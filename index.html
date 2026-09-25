@@ -3824,6 +3824,7 @@ function renderArchiveList(){
       '<div class="sub" style="color:var(--ink-soft);">'+detail+'</div>'+
       '<div class="actions">'+
         '<button class="btn accent" data-act="pdfexit">PDF sortie</button>'+
+        '<button class="btn ghost" data-act="restock">Remettre en stock</button>'+
         (state.isAdmin ? '<button class="btn danger" data-act="del">Supprimer</button>' : '')+
       '</div></div>';
   }).join('');
@@ -3834,6 +3835,21 @@ function renderArchiveList(){
     var labelNumber = item.getAttribute('data-labelnumber');
     var id = item.getAttribute('data-id');
     item.querySelector('[data-act="pdfexit"]').addEventListener('click', function(){ reprintExitPdf(labelNumber); });
+    item.querySelector('[data-act="restock"]').addEventListener('click', async function(){
+      if(!confirm('Remettre '+(labelNumber||'cette commande')+' dans "CDE à Ranger" ? Elle devra être rangée à nouveau.')) return;
+      var rec = await getReceptionRecord(id);
+      if(!rec){ banner('Introuvable'); return; }
+      rec.data.exitedAt = '';
+      rec.data.emplacements = {};
+      rec.data.emplacement = '';
+      await saveReceptionRecord(id, rec);
+      var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
+      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      renderArchiveList();
+      renderToRangeList();
+      renderHistory();
+      banner('Commande '+(labelNumber||'')+' remise dans "CDE à Ranger"');
+    });
     var delBtn = item.querySelector('[data-act="del"]');
     if(delBtn){
       delBtn.addEventListener('click', async function(){
@@ -5526,7 +5542,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0036';
+var APP_VERSION = '2026.0037';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
