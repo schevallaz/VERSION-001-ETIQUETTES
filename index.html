@@ -3757,8 +3757,9 @@ function renderPlanningList(){
     var statut = isPendingEntry(h) ? 'En attente de réception' : (isFullyRanged(h) ? 'En stock — '+(h.emplacement||'—') : 'À ranger');
     var cm = findContremarqueProfile(h.contremarque);
     var cmLine = cm ? '<div class="sub" style="color:var(--accent);">'+escapeHtml(formatContremarqueConstraints(cm))+'</div>' : (h.contremarque ? '<div class="sub" style="color:var(--ink-soft);">Aucune fiche contremarque pour « '+escapeHtml(h.contremarque)+' »</div>' : '');
+    var sortirBtn = isStockEntry(h) ? '<button class="btn ghost planning-sortir-btn" data-label="'+escapeHtml(h.labelNumber||'')+'" style="width:auto;flex-shrink:0;font-size:12px;padding:6px 10px;">Sortir la CDE</button>' : '';
     return '<div class="hist-item" data-id="'+h.id+'">'+
-      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
+      '<div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><span class="nom">'+numBadge+nameLine+'</span>'+sortirBtn+'</div>'+
       '<div class="sub">'+escapeHtml(statut)+'</div>'+
       cmLine+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
@@ -3767,6 +3768,16 @@ function renderPlanningList(){
       '</div>'+
     '</div>';
   }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.planning-sortir-btn'), function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var label = btn.getAttribute('data-label');
+      switchTab('exit');
+      document.getElementById('manualLabelNumber').value = label;
+      document.getElementById('btnManualLoad').click();
+    });
+  });
 
   Array.prototype.forEach.call(el.querySelectorAll('.planning-date-input'), function(input){
     input.addEventListener('change', async function(){
@@ -5542,7 +5553,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0037';
+var APP_VERSION = '2026.0038';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
