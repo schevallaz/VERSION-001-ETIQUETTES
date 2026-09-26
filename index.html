@@ -373,8 +373,8 @@
       <h2>Ranger une commande</h2>
       <p class="hint" id="rangerStepHint" style="margin:0 0 10px;">Scanne l'étiquette de la palette/colis à ranger (ou tape son n°), puis scanne l'étiquette de son emplacement.</p>
       <div id="rangerScanUnavailable" class="hint" style="display:none;margin-bottom:10px;">Scan caméra indisponible ici (nécessite un hébergement en HTTPS). Utilise la saisie manuelle ci-dessous.</div>
-      <div id="rangerScanWrap" style="display:none;margin-bottom:10px;">
-        <video id="rangerScanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000;display:block;"></video>
+      <div id="rangerScanWrap" style="display:none;margin-bottom:10px;text-align:center;">
+        <video id="rangerScanVideo" playsinline muted style="width:100%;max-width:420px;border-radius:10px;background:#000;display:inline-block;"></video>
       </div>
       <canvas id="rangerScanCanvas" style="display:none;"></canvas>
       <div class="btn-row">
@@ -413,8 +413,8 @@
       <h2>Déplacer une étiquette</h2>
       <p class="hint" id="moveStepHint" style="margin:0 0 10px;">Scanne l'étiquette de la palette/colis à déplacer (ou tape son n°), puis scanne l'étiquette de son nouvel emplacement.</p>
       <div id="moveScanUnavailable" class="hint" style="display:none;margin-bottom:10px;">Scan caméra indisponible ici (nécessite un hébergement en HTTPS). Utilise la saisie manuelle ci-dessous.</div>
-      <div id="moveScanWrap" style="display:none;margin-bottom:10px;">
-        <video id="moveScanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000;display:block;"></video>
+      <div id="moveScanWrap" style="display:none;margin-bottom:10px;text-align:center;">
+        <video id="moveScanVideo" playsinline muted style="width:100%;max-width:420px;border-radius:10px;background:#000;display:inline-block;"></video>
       </div>
       <canvas id="moveScanCanvas" style="display:none;"></canvas>
       <div class="btn-row">
@@ -465,8 +465,8 @@
       <h2>Scanner une sortie (caméra)</h2>
       <p class="hint" style="margin:0 0 10px;">Scanne chaque étiquette de la commande. Si un scan caméra n'est pas disponible sur cet appareil, utilise la saisie manuelle plus bas.</p>
       <div id="scanUnavailable" class="hint" style="display:none;margin-bottom:10px;">Scan caméra indisponible ici (nécessite un hébergement en HTTPS). Utilise la saisie manuelle ci-dessous.</div>
-      <div id="scanWrap" style="display:none;margin-bottom:10px;">
-        <video id="scanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000;display:block;"></video>
+      <div id="scanWrap" style="display:none;margin-bottom:10px;text-align:center;">
+        <video id="scanVideo" playsinline muted style="width:100%;max-width:420px;border-radius:10px;background:#000;display:inline-block;"></video>
       </div>
       <canvas id="scanCanvas" style="display:none;"></canvas>
       <div class="btn-row">
@@ -5623,7 +5623,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0039';
+var APP_VERSION = '2026.0040';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
