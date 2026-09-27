@@ -550,11 +550,6 @@
       <p class="hint" style="margin:0 0 14px;">Suite d'outils reliés entre eux, connectés aux mêmes données.</p>
       <div id="modulesGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"></div>
     </div>
-    <div class="card" id="moduleAccessCard" style="display:none;">
-      <h2>Droits d'accès aux modules</h2>
-      <p class="hint" style="margin:0 0 12px;">Réservé à l'administrateur. Choisis qui peut voir chaque module dans l'écran ci-dessus.</p>
-      <div id="moduleAccessList"></div>
-    </div>
   </section>
 
   <!-- ===== TAB: BASE (données de référence du dépôt) ===== -->
@@ -736,6 +731,8 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="sieges" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏛️</div><div style="font-weight:700;color:var(--ink);">Sièges</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="depots" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📦</div><div style="font-weight:700;color:var(--ink);">Dépôts</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="emailtemplates" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">✉️</div><div style="font-weight:700;color:var(--ink);">Modèles d'e-mail</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="moduleaccess" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔐</div><div style="font-weight:700;color:var(--ink);">Droits d'accès aux modules</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="tournees" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚚🛣️</div><div style="font-weight:700;color:var(--ink);">Tournées de livraisons</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1045,6 +1042,85 @@
       </div>
     </div>
     </div>
+    <div class="submodule-content" id="sub-parametres-moduleaccess" style="display:none;">
+    <div class="card">
+      <h2>🔐 Droits d'accès aux modules</h2>
+      <p class="hint" style="margin:0 0 12px;">Réservé à l'administrateur. Choisis qui peut voir chaque module dans l'écran TMS STLS.</p>
+      <div id="moduleAccessList"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
+    <div class="card" id="tourneesListCard">
+      <h2>🚚🛣️ Tournées de livraisons</h2>
+      <p class="hint" style="margin:0 0 12px;">Référentiel des tournées, utilisé ensuite par Gestion Livraisons pour affecter automatiquement les Bons de Livraison.</p>
+      <div class="field">
+        <input type="text" id="tourneeSearch" placeholder="Rechercher : code, département, n°, code postal...">
+      </div>
+      <div class="row2">
+        <div class="field"><label>Département</label><select id="tourneeFilterDept" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="">Tous</option></select></div>
+        <div class="field"><label>Type</label><select id="tourneeFilterType" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="">Tous</option></select></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Jour</label><select id="tourneeFilterJour" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="">Tous</option></select></div>
+        <div class="field"><label>Statut</label><select id="tourneeFilterStatut" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">
+          <option value="">Tous</option><option value="active">Active</option><option value="inactive">Inactive</option>
+        </select></div>
+      </div>
+      <div class="btn-row"><button class="btn accent" id="btnCreateTournee" style="width:100%;">+ Créer une tournée</button></div>
+      <div id="tourneesTable" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card" id="tourneeFormCard" style="display:none;">
+      <h2 id="tourneeFormTitle">Créer une tournée</h2>
+      <div class="row2">
+        <div class="field"><label for="tf-dept">Département</label><input type="text" id="tf-dept" maxlength="2" inputmode="numeric" placeholder="83"></div>
+        <div class="field"><label for="tf-numero">Numéro de tournée</label><input type="text" id="tf-numero" maxlength="2" inputmode="numeric" placeholder="01"></div>
+      </div>
+      <div class="field">
+        <label style="margin-bottom:8px;">Type de tournée</label>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="tf-type" value="JO" style="width:17px;height:17px;">JO – Journée – 06:00 → 18:00</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="tf-type" value="NU" style="width:17px;height:17px;">NU – Nuit – 18:00 → 06:00</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="tf-type" value="AM" style="width:17px;height:17px;">AM – Matin – 06:00 → 13:00</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="tf-type" value="PM" style="width:17px;height:17px;">PM – Après-midi – 12:00 → 18:00</label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="tf-code">Code de tournée (généré automatiquement)</label>
+        <input type="text" id="tf-code" disabled style="font-weight:700;text-align:center;font-size:18px;letter-spacing:1px;">
+      </div>
+      <div class="field">
+        <label style="margin-bottom:8px;">Jours où cette tournée est réalisable</label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;" id="tf-jours"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="tf-heuredebut">Heure de début</label><input type="time" id="tf-heuredebut"></div>
+        <div class="field"><label for="tf-heurefin">Heure de fin</label><input type="time" id="tf-heurefin"></div>
+      </div>
+
+      <h2 style="font-size:15px;margin-top:16px;">Codes postaux desservis</h2>
+      <div class="field">
+        <label for="tf-cpsearch">Rechercher un code postal</label>
+        <input type="text" id="tf-cpsearch" placeholder="Ex. 831" inputmode="numeric">
+      </div>
+      <div id="tf-cpresults" style="max-height:220px;overflow-y:auto;margin-bottom:8px;"></div>
+      <div class="btn-row">
+        <button class="btn ghost" id="tf-cpselectall" style="width:auto;">Tout sélectionner</button>
+        <button class="btn ghost" id="tf-cpdeselectall" style="width:auto;">Tout désélectionner</button>
+      </div>
+      <div class="btn-row"><button class="btn primary" id="tf-cpaddselection" style="width:100%;">Ajouter la sélection à la tournée</button></div>
+
+      <h2 style="font-size:15px;margin-top:16px;">Codes postaux de la tournée (<span id="tf-cpcount">0</span>)</h2>
+      <div class="field">
+        <input type="text" id="tf-cpfilter" placeholder="Filtrer la liste...">
+      </div>
+      <div id="tf-cplist" style="max-height:260px;overflow-y:auto;"></div>
+
+      <div class="btn-row" style="margin-top:16px;"><button class="btn accent" id="btnSaveTournee" style="width:100%;">Enregistrer</button></div>
+      <div class="btn-row"><button class="btn ghost" id="btnCancelTournee" style="width:100%;">Annuler</button></div>
+      <div id="tourneeFormMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    </div>
   </section>
 </div>
 
@@ -1074,7 +1150,8 @@ var state = {
   brandName: 'STLS',
   agenciesList: [],
   siegesList: [],
-  moduleAccess: { tarifs: 'admin', livraisons: 'admin', depot: 'all', contremarques: 'all', clients: 'all', planning: 'all', parametres: 'admin' }
+  moduleAccess: { tarifs: 'admin', livraisons: 'admin', depot: 'all', contremarques: 'all', clients: 'all', planning: 'all', parametres: 'admin' },
+  tournees: []
 };
 
 function banner(msg){
@@ -1139,6 +1216,7 @@ try{
 var configDocRef = null;      // liée à l'agence active une fois choisie (voir setActiveAgency)
 var receptionsColRef = null;  // idem
 var blColRef = null; // Bons de Livraison du dépôt actif
+var tourneesColRef = null; // Tournées de livraisons du dépôt actif
 var globalDocRef = fsAvailable ? db.collection('stls_depot').doc('global') : null;
 var oldConfigDocRef = fsAvailable ? db.collection('stls_depot').doc('config') : null; // ancien emplacement (avant multi-agences), utilisé pour la migration uniquement
 
@@ -1148,6 +1226,7 @@ function setActiveAgency(code){
   configDocRef = agencyDocRef(code);
   receptionsColRef = configDocRef ? configDocRef.collection('receptions') : null;
   blColRef = configDocRef ? configDocRef.collection('bonsLivraison') : null;
+  tourneesColRef = configDocRef ? configDocRef.collection('tournees') : null;
 }
 
 function fsReady(){ return fsAvailable && !!db; }
@@ -2586,6 +2665,307 @@ async function createBonLivraisonForExit(recId, type){
   }
   return bl;
 }
+
+// ================= Tournées de livraisons (référentiel, Paramètres) =================
+var TOURNEE_TYPES = {
+  JO: { label: 'Journée', debut: '06:00', fin: '18:00' },
+  NU: { label: 'Nuit', debut: '18:00', fin: '06:00' },
+  AM: { label: 'Matin', debut: '06:00', fin: '13:00' },
+  PM: { label: 'Après-midi', debut: '12:00', fin: '18:00' }
+};
+var JOURS_SEMAINE = [['lundi','Lundi','Lun'],['mardi','Mardi','Mar'],['mercredi','Mercredi','Mer'],['jeudi','Jeudi','Jeu'],['vendredi','Vendredi','Ven'],['samedi','Samedi','Sam'],['dimanche','Dimanche','Dim']];
+var tourneeEditId = null; // code de la tournée en cours de modification ; null = création
+var tourneeFormCps = []; // codes postaux en cours de constitution dans le formulaire
+
+async function loadTournees(){
+  state.tournees = [];
+  if(!fsReady() || !tourneesColRef) return;
+  try{
+    var snap = await tourneesColRef.get();
+    snap.forEach(function(doc){ state.tournees.push(doc.data()); });
+  }catch(e){ console.error('Firestore loadTournees error', e); }
+}
+
+function computeTourneeCode(dept, numero, type){
+  if(!/^\d{2}$/.test(dept) || !/^\d{2}$/.test(numero) || !TOURNEE_TYPES[type]) return '';
+  return dept + numero + type;
+}
+
+// ---------- formulaire (création / modification / duplication) ----------
+function buildTourneeJoursCheckboxes(){
+  var el = document.getElementById('tf-jours');
+  el.innerHTML = JOURS_SEMAINE.map(function(j){
+    return '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="tf-jour-'+j[0]+'" style="width:17px;height:17px;">'+j[1]+'</label>';
+  }).join('');
+}
+buildTourneeJoursCheckboxes();
+
+function updateTourneeCodeAndHoraires(){
+  var dept = document.getElementById('tf-dept').value.trim();
+  var numero = document.getElementById('tf-numero').value.trim();
+  var typeEl = document.querySelector('input[name="tf-type"]:checked');
+  var type = typeEl ? typeEl.value : '';
+  document.getElementById('tf-code').value = computeTourneeCode(dept, numero, type);
+  if(type && TOURNEE_TYPES[type]){
+    document.getElementById('tf-heuredebut').value = TOURNEE_TYPES[type].debut;
+    document.getElementById('tf-heurefin').value = TOURNEE_TYPES[type].fin;
+  }
+}
+document.getElementById('tf-dept').addEventListener('input', updateTourneeCodeAndHoraires);
+document.getElementById('tf-numero').addEventListener('input', updateTourneeCodeAndHoraires);
+Array.prototype.forEach.call(document.querySelectorAll('input[name="tf-type"]'), function(r){
+  r.addEventListener('change', updateTourneeCodeAndHoraires);
+});
+
+function showTourneeForm(title){
+  document.getElementById('tourneesListCard').style.display = 'none';
+  document.getElementById('tourneeFormCard').style.display = 'block';
+  document.getElementById('tourneeFormTitle').textContent = title;
+  document.getElementById('tourneeFormMsg').textContent = '';
+}
+function showTourneesList(){
+  document.getElementById('tourneeFormCard').style.display = 'none';
+  document.getElementById('tourneesListCard').style.display = 'block';
+  renderTourneesTable();
+}
+
+function clearTourneeForm(){
+  tourneeEditId = null;
+  tourneeFormCps = [];
+  document.getElementById('tf-dept').value = '';
+  document.getElementById('tf-numero').value = '';
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="tf-type"]'), function(r){ r.checked = false; });
+  document.getElementById('tf-code').value = '';
+  document.getElementById('tf-heuredebut').value = '';
+  document.getElementById('tf-heurefin').value = '';
+  JOURS_SEMAINE.forEach(function(j){ document.getElementById('tf-jour-'+j[0]).checked = false; });
+  document.getElementById('tf-cpsearch').value = '';
+  document.getElementById('tf-cpfilter').value = '';
+  document.getElementById('tf-cpresults').innerHTML = '';
+  renderTfCpList();
+}
+
+function fillTourneeForm(t){
+  document.getElementById('tf-dept').value = t.departement;
+  document.getElementById('tf-numero').value = t.numero;
+  var radio = document.querySelector('input[name="tf-type"][value="'+t.type+'"]');
+  if(radio) radio.checked = true;
+  JOURS_SEMAINE.forEach(function(j){ document.getElementById('tf-jour-'+j[0]).checked = !!t[j[0]]; });
+  document.getElementById('tf-heuredebut').value = t.heureDebut;
+  document.getElementById('tf-heurefin').value = t.heureFin;
+  tourneeFormCps = (t.codesPostaux||[]).slice();
+  updateTourneeCodeAndHoraires();
+  renderTfCpList();
+}
+
+document.getElementById('btnCreateTournee').addEventListener('click', function(){
+  clearTourneeForm();
+  showTourneeForm('Créer une tournée');
+});
+document.getElementById('btnCancelTournee').addEventListener('click', function(){
+  showTourneesList();
+});
+
+// ---------- recherche et sélection des codes postaux (réutilise la base CP existante, aucune nouvelle base) ----------
+function renderCpSearchResults(){
+  var q = document.getElementById('tf-cpsearch').value.trim();
+  var el = document.getElementById('tf-cpresults');
+  if(!q){ el.innerHTML = ''; return; }
+  var matches = Object.keys(CP_TO_VILLES).filter(function(cp){ return cp.indexOf(q)===0; }).sort().slice(0,60);
+  if(!matches.length){ el.innerHTML = '<div class="hint">Aucun résultat</div>'; return; }
+  el.innerHTML = matches.map(function(cp){
+    var already = tourneeFormCps.indexOf(cp)>=0;
+    var villes = (CP_TO_VILLES[cp]||[]).join(', ');
+    return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-weight:400;'+(already?'opacity:0.5;':'')+'">'+
+      '<input type="checkbox" class="cp-search-check" data-cp="'+cp+'" '+(already?'disabled checked':'')+' style="width:17px;height:17px;flex-shrink:0;margin-top:2px;">'+
+      '<span>'+cp+' — '+escapeHtml(villes)+(already?' (déjà ajouté)':'')+'</span></label>';
+  }).join('');
+}
+document.getElementById('tf-cpsearch').addEventListener('input', renderCpSearchResults);
+
+document.getElementById('tf-cpselectall').addEventListener('click', function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.cp-search-check:not(:disabled)'), function(c){ c.checked = true; });
+});
+document.getElementById('tf-cpdeselectall').addEventListener('click', function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.cp-search-check:not(:disabled)'), function(c){ c.checked = false; });
+});
+document.getElementById('tf-cpaddselection').addEventListener('click', function(){
+  var checked = Array.prototype.slice.call(document.querySelectorAll('.cp-search-check:checked:not(:disabled)'));
+  checked.forEach(function(c){
+    var cp = c.getAttribute('data-cp');
+    if(tourneeFormCps.indexOf(cp)<0) tourneeFormCps.push(cp);
+  });
+  renderTfCpList();
+  renderCpSearchResults();
+  if(checked.length) banner(checked.length+' code(s) postal(aux) ajouté(s) à la tournée');
+});
+
+function renderTfCpList(){
+  var el = document.getElementById('tf-cplist');
+  var q = document.getElementById('tf-cpfilter').value.trim();
+  var list = tourneeFormCps.slice().sort();
+  if(q) list = list.filter(function(cp){ return cp.indexOf(q)>=0; });
+  document.getElementById('tf-cpcount').textContent = tourneeFormCps.length;
+  if(!list.length){ el.innerHTML = '<div class="empty">Aucun code postal ajouté</div>'; return; }
+  el.innerHTML = list.map(function(cp){
+    return '<div class="base-row"><span>'+cp+' — '+escapeHtml((CP_TO_VILLES[cp]||[]).join(', '))+'</span><button data-cp="'+cp+'" class="tf-cp-remove">Retirer</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('.tf-cp-remove'), function(btn){
+    btn.addEventListener('click', function(){
+      var cp = btn.getAttribute('data-cp');
+      tourneeFormCps = tourneeFormCps.filter(function(x){ return x!==cp; });
+      renderTfCpList();
+      renderCpSearchResults();
+    });
+  });
+}
+document.getElementById('tf-cpfilter').addEventListener('input', renderTfCpList);
+
+// ---------- enregistrement (avec récapitulatif de confirmation) ----------
+document.getElementById('btnSaveTournee').addEventListener('click', async function(){
+  var msg = document.getElementById('tourneeFormMsg');
+  msg.textContent = ''; msg.style.color = '';
+  var dept = document.getElementById('tf-dept').value.trim();
+  var numero = document.getElementById('tf-numero').value.trim();
+  var typeEl = document.querySelector('input[name="tf-type"]:checked');
+  if(!/^\d{2}$/.test(dept)){ msg.textContent = 'Département : 2 chiffres attendus (ex. 83)'; msg.style.color='var(--danger)'; return; }
+  if(!/^\d{2}$/.test(numero)){ msg.textContent = 'Numéro de tournée : 2 chiffres attendus (ex. 01)'; msg.style.color='var(--danger)'; return; }
+  if(!typeEl){ msg.textContent = 'Choisis un type de tournée'; msg.style.color='var(--danger)'; return; }
+  var type = typeEl.value;
+  var code = computeTourneeCode(dept, numero, type);
+  var dup = state.tournees.find(function(t){ return t.id===code && t.id!==tourneeEditId; });
+  if(dup){ msg.textContent = 'Ce code de tournée existe déjà : '+code; msg.style.color='var(--danger)'; return; }
+
+  var jours = {};
+  JOURS_SEMAINE.forEach(function(j){ jours[j[0]] = document.getElementById('tf-jour-'+j[0]).checked; });
+  var joursLabel = JOURS_SEMAINE.filter(function(j){ return jours[j[0]]; }).map(function(j){ return j[2]; }).join(', ') || 'aucun';
+  var heureDebut = document.getElementById('tf-heuredebut').value;
+  var heureFin = document.getElementById('tf-heurefin').value;
+
+  var recap = 'CRÉATION DE LA TOURNÉE\n\n'+
+    'Code : '+code+'\n'+
+    'Département : '+dept+'\n'+
+    'Numéro : '+numero+'\n'+
+    'Type : '+TOURNEE_TYPES[type].label+'\n'+
+    'Horaire : '+heureDebut+' → '+heureFin+'\n'+
+    'Jours : '+joursLabel+'\n'+
+    'Codes postaux : '+tourneeFormCps.length+'\n\n'+
+    'Confirmer la création de cette tournée ?';
+  if(!confirm(recap)) return;
+
+  var existing = tourneeEditId ? state.tournees.find(function(t){ return t.id===tourneeEditId; }) : null;
+  var tournee = {
+    id: code, departement: dept, numero: numero, type: type,
+    heureDebut: heureDebut, heureFin: heureFin,
+    codesPostaux: tourneeFormCps.slice(),
+    statut: (existing && existing.statut) || 'active',
+    createdAt: (existing && existing.createdAt) || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  Object.assign(tournee, jours);
+
+  if(fsReady() && tourneesColRef){
+    try{
+      if(tourneeEditId && tourneeEditId!==code){ await tourneesColRef.doc(tourneeEditId).delete(); }
+      await tourneesColRef.doc(code).set(tournee);
+    }catch(e){ console.error('Firestore save tournee error', e); }
+  }
+  var idx = state.tournees.findIndex(function(t){ return t.id===tourneeEditId; });
+  if(idx>=0) state.tournees.splice(idx,1);
+  var idx2 = state.tournees.findIndex(function(t){ return t.id===code; });
+  if(idx2>=0) state.tournees.splice(idx2,1);
+  state.tournees.push(tournee);
+
+  banner('Tournée '+code+' enregistrée');
+  showTourneesList();
+});
+
+// ---------- liste principale : recherche, filtres, tableau, actions ----------
+function populateTourneeFilters(){
+  var deptSel = document.getElementById('tourneeFilterDept');
+  var depts = Object.keys(DEPT_TO_CPS).sort();
+  deptSel.innerHTML = '<option value="">Tous</option>'+depts.map(function(d){ return '<option value="'+d+'">'+d+'</option>'; }).join('');
+  var typeSel = document.getElementById('tourneeFilterType');
+  typeSel.innerHTML = '<option value="">Tous</option>'+Object.keys(TOURNEE_TYPES).map(function(k){ return '<option value="'+k+'">'+TOURNEE_TYPES[k].label+'</option>'; }).join('');
+  var jourSel = document.getElementById('tourneeFilterJour');
+  jourSel.innerHTML = '<option value="">Tous</option>'+JOURS_SEMAINE.map(function(j){ return '<option value="'+j[0]+'">'+j[1]+'</option>'; }).join('');
+}
+populateTourneeFilters();
+
+function renderTourneesTable(){
+  var el = document.getElementById('tourneesTable');
+  var q = document.getElementById('tourneeSearch').value.trim().toLowerCase();
+  var fDept = document.getElementById('tourneeFilterDept').value;
+  var fType = document.getElementById('tourneeFilterType').value;
+  var fJour = document.getElementById('tourneeFilterJour').value;
+  var fStatut = document.getElementById('tourneeFilterStatut').value;
+  var items = state.tournees.slice();
+  if(q){
+    items = items.filter(function(t){
+      return t.id.toLowerCase().indexOf(q)>=0 || t.departement.indexOf(q)>=0 || t.numero.indexOf(q)>=0 || (t.codesPostaux||[]).some(function(cp){ return cp.indexOf(q)>=0; });
+    });
+  }
+  if(fDept) items = items.filter(function(t){ return t.departement===fDept; });
+  if(fType) items = items.filter(function(t){ return t.type===fType; });
+  if(fJour) items = items.filter(function(t){ return t[fJour]; });
+  if(fStatut) items = items.filter(function(t){ return t.statut===fStatut; });
+  items.sort(function(a,b){ return a.id.localeCompare(b.id); });
+  if(!items.length){ el.innerHTML = '<div class="empty">Aucune tournée</div>'; return; }
+  el.innerHTML = items.map(function(t){
+    var joursActifs = JOURS_SEMAINE.filter(function(j){ return t[j[0]]; }).map(function(j){ return j[2]; }).join('-');
+    var statutBadge = t.statut==='active' ? '<span style="color:#1e8e3e;font-weight:700;">🟢 Active</span>' : '<span style="color:#c0392b;font-weight:700;">🔴 Inactive</span>';
+    return '<div class="hist-item" data-code="'+t.id+'">'+
+      '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">'+t.id+'</span>'+statutBadge+'</div>'+
+      '<div class="sub">Dépt '+t.departement+' · N°'+t.numero+' · '+TOURNEE_TYPES[t.type].label+' · '+t.heureDebut+'-'+t.heureFin+'</div>'+
+      '<div class="sub">Jours : '+(joursActifs||'—')+' · '+(t.codesPostaux||[]).length+' code(s) postal(aux)</div>'+
+      '<div class="actions">'+
+        '<button class="btn ghost" data-act="edit">Modifier</button>'+
+        '<button class="btn ghost" data-act="duplicate">Dupliquer</button>'+
+        '<button class="btn ghost" data-act="toggle">'+(t.statut==='active'?'Désactiver':'Activer')+'</button>'+
+        '<button class="btn danger" data-act="delete">Supprimer</button>'+
+      '</div></div>';
+  }).join('');
+
+  Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
+    var code = item.getAttribute('data-code');
+    var t = state.tournees.find(function(x){ return x.id===code; });
+    item.querySelector('[data-act="edit"]').addEventListener('click', function(){
+      tourneeEditId = code;
+      fillTourneeForm(t);
+      showTourneeForm('Modifier la tournée '+code);
+    });
+    item.querySelector('[data-act="duplicate"]').addEventListener('click', function(){
+      tourneeEditId = null;
+      fillTourneeForm(t);
+      document.getElementById('tf-numero').value = '';
+      document.getElementById('tf-code').value = '';
+      showTourneeForm('Dupliquer '+code+' — nouveau numéro');
+    });
+    item.querySelector('[data-act="toggle"]').addEventListener('click', async function(){
+      t.statut = (t.statut==='active') ? 'inactive' : 'active';
+      t.updatedAt = new Date().toISOString();
+      if(fsReady() && tourneesColRef){
+        try{ await tourneesColRef.doc(code).set(t); }catch(e){ console.error('Firestore toggle tournee error', e); }
+      }
+      renderTourneesTable();
+      banner('Tournée '+code+' '+(t.statut==='active'?'activée':'désactivée'));
+    });
+    item.querySelector('[data-act="delete"]').addEventListener('click', async function(){
+      if(!confirm('Supprimer définitivement la tournée '+code+' ? Si elle a déjà été utilisée, préfère la désactiver plutôt.')) return;
+      if(fsReady() && tourneesColRef){
+        try{ await tourneesColRef.doc(code).delete(); }catch(e){ console.error('Firestore delete tournee error', e); }
+      }
+      state.tournees = state.tournees.filter(function(x){ return x.id!==code; });
+      renderTourneesTable();
+      banner('Tournée '+code+' supprimée');
+    });
+  });
+}
+document.getElementById('tourneeSearch').addEventListener('input', renderTourneesTable);
+document.getElementById('tourneeFilterDept').addEventListener('change', renderTourneesTable);
+document.getElementById('tourneeFilterType').addEventListener('change', renderTourneesTable);
+document.getElementById('tourneeFilterJour').addEventListener('change', renderTourneesTable);
+document.getElementById('tourneeFilterStatut').addEventListener('change', renderTourneesTable);
 
 async function loadBonsLivraisonForContremarque(contremarque){
   if(!fsReady()) return [];
@@ -5321,6 +5701,7 @@ function showSubmodule(prefix, key){
 Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), function(btn){
   btn.addEventListener('click', function(){
     showSubmodule(btn.getAttribute('data-prefix'), btn.getAttribute('data-key'));
+    if(btn.getAttribute('data-key')==='tournees'){ showTourneesList(); }
   });
 });
 Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), function(btn){
@@ -5575,11 +5956,9 @@ function renderModulesGrid(){
     });
   });
 
-  var accessCard = document.getElementById('moduleAccessCard');
   var accessList = document.getElementById('moduleAccessList');
   var externalModules = TMS_MODULES.filter(function(m){ return m.url || m.internalTab; });
-  if(state.isAdmin){
-    accessCard.style.display = 'block';
+  if(state.isAdmin && accessList){
     accessList.innerHTML = externalModules.map(function(m){
       var level = moduleAccessLevel(m.key);
       return '<div class="field">'+
@@ -5598,8 +5977,8 @@ function renderModulesGrid(){
         banner('Droits d\'accès mis à jour');
       });
     });
-  } else {
-    accessCard.style.display = 'none';
+  } else if(accessList){
+    accessList.innerHTML = '<div class="hint">Réservé à l\'administrateur.</div>';
   }
 }
 
@@ -5623,7 +6002,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0040';
+var APP_VERSION = '2026.0043';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -5949,6 +6328,8 @@ async function loadAgencyDataAndShowApp(){
   resetForm();
   renderSiegesList();
   renderDepotsList();
+  await loadTournees();
+  renderTourneesTable();
   renderModulesGrid();
   hideAccessGate();
   updateSecurityIdentityLine();
