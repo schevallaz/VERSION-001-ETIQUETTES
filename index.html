@@ -1053,6 +1053,7 @@
     <div class="card" id="tourneesListCard">
       <h2>🚚🛣️ Tournées de livraisons</h2>
       <p class="hint" style="margin:0 0 12px;">Référentiel des tournées, utilisé ensuite par Gestion Livraisons pour affecter automatiquement les Bons de Livraison.</p>
+      <div id="tourneesConnHint" style="display:none;background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 10px;margin-bottom:12px;color:#c0392b;font-size:13px;font-weight:600;"></div>
       <div class="field">
         <input type="text" id="tourneeSearch" placeholder="Rechercher : code, département, n°, code postal...">
       </div>
@@ -2767,6 +2768,13 @@ function showTourneeForm(title){
 function showTourneesList(){
   document.getElementById('tourneeFormCard').style.display = 'none';
   document.getElementById('tourneesListCard').style.display = 'block';
+  var hint = document.getElementById('tourneesConnHint');
+  if(!fsReady() || !tourneesColRef){
+    hint.textContent = '⚠ Pas de connexion à la base de données en ce moment — les tournées créées ou modifiées ici ne seront pas conservées après rechargement de la page.';
+    hint.style.display = 'block';
+  } else {
+    hint.style.display = 'none';
+  }
   renderTourneesTable();
 }
 
@@ -2905,11 +2913,21 @@ document.getElementById('btnSaveTournee').addEventListener('click', async functi
   };
   Object.assign(tournee, jours);
 
+  var saveOk = true;
   if(fsReady() && tourneesColRef){
     try{
       if(tourneeEditId && tourneeEditId!==code){ await tourneesColRef.doc(tourneeEditId).delete(); }
       await tourneesColRef.doc(code).set(tournee);
-    }catch(e){ console.error('Firestore save tournee error', e); }
+    }catch(e){
+      console.error('Firestore save tournee error', e);
+      saveOk = false;
+      msg.textContent = '⚠ Enregistrement Firestore échoué : '+(e.message||e)+' — la tournée reste visible ici mais ne sera pas conservée après rechargement.';
+      msg.style.color = 'var(--danger)';
+    }
+  } else if(!fsReady()){
+    saveOk = false;
+    msg.textContent = '⚠ Pas de connexion à la base — la tournée ne sera pas conservée après rechargement.';
+    msg.style.color = 'var(--danger)';
   }
   var idx = state.tournees.findIndex(function(t){ return t.id===tourneeEditId; });
   if(idx>=0) state.tournees.splice(idx,1);
@@ -2917,8 +2935,10 @@ document.getElementById('btnSaveTournee').addEventListener('click', async functi
   if(idx2>=0) state.tournees.splice(idx2,1);
   state.tournees.push(tournee);
 
-  banner('Tournée '+code+' enregistrée');
-  showTourneesList();
+  if(saveOk){
+    banner('Tournée '+code+' enregistrée');
+    showTourneesList();
+  }
 });
 
 // ---------- liste principale : recherche, filtres, tableau, actions ----------
@@ -2986,7 +3006,10 @@ function renderTourneesTable(){
       t.statut = (t.statut==='active') ? 'inactive' : 'active';
       t.updatedAt = new Date().toISOString();
       if(fsReady() && tourneesColRef){
-        try{ await tourneesColRef.doc(code).set(t); }catch(e){ console.error('Firestore toggle tournee error', e); }
+        try{ await tourneesColRef.doc(code).set(t); }
+        catch(e){ console.error('Firestore toggle tournee error', e); banner('⚠ Échec de l\'enregistrement : '+(e.message||e)); renderTourneesTable(); return; }
+      } else if(!fsReady()){
+        banner('⚠ Pas de connexion à la base — ce changement ne sera pas conservé après rechargement');
       }
       renderTourneesTable();
       banner('Tournée '+code+' '+(t.statut==='active'?'activée':'désactivée'));
@@ -2994,7 +3017,10 @@ function renderTourneesTable(){
     item.querySelector('[data-act="delete"]').addEventListener('click', async function(){
       if(!confirm('Supprimer définitivement la tournée '+code+' ? Si elle a déjà été utilisée, préfère la désactiver plutôt.')) return;
       if(fsReady() && tourneesColRef){
-        try{ await tourneesColRef.doc(code).delete(); }catch(e){ console.error('Firestore delete tournee error', e); }
+        try{ await tourneesColRef.doc(code).delete(); }
+        catch(e){ console.error('Firestore delete tournee error', e); banner('⚠ Échec de la suppression : '+(e.message||e)); return; }
+      } else if(!fsReady()){
+        banner('⚠ Pas de connexion à la base — cette suppression ne sera pas conservée après rechargement');
       }
       state.tournees = state.tournees.filter(function(x){ return x.id!==code; });
       renderTourneesTable();
@@ -6058,7 +6084,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0045';
+var APP_VERSION = '2026.0046';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
