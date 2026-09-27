@@ -241,16 +241,85 @@ function fmtDate(iso){
 var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var blColRef = null;
+var tourneesColRef = null;
 
-var APP_VERSION = '2026.0003';
+var APP_VERSION = '2026.0004';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
   agenciesList: [],
   currentAgencyCode: null,
   agencyName: '',
-  bons: []
+  bons: [],
+  tournees: []
 };
+
+var JOURS_SEMAINE = [['lundi','Lundi','Lun'],['mardi','Mardi','Mar'],['mercredi','Mercredi','Mer'],['jeudi','Jeudi','Jeu'],['vendredi','Vendredi','Ven'],['samedi','Samedi','Sam'],['dimanche','Dimanche','Dim']];
+var JS_DAY_TO_KEY = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi']; // Date.getDay() : 0=dimanche
+
+var BL_STATUTS = {
+  incomplet: { label: 'BL incomplet', color: '#c0392b', icon: '🔴' },
+  complet: { label: 'BL complet', color: '#e8792e', icon: '🟠' },
+  a_prendre_rdv: { label: 'À prendre RDV', color: '#e8792e', icon: '📞' },
+  rdv_en_cours: { label: 'RDV en cours', color: '#e8792e', icon: '⏳' },
+  rdv_valide: { label: 'RDV validé', color: '#2563eb', icon: '📅' },
+  a_valider_exploitant: { label: 'À valider exploitant', color: '#2563eb', icon: '🔎' },
+  valide_pour_tournee: { label: 'Validé pour tournée', color: '#1e8e3e', icon: '✅' },
+  affecte_tournee: { label: 'Affecté à une tournée', color: '#1e8e3e', icon: '🚛' }
+};
+
+// contrôle si un BL possède toutes les informations nécessaires — jamais d'affectation automatique
+function controlerBL(bl){
+  var adr = bl.contremarqueAdresse || {};
+  var checks = [
+    { key:'destinataire', label:'Destinataire', ok: !!bl.contremarque },
+    { key:'adresse', label:'Adresse', ok: !!adr.adresse1 },
+    { key:'cp', label:'Code postal', ok: !!adr.cp },
+    { key:'ville', label:'Ville', ok: !!adr.ville },
+    { key:'telephone', label:'Téléphone', ok: !!adr.tel1 },
+    { key:'marchandise', label:'Marchandise (poids/colis)', ok: (bl.poidsTotal>0 || bl.nbColisTotal>0) },
+    { key:'date', label:'Date de livraison (souhaitée ou impérative)', ok: !!(bl.dateSouhaitee || bl.dateImperative) }
+  ];
+  return { complet: checks.every(function(c){ return c.ok; }), checks: checks };
+}
+
+async function loadTournees(){
+  state.tournees = [];
+  if(!fsReady() || !tourneesColRef) return;
+  try{
+    var snap = await tourneesColRef.get();
+    snap.forEach(function(doc){ state.tournees.push(doc.data()); });
+  }catch(e){ console.error('Firestore loadTournees error', e); }
+}
+
+// tournées compatibles (rapprochement géographique/horaire uniquement — n'affecte jamais automatiquement)
+function tourneesCompatibles(bl){
+  var adr = bl.contremarqueAdresse || {};
+  var cp = adr.cp || '';
+  if(!cp) return [];
+  var dateRef = bl.dateImperative || bl.dateSouhaitee;
+  var jourKey = null;
+  if(dateRef){
+    var d = new Date(dateRef+'T00:00:00');
+    if(!isNaN(d.getTime())) jourKey = JS_DAY_TO_KEY[d.getDay()];
+  }
+  return state.tournees.filter(function(t){
+    if(t.statut!=='active') return false;
+    if((t.codesPostaux||[]).indexOf(cp)<0) return false;
+    if(jourKey && !t[jourKey]) return false;
+    return true;
+  });
+}
+
+async function saveBonPatch(numero, patch){
+  var b = state.bons.find(function(x){ return x.numero===numero; });
+  if(!b) return;
+  Object.assign(b, patch);
+  if(fsReady() && blColRef){
+    try{ await blColRef.doc(numero).set(patch, { merge: true }); }
+    catch(e){ console.error('Firestore saveBonPatch error', e); }
+  }
+}
 
 var globalSecurity = { masterCode:'2013', adminCode:'ADMIN1', users:[] };
 
@@ -285,7 +354,11 @@ function renderBonList(opts){
       return (b.numero||'').toLowerCase().indexOf(q)>=0 || (b.contremarque||'').toLowerCase().indexOf(q)>=0;
     });
   }
-  items.sort(function(a,b){ return (a.dateLivraisonPrevue||'9999-99-99').localeCompare(b.dateLivraisonPrevue||'9999-99-99'); });
+  // priorité aux livraisons impératives, puis par date
+  items.sort(function(a,b){
+    if(!!a.estImperative !== !!b.estImperative) return a.estImperative ? -1 : 1;
+    return (a.dateLivraisonPrevue||'9999-99-99').localeCompare(b.dateLivraisonPrevue||'9999-99-99');
+  });
   if(!items.length){
     el.innerHTML = '<div class="empty">Aucun Bon de Livraison pour le moment</div>';
     if(opts.ficheSortieRowId) document.getElementById(opts.ficheSortieRowId).style.display='none';
@@ -293,28 +366,29 @@ function renderBonList(opts){
   }
   el.innerHTML = items.map(function(b){
     var checkbox = opts.checkboxes ? '<input type="checkbox" class="bl-check-'+opts.elId+'" data-numero="'+b.numero+'" style="width:18px;height:18px;">' : '';
+    var statutInfo = BL_STATUTS[b.statut] || BL_STATUTS.incomplet;
+    var statutBadge = '<span style="color:'+statutInfo.color+';font-weight:700;font-size:12.5px;">'+statutInfo.icon+' '+statutInfo.label+'</span>';
+    var impBanner = b.estImperative ? '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — '+(b.dateImperative?fmtDate(b.dateImperative):'date à fixer')+'</div>' : '';
     return '<div class="hist-item">'+
       '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;">'+checkbox+
-      '<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></label></div>'+
+      '<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></label>'+statutBadge+'</div>'+
       '<div class="sub">'+escapeHtml(b.contremarque||'—')+'</div>'+
+      impBanner+
       '<div class="sub">'+(b.commandeIds?b.commandeIds.length:0)+' commande(s) · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
         '<label>Date de livraison prévue</label>'+
         '<input type="date" data-numero="'+b.numero+'" class="liv-date-input-'+opts.elId+'" value="'+(b.dateLivraisonPrevue||'')+'">'+
       '</div>'+
+      '<div class="btn-row"><button class="btn primary bl-manage-btn" data-numero="'+b.numero+'" style="width:100%;">⚙️ Gérer le BL</button></div>'+
       '<div class="btn-row"><button class="btn ghost btn-bl-pdf-'+opts.elId+'" data-numero="'+b.numero+'" style="width:100%;">📄 Bon de Livraison (PDF)</button></div>'+
+      '<div id="bl-panel-'+b.numero+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
     '</div>';
   }).join('');
 
   Array.prototype.forEach.call(el.querySelectorAll('.liv-date-input-'+opts.elId), function(input){
     input.addEventListener('change', async function(){
       var numero = input.getAttribute('data-numero');
-      if(fsReady()){
-        try{ await blColRef.doc(numero).set({ dateLivraisonPrevue: input.value }, { merge: true }); }
-        catch(e){ console.error('Firestore save date error', e); }
-      }
-      var b = state.bons.find(function(x){ return x.numero===numero; });
-      if(b) b.dateLivraisonPrevue = input.value;
+      await saveBonPatch(numero, { dateLivraisonPrevue: input.value });
       banner('Date de livraison enregistrée');
     });
   });
@@ -327,6 +401,15 @@ function renderBonList(opts){
     });
   });
 
+  Array.prototype.forEach.call(el.querySelectorAll('.bl-manage-btn'), function(btn){
+    btn.addEventListener('click', function(){
+      var numero = btn.getAttribute('data-numero');
+      var box = document.getElementById('bl-panel-'+numero);
+      if(box.style.display==='block'){ box.style.display='none'; return; }
+      renderBLManagePanel(numero, 'bl-panel-'+numero);
+    });
+  });
+
   if(opts.checkboxes){
     var checks = el.querySelectorAll('.bl-check-'+opts.elId);
     Array.prototype.forEach.call(checks, function(chk){
@@ -336,6 +419,153 @@ function renderBonList(opts){
       });
     });
   }
+}
+
+// ---------- panneau de gestion complet d'un BL (contrôle, informations, cycle RDV/validation/tournée) ----------
+function renderBLManagePanel(numero, boxId){
+  var box = document.getElementById(boxId);
+  var b = state.bons.find(function(x){ return x.numero===numero; });
+  if(!b || !box) return;
+  var ctrl = controlerBL(b);
+  var statutInfo = BL_STATUTS[b.statut] || BL_STATUTS.incomplet;
+  var c = b.contraintes || {};
+
+  var html = '';
+  if(b.estImperative){
+    html += '<div class="hint" style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 10px;margin-bottom:10px;color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — Date : '+(b.dateImperative?fmtDate(b.dateImperative):'à fixer')+'</div>';
+  }
+  html += '<div class="hint" style="margin-bottom:10px;">Statut actuel : <strong style="color:'+statutInfo.color+';">'+statutInfo.icon+' '+statutInfo.label+'</strong></div>';
+
+  html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Contrôle du BL</div>';
+  html += ctrl.checks.map(function(ck){ return '<div class="sub">'+(ck.ok?'🟢':'🔴')+' '+ck.label+'</div>'; }).join('');
+
+  html += '<h2 style="font-size:14px;margin-top:14px;">Informations de livraison</h2>';
+  html += '<div class="row2"><div class="field"><label>Date souhaitée</label><input type="date" id="bl-dateSouh-'+numero+'" value="'+(b.dateSouhaitee||'')+'"></div>'+
+    '<div class="field"><label>Date impérative</label><input type="date" id="bl-dateImp-'+numero+'" value="'+(b.dateImperative||'')+'"></div></div>';
+  html += '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="bl-estImp-'+numero+'" '+(b.estImperative?'checked':'')+' style="width:17px;height:17px;">Date impérative (à respecter, ne jamais déplacer silencieusement)</label>';
+  html += '<div class="field"><label>Créneau souhaité</label><input type="text" id="bl-creneau-'+numero+'" value="'+escapeHtml(b.creneauSouhaite||'')+'" placeholder="ex. 14:00-16:00"></div>';
+  html += '<div class="row2"><div class="field"><label>Étage</label><input type="text" id="bl-etage-'+numero+'" value="'+escapeHtml(c.etage||'')+'"></div>'+
+    '<div class="field"><label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">Ascenseur</label><label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="checkbox" id="bl-ascenseur-'+numero+'" '+(c.ascenseur?'checked':'')+' style="width:17px;height:17px;">Oui</label></div></div>';
+  html += '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="bl-accesDiff-'+numero+'" '+(c.accesDifficile?'checked':'')+' style="width:17px;height:17px;">Accès difficile</label>';
+  html += '<div class="field"><label>Contact sur place</label><input type="text" id="bl-contact-'+numero+'" value="'+escapeHtml(c.contactSurPlace||'')+'"></div>';
+  html += '<div class="row2"><div class="field"><label>Volume</label><input type="text" id="bl-volume-'+numero+'" value="'+escapeHtml(b.volume||'')+'"></div>'+
+    '<div class="field"><label>Nature marchandise</label><input type="text" id="bl-nature-'+numero+'" value="'+escapeHtml(b.natureMarchandise||'')+'"></div></div>';
+  html += '<div class="field"><label>Email destinataire</label><input type="email" id="bl-email-'+numero+'" value="'+escapeHtml(b.emailDestinataire||'')+'"></div>';
+  html += '<div class="btn-row"><button class="btn primary" id="bl-savectrl-'+numero+'" style="width:100%;">Enregistrer et contrôler</button></div>';
+
+  html += '<div id="bl-actions-'+numero+'" style="margin-top:14px;"></div>';
+
+  box.innerHTML = html;
+  box.style.display = 'block';
+  renderBLActions(numero);
+
+  document.getElementById('bl-savectrl-'+numero).addEventListener('click', async function(){
+    var patch = {
+      dateSouhaitee: document.getElementById('bl-dateSouh-'+numero).value,
+      dateImperative: document.getElementById('bl-dateImp-'+numero).value,
+      estImperative: document.getElementById('bl-estImp-'+numero).checked,
+      creneauSouhaite: document.getElementById('bl-creneau-'+numero).value.trim(),
+      contraintes: {
+        etage: document.getElementById('bl-etage-'+numero).value.trim(),
+        ascenseur: document.getElementById('bl-ascenseur-'+numero).checked,
+        accesDifficile: document.getElementById('bl-accesDiff-'+numero).checked,
+        contactSurPlace: document.getElementById('bl-contact-'+numero).value.trim()
+      },
+      volume: document.getElementById('bl-volume-'+numero).value.trim(),
+      natureMarchandise: document.getElementById('bl-nature-'+numero).value.trim(),
+      emailDestinataire: document.getElementById('bl-email-'+numero).value.trim()
+    };
+    await saveBonPatch(numero, patch);
+    var bb = state.bons.find(function(x){ return x.numero===numero; });
+    var cc = controlerBL(bb);
+    var newStatut = cc.complet ? (bb.statut==='incomplet' ? 'complet' : bb.statut) : 'incomplet';
+    await saveBonPatch(numero, { statut: newStatut });
+    banner('BL '+numero+' mis à jour — '+(cc.complet?'complet':'incomplet'));
+    renderBLManagePanel(numero, boxId);
+    renderLivList(); renderEmporteList();
+  });
+}
+
+var TOURNEE_TYPE_LABELS = { JO:'Journée', NU:'Nuit', AM:'Matin', PM:'Après-midi' };
+
+function renderBLActions(numero){
+  var b = state.bons.find(function(x){ return x.numero===numero; });
+  var el = document.getElementById('bl-actions-'+numero);
+  if(!b || !el) return;
+  var html = '';
+
+  if(b.statut==='complet'){
+    if(b.estImperative){
+      html += '<div class="btn-row"><button class="btn accent bl-act" data-act="toexploitant" data-numero="'+numero+'" style="width:100%;">Envoyer à validation exploitant (livraison impérative)</button></div>';
+    } else {
+      html += '<div class="btn-row"><button class="btn accent bl-act" data-act="torddv" data-numero="'+numero+'" style="width:100%;">Passer à "Prise de RDV"</button></div>';
+    }
+  } else if(b.statut==='a_prendre_rdv' || b.statut==='rdv_en_cours'){
+    html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Enregistrer le rendez-vous</div>';
+    html += '<div class="row2"><div class="field"><label>Date du RDV</label><input type="date" id="rdv-date-'+numero+'" value="'+((b.rdv&&b.rdv.date)||'')+'"></div>'+
+      '<div class="field"><label>Pris par</label><input type="text" id="rdv-par-'+numero+'" value="'+escapeHtml((b.rdv&&b.rdv.prisPar)||'')+'"></div></div>';
+    html += '<div class="row2"><div class="field"><label>Créneau début</label><input type="time" id="rdv-debut-'+numero+'" value="'+((b.rdv&&b.rdv.creneauDebut)||'')+'"></div>'+
+      '<div class="field"><label>Créneau fin</label><input type="time" id="rdv-fin-'+numero+'" value="'+((b.rdv&&b.rdv.creneauFin)||'')+'"></div></div>';
+    html += '<div class="field"><label>Observations</label><textarea id="rdv-obs-'+numero+'" style="width:100%;min-height:60px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;">'+escapeHtml((b.rdv&&b.rdv.observations)||'')+'</textarea></div>';
+    html += '<div class="btn-row"><button class="btn accent bl-act" data-act="saverdv" data-numero="'+numero+'" style="width:100%;">Enregistrer le RDV</button></div>';
+  } else if(b.statut==='rdv_valide' || b.statut==='a_valider_exploitant'){
+    if(b.rdv && b.rdv.date){
+      html += '<div class="sub">RDV : '+fmtDate(b.rdv.date)+(b.rdv.creneauDebut?' · '+b.rdv.creneauDebut+' → '+b.rdv.creneauFin:'')+(b.rdv.prisPar?' · Pris par '+escapeHtml(b.rdv.prisPar):'')+'</div>';
+    }
+    html += '<div class="btn-row"><button class="btn accent bl-act" data-act="validexploit" data-numero="'+numero+'" style="width:100%;">✅ Valider pour tournée</button></div>';
+  } else if(b.statut==='valide_pour_tournee'){
+    var compat = tourneesCompatibles(b);
+    html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Tournées compatibles ('+compat.length+')</div>';
+    if(!compat.length){
+      html += '<div class="hint">Aucune tournée compatible pour l\'instant.'+(b.estImperative?' ⚠ Livraison impérative — à signaler à l\'exploitant, ne pas déplacer la date silencieusement.':'')+'</div>';
+    } else {
+      html += compat.map(function(t){
+        return '<div class="base-row"><span>'+t.id+' — '+(TOURNEE_TYPE_LABELS[t.type]||t.type)+' · '+t.heureDebut+'-'+t.heureFin+'</span><button class="bl-act" data-act="affecter" data-numero="'+numero+'" data-tournee="'+t.id+'">Affecter</button></div>';
+      }).join('');
+    }
+  } else if(b.statut==='affecte_tournee'){
+    html += '<div class="hint" style="font-weight:600;color:var(--accent);">🚛 Affecté à la tournée '+escapeHtml(b.tourneeId||'')+'</div>';
+    html += '<div class="btn-row"><button class="btn ghost bl-act" data-act="desaffecter" data-numero="'+numero+'" style="width:100%;">Retirer de la tournée</button></div>';
+  } else {
+    html += '<div class="hint">Complète les informations manquantes ci-dessus pour avancer.</div>';
+  }
+
+  el.innerHTML = html;
+  Array.prototype.forEach.call(el.querySelectorAll('.bl-act'), function(btn){
+    btn.addEventListener('click', async function(){
+      var act = btn.getAttribute('data-act');
+      var num = btn.getAttribute('data-numero');
+      if(act==='torddv'){ await saveBonPatch(num, { statut: 'a_prendre_rdv' }); }
+      else if(act==='toexploitant'){ await saveBonPatch(num, { statut: 'a_valider_exploitant' }); }
+      else if(act==='saverdv'){
+        var rdv = {
+          date: document.getElementById('rdv-date-'+num).value,
+          creneauDebut: document.getElementById('rdv-debut-'+num).value,
+          creneauFin: document.getElementById('rdv-fin-'+num).value,
+          prisPar: document.getElementById('rdv-par-'+num).value.trim(),
+          dateHeurePrise: new Date().toISOString(),
+          observations: document.getElementById('rdv-obs-'+num).value.trim()
+        };
+        await saveBonPatch(num, { rdv: rdv, statut: 'a_valider_exploitant' });
+      }
+      else if(act==='validexploit'){
+        if(!confirm('Confirmer la validation de ce BL pour intégration dans une tournée ?')) return;
+        await saveBonPatch(num, { statut: 'valide_pour_tournee', validationExploitant: { valide: true, par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+      }
+      else if(act==='affecter'){
+        var tid = btn.getAttribute('data-tournee');
+        if(!confirm('Affecter le BL '+num+' à la tournée '+tid+' ?')) return;
+        await saveBonPatch(num, { statut: 'affecte_tournee', tourneeId: tid });
+      }
+      else if(act==='desaffecter'){
+        if(!confirm('Retirer ce BL de sa tournée ? Il repassera en "Validé pour tournée".')) return;
+        await saveBonPatch(num, { statut: 'valide_pour_tournee', tourneeId: '' });
+      }
+      renderBLActions(num);
+      renderLivList(); renderEmporteList();
+      banner('BL '+num+' mis à jour');
+    });
+  });
 }
 
 function renderLivList(){
@@ -504,8 +734,10 @@ async function startForAgency(code){
   state.agencyName = ag ? ag.name : code;
   document.getElementById('accessGateOverlay').style.display = 'none';
   blColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('bonsLivraison') : null;
+  tourneesColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('tournees') : null;
   document.getElementById('livDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
   await loadBons();
+  await loadTournees();
   renderLivList();
   renderEmporteList();
 }

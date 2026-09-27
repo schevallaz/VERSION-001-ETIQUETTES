@@ -2246,6 +2246,7 @@ document.getElementById('btnSaveContremarqueFiche').addEventListener('click', as
     Object.assign(state.base.contremarques[cmEditIdx], profile);
     msg.textContent = 'Fiche modifiée';
   } else {
+    profile.id = 'cm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
     state.base.contremarques.push(profile);
     msg.textContent = 'Fiche ajoutée';
   }
@@ -2588,6 +2589,22 @@ async function nextBLNumero(){
   return yymm+String(next2).padStart(4,'0');
 }
 
+// contrôle si un BL possède toutes les informations nécessaires pour sortir du statut "incomplet" —
+// n'affecte jamais automatiquement une tournée, sert uniquement à déterminer si le BL peut avancer
+function controlerBL(bl){
+  var adr = bl.contremarqueAdresse || {};
+  var checks = [
+    { key:'destinataire', label:'Destinataire', ok: !!bl.contremarque },
+    { key:'adresse', label:'Adresse', ok: !!adr.adresse1 },
+    { key:'cp', label:'Code postal', ok: !!adr.cp },
+    { key:'ville', label:'Ville', ok: !!adr.ville },
+    { key:'telephone', label:'Téléphone', ok: !!adr.tel1 },
+    { key:'marchandise', label:'Marchandise (poids/colis)', ok: (bl.poidsTotal>0 || bl.nbColisTotal>0) },
+    { key:'date', label:'Date de livraison (souhaitée ou impérative)', ok: !!(bl.dateSouhaitee || bl.dateImperative) }
+  ];
+  return { complet: checks.every(function(c){ return c.ok; }), checks: checks };
+}
+
 async function createBonLivraison(contremarque, commandeIds){
   var numero = await nextBLNumero();
   var poidsTotal = 0, nbColisTotal = 0;
@@ -2612,12 +2629,19 @@ async function createBonLivraison(contremarque, commandeIds){
   var cmProfile = findContremarqueProfile(contremarque) || {};
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
   var bl = {
-    numero: numero, contremarque: contremarque, commandeIds: commandeIds, commandes: commandesSnapshot,
+    numero: numero, contremarque: contremarque, contremarqueId: cmProfile.id||'', commandeIds: commandeIds, commandes: commandesSnapshot,
     contremarqueAdresse: { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' },
     depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
-    dateLivraisonPrevue: '', statut: 'preparation', type: 'livraison', createdAt: new Date().toISOString()
+    dateLivraisonPrevue: '', dateSouhaitee: '', dateImperative: '', estImperative: false, creneauSouhaite: '',
+    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '' },
+    volume: '', natureMarchandise: '', emailDestinataire: cmProfile.mail||'',
+    rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
+    validationExploitant: { valide: false, par:'', le:'' },
+    tourneeId: '',
+    type: 'livraison', createdAt: new Date().toISOString()
   };
+  bl.statut = controlerBL(bl).complet ? 'complet' : 'incomplet';
   if(fsReady()){
     try{ await blColRef.doc(numero).set(bl); }
     catch(e){ console.error('Firestore createBonLivraison error', e); }
@@ -2636,15 +2660,16 @@ async function createBonLivraisonForExit(recId, type){
   var colis = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
   var contremarque = rec.data.contremarque || '';
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
-  var adresse;
+  var adresse, cmProfileId = '', etage = '', ascenseur = false, mail = '';
   if(type==='emporte'){
     adresse = { adresse1: (ag&&ag.adresse1)||'', adresse2: (ag&&ag.adresse2)||'', cp: (ag&&ag.cp)||'', ville: (ag&&ag.ville)||'', tel1: (ag&&ag.telephone)||'', tel2: '' };
   } else {
     var cmProfile = findContremarqueProfile(contremarque) || {};
     adresse = { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' };
+    cmProfileId = cmProfile.id||''; etage = cmProfile.etage||''; ascenseur = !!cmProfile.ascenseur; mail = cmProfile.mail||'';
   }
   var bl = {
-    numero: numero, contremarque: contremarque, commandeIds: [recId],
+    numero: numero, contremarque: contremarque, contremarqueId: cmProfileId, commandeIds: [recId],
     commandes: [{
       id: recId, labelNumber: rec.data.labelNumber||'', client: rec.data.client||'',
       fournisseur: rec.data.fournisseur||'', poids: poids, colis: colis,
@@ -2653,8 +2678,15 @@ async function createBonLivraisonForExit(recId, type){
     contremarqueAdresse: adresse,
     depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
     poidsTotal: poids, nbColisTotal: colis,
-    dateLivraisonPrevue: '', statut: 'preparation', type: (type==='emporte'?'emporte':'livraison'), createdAt: new Date().toISOString()
+    dateLivraisonPrevue: '', dateSouhaitee: '', dateImperative: '', estImperative: false, creneauSouhaite: '',
+    contraintes: { etage: etage, ascenseur: ascenseur, accesDifficile: false, contactSurPlace: '' },
+    volume: '', natureMarchandise: '', emailDestinataire: mail,
+    rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
+    validationExploitant: { valide: false, par:'', le:'' },
+    tourneeId: '',
+    type: (type==='emporte'?'emporte':'livraison'), createdAt: new Date().toISOString()
   };
+  bl.statut = controlerBL(bl).complet ? 'complet' : 'incomplet';
   rec.data.bonLivraisonId = numero;
   await saveReceptionRecord(recId, rec);
   var idx = state.historyIndex.findIndex(function(x){ return x.id===recId; });
@@ -4032,7 +4064,14 @@ function isStockEntry(h){
 
 function findContremarqueProfile(nom){
   if(!nom) return null;
-  return (state.base.contremarques||[]).find(function(cm){ return (cm.nom||'').toLowerCase()===nom.toLowerCase(); }) || null;
+  var cm = (state.base.contremarques||[]).find(function(x){ return (x.nom||'').toLowerCase()===nom.toLowerCase(); }) || null;
+  // auto-répare les fiches créées avant l'ajout de l'identifiant stable
+  if(cm && !cm.id){ cm.id = 'cm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); saveBase(); }
+  return cm;
+}
+function findContremarqueById(id){
+  if(!id) return null;
+  return (state.base.contremarques||[]).find(function(x){ return x.id===id; }) || null;
 }
 
 // panneau (depuis "CDE en stock") pour associer une commande à une fiche contremarque existante,
@@ -4088,7 +4127,7 @@ async function renderCmLinkPanel(id){
   if(createBtn){
     createBtn.addEventListener('click', async function(){
       if(!state.base.contremarques) state.base.contremarques = [];
-      state.base.contremarques.push({ nom: current, pays: 'FR-France' });
+      state.base.contremarques.push({ id: 'cm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7), nom: current, pays: 'FR-France' });
       await saveBase();
       renderContremarquesList();
       document.getElementById('cnt-contremarques').textContent = pad4(state.base.contremarques.length);
@@ -6002,7 +6041,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0043';
+var APP_VERSION = '2026.0044';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
