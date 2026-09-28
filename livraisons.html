@@ -308,7 +308,7 @@ var collectesColRef = null;
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0010';
+var APP_VERSION = '2026.0011';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -344,7 +344,7 @@ function reconcileEarlyStatut(b){
 
 var BL_STATUTS = {
   incomplet: { label: 'BL incomplet', color: '#c0392b', icon: '🔴' },
-  complet: { label: 'BL complet', color: '#e8792e', icon: '🟠' },
+  complet: { label: 'BL complet', color: '#1e8e3e', icon: '🟢' },
   a_prendre_rdv: { label: 'À prendre RDV', color: '#e8792e', icon: '📞' },
   rdv_en_cours: { label: 'RDV en cours', color: '#e8792e', icon: '⏳' },
   rdv_valide: { label: 'RDV validé', color: '#2563eb', icon: '📅' },
