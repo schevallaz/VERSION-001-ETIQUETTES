@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <style>
   :root{
     --ink:#1c1c1a; --ink-soft:#5f5e5a; --line:#dcdad2; --line-strong:#b4b2a9;
@@ -733,6 +734,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="emailtemplates" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">✉️</div><div style="font-weight:700;color:var(--ink);">Modèles d'e-mail</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="moduleaccess" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔐</div><div style="font-weight:700;color:var(--ink);">Droits d'accès aux modules</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="tournees" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚚🛣️</div><div style="font-weight:700;color:var(--ink);">Tournées de livraisons</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="livreurs" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚐</div><div style="font-weight:700;color:var(--ink);">Livreurs et véhicules</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1049,6 +1051,23 @@
       <div id="moduleAccessList"></div>
     </div>
     </div>
+    <div class="submodule-content" id="sub-parametres-livreurs" style="display:none;">
+    <div class="card">
+      <h2>🧑‍✈️ Livreurs</h2>
+      <p class="hint" style="margin:0 0 12px;">Personnes à qui envoyer une tournée depuis Gestion Livraisons. Le numéro de téléphone sert à l'envoi par WhatsApp.</p>
+      <div id="listLivreurs" style="margin-bottom:12px;"></div>
+      <div class="field"><input type="text" id="lv-nom" placeholder="Nom et prénom" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      <div class="field"><input type="tel" id="lv-tel" placeholder="Téléphone (ex. 06 12 34 56 78)" inputmode="tel" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      <div class="btn-row"><button class="btn primary" id="btnAddLivreur" style="width:100%;">Ajouter le livreur</button></div>
+    </div>
+    <div class="card">
+      <h2>🚚 Véhicules</h2>
+      <div id="listVehicules" style="margin-bottom:12px;"></div>
+      <div class="field"><input type="text" id="vh-immat" placeholder="Immatriculation" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      <div class="field"><input type="text" id="vh-libelle" placeholder="Libellé (facultatif, ex. Camion 20 m3)" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      <div class="btn-row"><button class="btn primary" id="btnAddVehicule" style="width:100%;">Ajouter le véhicule</button></div>
+    </div>
+    </div>
     <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
     <div class="card" id="tourneesListCard">
       <h2>🚚🛣️ Tournées de livraisons</h2>
@@ -1240,6 +1259,30 @@ function setActiveAgency(code){
 
 function fsReady(){ return fsAvailable && !!db; }
 
+// ---------- authentification anonyme (étape 1 de sécurisation) ----------
+// Ne remplace pas le code équipe/admin — c'est une couche technique en plus, invisible pour l'utilisateur.
+// Objectif : donner à Firestore un moyen de distinguer "vient de l'app" d'un accès direct à la base (script, robot).
+// tant que ce n'est pas fait, les règles Firestore ne peuvent pas être fermées sans bloquer tout le monde.
+var authReady = null;
+function ensureAuth(){
+  if(!fsAvailable) return Promise.resolve(false);
+  if(authReady) return authReady;
+  authReady = new Promise(function(resolve){
+    if(!(window.firebase && firebase.auth)){ resolve(false); return; }
+    var auth = firebase.auth();
+    var unsub = auth.onAuthStateChanged(function(user){
+      if(user){ unsub(); resolve(true); }
+    });
+    auth.signInAnonymously().catch(function(e){
+      console.error('Firebase anonymous sign-in error', e);
+      unsub();
+      resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
+    });
+  });
+  return authReady;
+}
+
+
 // ---------- config globale (multi-agences) : code équipe, code administrateur, liste des agences ----------
 async function loadGlobalConfig(){
   if(fsReady()){
@@ -1426,7 +1469,7 @@ async function loadBase(){
         var d0 = snap.data();
         state.base = {
           clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice(),
-          contremarques: d0.contremarques||[], emplacementStatus: d0.emplacementStatus||{},
+          contremarques: d0.contremarques||[], emplacementStatus: d0.emplacementStatus||{}, livreurs: d0.livreurs||[], vehicules: d0.vehicules||[],
           emailTemplateReserve: d0.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
           emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
           receivedAtMigrated: !!d0.receivedAtMigrated
@@ -1458,6 +1501,8 @@ async function loadBase(){
   if(!state.base.emailTemplateReserve){ state.base.emailTemplateReserve = DEFAULT_EMAIL_RESERVE; }
   if(!state.base.contremarques){ state.base.contremarques = []; }
   if(!state.base.emplacementStatus){ state.base.emplacementStatus = {}; }
+  if(!state.base.livreurs){ state.base.livreurs = []; }
+  if(!state.base.vehicules){ state.base.vehicules = []; }
   if(!state.base.emailTemplateReception){ state.base.emailTemplateReception = DEFAULT_EMAIL_RECEPTION; }
   await saveBase();
   watchBase();
@@ -1480,7 +1525,7 @@ function watchBase(){
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
     state.base = {
       clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[],
-      contremarques: d.contremarques||[], emplacementStatus: d.emplacementStatus||{},
+      contremarques: d.contremarques||[], emplacementStatus: d.emplacementStatus||{}, livreurs: d.livreurs||[], vehicules: d.vehicules||[],
       emailTemplateReserve: d.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
       emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
       receivedAtMigrated: !!d.receivedAtMigrated
@@ -2725,6 +2770,73 @@ async function createBonLivraisonForExit(recId, type, dateInfo){
   }
   return bl;
 }
+
+// ================= Livreurs et véhicules (référentiel, Paramètres) =================
+function newRefId(prefix){ return prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+function renderLivreursList(){
+  var el = document.getElementById('listLivreurs');
+  var arr = state.base.livreurs || [];
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucun livreur</div>'; return; }
+  el.innerHTML = arr.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'','fr'); }).map(function(l){
+    return '<div class="base-row"><span>'+escapeHtml(l.nom)+(l.telephone ? ' — '+escapeHtml(l.telephone) : '')+(l.actif===false ? ' <em style="color:var(--ink-soft);">(inactif)</em>' : '')+'</span>'+
+      '<span style="display:flex;gap:6px;"><button data-lv-toggle="'+escapeHtml(l.id)+'">'+(l.actif===false ? 'Activer' : 'Désactiver')+'</button><button data-lv-del="'+escapeHtml(l.id)+'">Suppr.</button></span></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-lv-toggle]'), function(btn){
+    btn.addEventListener('click', async function(){
+      var l = state.base.livreurs.find(function(x){ return x.id===btn.getAttribute('data-lv-toggle'); });
+      if(l){ l.actif = (l.actif===false); await saveBase(); renderLivreursList(); }
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-lv-del]'), function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Supprimer ce livreur ? Les tournées déjà envoyées gardent son nom.')) return;
+      state.base.livreurs = state.base.livreurs.filter(function(x){ return x.id!==btn.getAttribute('data-lv-del'); });
+      await saveBase(); renderLivreursList();
+    });
+  });
+}
+document.getElementById('btnAddLivreur').addEventListener('click', async function(){
+  var nom = document.getElementById('lv-nom').value.trim();
+  if(!nom){ banner('Saisis le nom du livreur'); return; }
+  if(!state.base.livreurs) state.base.livreurs = [];
+  state.base.livreurs.push({ id: newRefId('lv'), nom: nom, telephone: document.getElementById('lv-tel').value.trim(), actif: true });
+  await saveBase();
+  document.getElementById('lv-nom').value = ''; document.getElementById('lv-tel').value = '';
+  renderLivreursList(); banner('Livreur « '+nom+' » ajouté');
+});
+
+function renderVehiculesList(){
+  var el = document.getElementById('listVehicules');
+  var arr = state.base.vehicules || [];
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucun véhicule</div>'; return; }
+  el.innerHTML = arr.slice().sort(function(a,b){ return (a.immat||'').localeCompare(b.immat||'','fr'); }).map(function(v){
+    return '<div class="base-row"><span>'+escapeHtml(v.immat)+(v.libelle ? ' — '+escapeHtml(v.libelle) : '')+(v.actif===false ? ' <em style="color:var(--ink-soft);">(inactif)</em>' : '')+'</span>'+
+      '<span style="display:flex;gap:6px;"><button data-vh-toggle="'+escapeHtml(v.id)+'">'+(v.actif===false ? 'Activer' : 'Désactiver')+'</button><button data-vh-del="'+escapeHtml(v.id)+'">Suppr.</button></span></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-vh-toggle]'), function(btn){
+    btn.addEventListener('click', async function(){
+      var v = state.base.vehicules.find(function(x){ return x.id===btn.getAttribute('data-vh-toggle'); });
+      if(v){ v.actif = (v.actif===false); await saveBase(); renderVehiculesList(); }
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-vh-del]'), function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Supprimer ce véhicule ?')) return;
+      state.base.vehicules = state.base.vehicules.filter(function(x){ return x.id!==btn.getAttribute('data-vh-del'); });
+      await saveBase(); renderVehiculesList();
+    });
+  });
+}
+document.getElementById('btnAddVehicule').addEventListener('click', async function(){
+  var immat = document.getElementById('vh-immat').value.trim().toUpperCase();
+  if(!immat){ banner('Saisis l\'immatriculation'); return; }
+  if(!state.base.vehicules) state.base.vehicules = [];
+  state.base.vehicules.push({ id: newRefId('vh'), immat: immat, libelle: document.getElementById('vh-libelle').value.trim(), actif: true });
+  await saveBase();
+  document.getElementById('vh-immat').value = ''; document.getElementById('vh-libelle').value = '';
+  renderVehiculesList(); banner('Véhicule '+immat+' ajouté');
+});
 
 // ================= Tournées de livraisons (référentiel, Paramètres) =================
 var TOURNEE_TYPES = {
@@ -5900,6 +6012,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
   btn.addEventListener('click', function(){
     showSubmodule(btn.getAttribute('data-prefix'), btn.getAttribute('data-key'));
     if(btn.getAttribute('data-key')==='tournees'){ showTourneesList(); }
+    if(btn.getAttribute('data-key')==='livreurs'){ renderLivreursList(); renderVehiculesList(); }
   });
 });
 Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), function(btn){
@@ -6200,7 +6313,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0048';
+var APP_VERSION = '2026.0050';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -6842,6 +6955,7 @@ document.getElementById('btnRepairReceivedAt').addEventListener('click', repairM
 
 // ---------- init ----------
 (async function init(){
+  await ensureAuth();
   await loadGlobalConfig();
   await applyOneTimeAdminReset();
   watchGlobalConfig();

@@ -6,6 +6,7 @@
 <title>Livraisons STLS</title>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
@@ -314,6 +315,30 @@ var fsAvailable = false;
 var db = null;
 function fsReady(){ return fsAvailable && !!db; }
 
+// ---------- authentification anonyme (étape 1 de sécurisation) ----------
+// Ne remplace pas le code équipe/admin — c'est une couche technique en plus, invisible pour l'utilisateur.
+// Objectif : donner à Firestore un moyen de distinguer "vient de l'app" d'un accès direct à la base (script, robot).
+// tant que ce n'est pas fait, les règles Firestore ne peuvent pas être fermées sans bloquer tout le monde.
+var authReady = null;
+function ensureAuth(){
+  if(!fsAvailable) return Promise.resolve(false);
+  if(authReady) return authReady;
+  authReady = new Promise(function(resolve){
+    if(!(window.firebase && firebase.auth)){ resolve(false); return; }
+    var auth = firebase.auth();
+    var unsub = auth.onAuthStateChanged(function(user){
+      if(user){ unsub(); resolve(true); }
+    });
+    auth.signInAnonymously().catch(function(e){
+      console.error('Firebase anonymous sign-in error', e);
+      unsub();
+      resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
+    });
+  });
+  return authReady;
+}
+
+
 // initialisation robuste : attend que les scripts Firebase (chargés depuis gstatic.com) soient bien prêts,
 // avec plusieurs tentatives espacées au cas où ils mettent un peu de temps à s'exécuter
 function initFirebase(retriesLeft){
@@ -368,7 +393,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0016';
+var APP_VERSION = '2026.0018';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -378,7 +403,7 @@ var state = {
   agencyName: '',
   bons: [],
   tournees: [],
-  base: { partenaires: [], contremarques: [] },
+  base: { partenaires: [], contremarques: [], livreurs: [], vehicules: [] },
   collectes: [],
   instances: []
 };
@@ -786,6 +811,8 @@ function renderBLManagePanel(numero, boxId){
     var bb = state.bons.find(function(x){ return x.numero===numero; });
     var cc = controlerBL(bb);
     await saveBonPatch(numero, { statut: statutAfterControl(bb) });
+    var instMaj = bb.affectation && bb.affectation.instanceId ? state.instances.find(function(i){ return i.id===bb.affectation.instanceId; }) : null;
+    if(instMaj) await republierSiLien(instMaj, 'modification', numero);
     banner('BL '+numero+' mis à jour — '+(cc.complet?'complet':'incomplet'));
     refreshAllBonLists();
     renderBLManagePanel(numero, 'bl-panel-'+numero);
@@ -1708,6 +1735,7 @@ async function construireTournee(bons, t, date, opts){
       historiqueAffectations: (b.historiqueAffectations||[]).concat([entry])
     });
   }
+  await republierSiLien(inst, 'ajout', bons.map(function(x){ return x.numero; }).join(', '));
   return id;
 }
 
@@ -1730,6 +1758,7 @@ async function retirerBLDeTournee(numero, motif, opts){
   if(inst){
     inst.historique = (inst.historique||[]).concat([{ action: 'retrait', bl: numero, par: par, le: now, motif: motif||'' }]);
     await saveInstance(inst);
+    await republierSiLien(inst, 'retrait', numero);
   }
   return true;
 }
@@ -1982,6 +2011,7 @@ function renderTourneesPlanifiees(){
         h += '<div class="sub" style="color:#e8792e;">🟠 Dérogation BL '+escapeHtml(d.bl)+' : '+escapeHtml(d.motif)+' <span style="color:var(--ink-soft);">(par '+escapeHtml(d.par||'?')+')</span></div>';
       });
       if(planCtlOpen[inst.id]) h += renderControleHtml(inst);
+      h += envoiHtml(inst);
 
       var rows = bons.slice().sort(function(a,b){
         var da = hhmmToMin((a.rdv||{}).creneauDebut), db = hhmmToMin((b.rdv||{}).creneauDebut);
@@ -2083,6 +2113,45 @@ function renderTourneesPlanifiees(){
     await saveInstance(inst);
     renderTourneesPlanifiees();
   });
+  // envoi au livreur
+  on('.env-ouvrir', function(btn){ var id = btn.getAttribute('data-id'); envoiOpen[id] = !envoiOpen[id]; renderTourneesPlanifiees(); });
+  Array.prototype.forEach.call(el.querySelectorAll('.env-livreur'), function(sel){
+    sel.addEventListener('change', function(){
+      var card = sel.closest('.hist-item'), opt = sel.options[sel.selectedIndex];
+      card.querySelector('.env-tel').value = opt ? (opt.getAttribute('data-tel') || '') : '';
+    });
+  });
+  on('.env-generer', async function(btn){
+    var inst = byId(btn.getAttribute('data-id')), card = btn.closest('.hist-item');
+    var sel = card.querySelector('.env-livreur'), livId = sel.value;
+    var tel = card.querySelector('.env-tel').value.trim();
+    if(!livId){ banner('Choisis le livreur'); return; }
+    if(tel.replace(/\D/g,'').length < 9){ banner('Saisis le numéro de téléphone du livreur (pour WhatsApp)'); return; }
+    var liv = (state.base.livreurs||[]).find(function(l){ return l.id===livId; }) || { id: livId, nom: sel.options[sel.selectedIndex].text };
+    var lien = await creerLienLivreur(inst, { livreurId: liv.id, livreurNom: liv.nom, telephone: tel, vehicule: card.querySelector('.env-vehicule').value, expireLe: calculerExpiration(inst.date, card.querySelector('.env-expire').value) });
+    if(lien){ envoiOpen[inst.id] = false; banner('Lien créé pour '+liv.nom); renderTourneesPlanifiees(); }
+  });
+  on('.env-copier', async function(btn){
+    var inst = byId(btn.getAttribute('data-id')), url = lienUrl(inst.lienActif);
+    try{ await navigator.clipboard.writeText(url); banner('Lien copié'); }catch(e){ prompt('Copie le lien :', url); }
+  });
+  on('.env-desactiver', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    if(!confirm('Désactiver le lien envoyé au livreur ? Il ne pourra plus ouvrir la tournée.')) return;
+    await desactiverLien(inst, 'Désactivé par l\'exploitant');
+    banner('Lien désactivé'); renderTourneesPlanifiees();
+  });
+  on('.env-nouveau', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    var l = (inst.envois||[]).filter(function(e){ return e.token===inst.lienActif; })[0];
+    if(!l) return;
+    if(!confirm('Générer un nouveau lien ? L\'ancien sera désactivé immédiatement.')) return;
+    await desactiverLien(inst, 'Remplacé par un nouveau lien');
+    var nl = await creerLienLivreur(inst, { livreurId: l.livreurId, livreurNom: l.livreurNom, telephone: l.telephone, vehicule: l.vehicule, expireLe: calculerExpiration(inst.date, 'lendemain') });
+    if(nl){ banner('Nouveau lien généré : à renvoyer au livreur'); }
+    renderTourneesPlanifiees();
+  });
+  majOuverturesLivreur();
   // statuts suivants
   on('.pl-rouvrir', async function(btn){
     var inst = byId(btn.getAttribute('data-id'));
@@ -2128,14 +2197,196 @@ function renderTourneesPlanifiees(){
     if(!motif){ banner('Un motif est obligatoire pour annuler une tournée'); return; }
     for(var i=0; i<bons.length; i++) await retirerBLDeTournee(bons[i].numero, 'Tournée annulée : '+motif, { force: true });
     await transitionInstance(inst, 'annulee', { annulation: { motif: motif, par: (lsGet('access-identity')||''), le: new Date().toISOString() } }, 'annulation', motif);
+    if(inst.lienActif) await desactiverLien(inst, 'Tournée annulée');
     banner('Tournée annulée : BL de nouveau disponibles'); refreshAllBonLists();
   });
 }
+// ================= Envoi d'une tournée au livreur (lien sécurisé) =================
+// Zone livreur : stls_livreur/{jeton} (lien) + sous-collections tournee, bl (photo instantanée en lecture) et evenements (écrits par le livreur).
+// Le livreur n'a accès qu'à cette zone : il ne voit ni les autres tournées, ni les tarifs, ni la comptabilité.
+var LIVREUR_MODE_PILOTE = true;   // rappel affiché tant que la sécurité renforcée (authentification + règles) n'est pas en place
+var envoiOpen = {};
+
+function livreurCol(){ return fsReady() ? db.collection('stls_livreur') : null; }
+function genererToken(){
+  var a = new Uint8Array(16);
+  (window.crypto || window.msCrypto).getRandomValues(a);            // 128 bits d'aléa cryptographique
+  var s = ''; for(var i=0; i<a.length; i++) s += String.fromCharCode(a[i]);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function lienUrl(token){ return new URL('livreur/index.html', location.href).href.split('#')[0] + '#t=' + token; }   // jeton après le # : jamais envoyé aux serveurs ni aux aperçus
+function phoneWhatsApp(tel){
+  var d = String(tel||'').replace(/[^\d+]/g,'');
+  if(d.charAt(0)==='+') return d.slice(1);
+  if(d.indexOf('00')===0) return d.slice(2);
+  if(d.charAt(0)==='0' && d.length===10) return '33'+d.slice(1);
+  return d;
+}
+function messageLivreur(inst, lien){
+  return 'Bonjour '+(lien.livreurNom||'')+',\nvotre tournée du '+fmtDate(inst.date)+' ('+inst.tourneeId+') est disponible.\nCliquez sur le lien ci-dessous pour accéder à votre tournée :\n'+lienUrl(lien.token);
+}
+function whatsappHref(inst, lien){ return 'https://wa.me/'+phoneWhatsApp(lien.telephone)+'?text='+encodeURIComponent(messageLivreur(inst, lien)); }
+function fmtDateHeure(iso){
+  var d = new Date(iso); if(isNaN(d.getTime())) return '';
+  var p = function(n){ return String(n).padStart(2,'0'); };
+  return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function calculerExpiration(date, mode){
+  var p = date.split('-'), y = +p[0], m = +p[1]-1, d = +p[2];
+  if(mode==='fin_journee') return new Date(y, m, d, 23, 59, 0).toISOString();
+  if(mode==='72h') return new Date(Date.now() + 72*3600*1000).toISOString();
+  return new Date(y, m, d+1, 23, 59, 0).toISOString();               // lendemain de la tournée, 23:59
+}
+
+// contenu minimal transmis au livreur (données opérationnelles uniquement)
+function snapshotLivreur(inst, version, modifications){
+  var bons = bonsDeInstance(inst).slice().sort(function(a,b){
+    var da = hhmmToMin((a.rdv||{}).creneauDebut), db2 = hhmmToMin((b.rdv||{}).creneauDebut);
+    if(da===null && db2!==null) return 1; if(db2===null && da!==null) return -1;
+    return (da||0)-(db2||0) || a.numero.localeCompare(b.numero);
+  });
+  var l = inst.livreur || {}, ref = inst.referentiel || {};
+  return {
+    tournee: { tourneeId: inst.tourneeId, date: inst.date, referentiel: { type: ref.type||'', heureDebut: ref.heureDebut||'', heureFin: ref.heureFin||'' },
+      statut: inst.statut, livreurNom: l.nom||'', vehicule: inst.vehicule||'', nbBL: bons.length, version: version, publieLe: new Date().toISOString(), modifications: modifications||[] },
+    bls: bons.map(function(b, i){
+      var adr = b.contremarqueAdresse || {}, r = b.rdv || {}, c = b.contraintes || {};
+      return { numero: b.numero, ordre: i+1, client: bonClient(b), destinataire: b.contremarque||'',
+        adresse1: adr.adresse1||'', adresse2: adr.adresse2||'', cp: adr.cp||'', ville: adr.ville||'', tel1: adr.tel1||'', tel2: adr.tel2||'',
+        colis: b.nbColisTotal||0, poids: b.poidsTotal||0, volume: b.volume||'',
+        creneau: r.creneauDebut ? r.creneauDebut+(r.creneauFin ? '–'+r.creneauFin : '') : (b.creneauSouhaite||''),
+        dateLivraison: bonDateLivraison(b), instructions: b.instructions||'', nature: b.natureMarchandise||'',
+        montage: !!b.montage, reprise: !!b.reprise,
+        contraintes: { etage: c.etage||'', ascenseur: !!c.ascenseur, accesDifficile: !!c.accesDifficile, contactSurPlace: c.contactSurPlace||'' },
+        estImperative: !!b.estImperative, dateImperative: b.dateImperative||'',
+        commandes: (b.commandes||[]).map(function(cm){ return { labelNumber: cm.labelNumber||'', colis: cm.colis||0, poids: cm.poids||0, emplacement: cm.emplacement||'' }; }) };
+    })
+  };
+}
+async function publierSnapshotLivreur(inst, lien, modifications){
+  var col = livreurCol(); if(!col) return false;
+  var snap = snapshotLivreur(inst, lien.version, modifications);
+  var ref = col.doc(lien.token);
+  await ref.collection('tournee').doc('main').set(snap.tournee);
+  var existants = await ref.collection('bl').get(), garder = {}, aSupprimer = [];
+  for(var i=0; i<snap.bls.length; i++){ garder[snap.bls[i].numero] = true; await ref.collection('bl').doc(snap.bls[i].numero).set(snap.bls[i]); }
+  existants.forEach(function(d){ if(!garder[d.id]) aSupprimer.push(d.id); });
+  for(var j=0; j<aSupprimer.length; j++) await ref.collection('bl').doc(aSupprimer[j]).delete();
+  await ref.set({ version: lien.version, publieLe: snap.tournee.publieLe }, { merge: true });
+  return true;
+}
+
+async function creerLienLivreur(inst, opts){
+  var col = livreurCol();
+  if(!col){ banner('Pas de connexion à la base : envoi impossible'); return null; }
+  var token = genererToken(), now = new Date().toISOString(), par = lsGet('access-identity') || '';
+  var version = (inst.version||0) + 1;
+  var lien = { token: token, agence: state.currentAgencyCode||'', instanceId: inst.id, tourneeId: inst.tourneeId, date: inst.date,
+    livreurId: opts.livreurId||'', livreurNom: opts.livreurNom||'', telephone: opts.telephone||'', vehicule: opts.vehicule||'',
+    creeLe: now, creePar: par, expireLe: opts.expireLe, actif: true, version: version, canal: 'whatsapp' };
+  inst.livreur = { id: lien.livreurId, nom: lien.livreurNom, telephone: lien.telephone };
+  inst.vehicule = lien.vehicule;
+  inst.version = version;
+  inst.envois = (inst.envois||[]).concat([{ token: token, livreurId: lien.livreurId, livreurNom: lien.livreurNom, telephone: lien.telephone, vehicule: lien.vehicule, creeLe: now, creePar: par, expireLe: lien.expireLe, actif: true, canal: 'whatsapp' }]);
+  inst.lienActif = token;
+  inst.historique = (inst.historique||[]).concat([{ action: 'envoi_livreur', livreur: lien.livreurNom, par: par, le: now }]);
+  await col.doc(token).set(lien);
+  await publierSnapshotLivreur(inst, lien, [{ version: version, type: 'envoi', le: now }]);
+  await saveInstance(inst);
+  return lien;
+}
+async function desactiverLien(inst, motif){
+  var col = livreurCol(), token = inst.lienActif;
+  if(!token) return;
+  var now = new Date().toISOString(), par = lsGet('access-identity') || '';
+  if(col) await col.doc(token).set({ actif: false, desactiveLe: now, desactivePar: par, motifDesactivation: motif||'' }, { merge: true });
+  inst.envois = (inst.envois||[]).map(function(e){ return e.token===token ? Object.assign({}, e, { actif: false, desactiveLe: now, motifDesactivation: motif||'' }) : e; });
+  inst.lienActif = '';
+  inst.historique = (inst.historique||[]).concat([{ action: 'lien_desactive', par: par, le: now, motif: motif||'' }]);
+  await saveInstance(inst);
+}
+// tournée modifiée après l'envoi : nouvelle version publiée, le livreur en est averti dans son application
+async function republierSiLien(inst, type, bl){
+  var col = livreurCol();
+  if(!inst || !inst.lienActif || !col) return;
+  var lien = (inst.envois||[]).filter(function(e){ return e.token===inst.lienActif; })[0];
+  if(!lien) return;
+  var now = new Date().toISOString();
+  inst.version = (inst.version||0) + 1;
+  var lienDoc = Object.assign({}, lien, { version: inst.version });
+  var cur = await col.doc(lien.token).collection('tournee').doc('main').get();
+  var prev = (cur.exists && cur.data().modifications) || [];
+  var mods = prev.concat([{ version: inst.version, type: type, bl: bl||'', le: now }]).slice(-20);
+  await publierSnapshotLivreur(inst, lienDoc, mods);
+  inst.historique = (inst.historique||[]).concat([{ action: 'tournee_republiee', version: inst.version, type: type, bl: bl||'', par: (lsGet('access-identity')||''), le: now }]);
+  await saveInstance(inst);
+}
+
+function envoiHtml(inst){
+  var lien = (inst.envois||[]).filter(function(e){ return e.token===inst.lienActif; })[0];
+  var peutEnvoyer = ['validee','en_cours'].indexOf(inst.statut) >= 0;
+  if(!lien && !peutEnvoyer) return '';
+  var idA = escapeHtml(inst.id);
+  var h = '<div style="border:1px solid var(--line-strong);border-radius:10px;padding:10px;margin:10px 0;font-size:13px;line-height:1.5;">'+
+    '<div style="font-weight:700;margin-bottom:4px;">📲 Livreur</div>';
+  if(LIVREUR_MODE_PILOTE) h += '<div style="color:#e8792e;margin-bottom:6px;">Mode pilote : la sécurité renforcée sera activée avant la mise en service terrain.</div>';
+  if(lien){
+    var exp = new Date(lien.expireLe), ok = exp > new Date();
+    h += '<div><strong>'+escapeHtml(lien.livreurNom)+'</strong> · '+escapeHtml(lien.telephone || 'téléphone non renseigné')+(lien.vehicule ? ' · '+escapeHtml(lien.vehicule) : '')+'</div>'+
+      '<div style="color:'+(ok ? 'var(--ink-soft)' : '#c0392b')+';">Lien '+(ok ? 'actif' : 'EXPIRÉ')+' jusqu\'au '+escapeHtml(fmtDateHeure(lien.expireLe))+' · version '+(inst.version||1)+'</div>'+
+      '<div id="env-open-'+idA+'" style="color:var(--ink-soft);">Lecture par le livreur : …</div>'+
+      '<div style="word-break:break-all;margin:6px 0;font-size:12px;user-select:all;">'+escapeHtml(lienUrl(lien.token))+'</div>'+
+      '<div class="btn-row"><a class="btn accent" href="'+escapeHtml(whatsappHref(inst, lien))+'" target="_blank" rel="noopener" style="text-decoration:none;text-align:center;width:100%;">💬 Ouvrir WhatsApp</a></div>'+
+      '<div class="btn-row"><button class="btn ghost env-copier" data-id="'+idA+'">📋 Copier le lien</button><button class="btn ghost env-nouveau" data-id="'+idA+'">🔄 Nouveau lien</button></div>'+
+      '<div class="btn-row"><button class="btn ghost env-desactiver" data-id="'+idA+'" style="width:100%;color:#c0392b;">🚫 Désactiver le lien</button></div>';
+  } else {
+    var ancien = (inst.envois||[]).length;
+    if(ancien) h += '<div style="color:var(--ink-soft);margin-bottom:6px;">Aucun lien actif ('+ancien+' envoi'+(ancien>1?'s':'')+' précédent'+(ancien>1?'s':'')+', désactivé'+(ancien>1?'s':'')+').</div>';
+    if(envoiOpen[inst.id]){
+      var livreurs = (state.base.livreurs||[]).filter(function(l){ return l.actif!==false; });
+      var vehicules = (state.base.vehicules||[]).filter(function(v){ return v.actif!==false; });
+      var sel = 'style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"';
+      h += livreurs.length ? '' : '<div style="color:#c0392b;margin-bottom:6px;">Aucun livreur : ajoute-en dans Paramètres → Livreurs et véhicules.</div>';
+      h += '<div class="field"><label>Livreur</label><select class="env-livreur" '+sel+'><option value="">— Choisir —</option>'+
+        livreurs.map(function(l){ return '<option value="'+escapeHtml(l.id)+'" data-tel="'+escapeHtml(l.telephone||'')+'">'+escapeHtml(l.nom)+'</option>'; }).join('')+'</select></div>'+
+        '<div class="field"><label>Téléphone (WhatsApp)</label><input type="tel" class="env-tel" inputmode="tel" placeholder="06 12 34 56 78"></div>'+
+        '<div class="field"><label>Véhicule (facultatif)</label><select class="env-vehicule" '+sel+'><option value="">— Aucun —</option>'+
+        vehicules.map(function(v){ return '<option value="'+escapeHtml(v.immat+(v.libelle?' — '+v.libelle:''))+'">'+escapeHtml(v.immat+(v.libelle?' — '+v.libelle:''))+'</option>'; }).join('')+'</select></div>'+
+        '<div class="field"><label>Validité du lien</label><select class="env-expire" '+sel+'><option value="lendemain">Jusqu\'au lendemain de la tournée (23:59)</option><option value="fin_journee">Jusqu\'à la fin de la journée de la tournée</option><option value="72h">72 heures</option></select></div>'+
+        '<div class="btn-row"><button class="btn accent env-generer" data-id="'+idA+'" style="width:100%;">Générer le lien</button></div>'+
+        '<div class="btn-row"><button class="btn ghost env-ouvrir" data-id="'+idA+'" style="width:100%;">Annuler</button></div>';
+    } else {
+      h += '<div class="btn-row"><button class="btn accent env-ouvrir" data-id="'+idA+'" style="width:100%;">📲 ENVOYER AU LIVREUR</button></div>';
+    }
+  }
+  return h + '</div>';
+}
+
+// lecture par le livreur : ouvertures du lien et dernière version acquittée
+async function majOuverturesLivreur(){
+  var col = livreurCol(); if(!col) return;
+  var els = document.querySelectorAll('[id^="env-open-"]');
+  for(var i=0; i<els.length; i++){
+    var el = els[i], inst = state.instances.find(function(x){ return 'env-open-'+x.id===el.id; });
+    if(!inst || !inst.lienActif) continue;
+    try{
+      var snap = await col.doc(inst.lienActif).collection('evenements').get(), opens = [], acks = [];
+      snap.forEach(function(d){ var e = d.data(); if(e.type==='lien_ouvert') opens.push(e); if(e.type==='acquittement_modification') acks.push(e); });
+      opens.sort(function(a,b){ return (a.dateHeureAppareil||'').localeCompare(b.dateHeureAppareil||''); });
+      var lastAck = acks.reduce(function(m,e){ return Math.max(m, e.version||0); }, 0);
+      var txt = opens.length ? 'Lien ouvert par le livreur : '+opens.length+' fois, dernière ouverture '+fmtDateHeure(opens[opens.length-1].dateHeureAppareil) : 'Lien pas encore ouvert par le livreur';
+      if((inst.version||1) > 1){ txt += ' · dernière version lue : v'+(lastAck||1)+((lastAck||1) < inst.version ? ' ⚠ (v'+inst.version+' pas encore lue)' : ''); }
+      el.textContent = txt;
+    }catch(e){ el.textContent = 'Lecture par le livreur : indisponible'; }
+  }
+}
+
+
 document.getElementById('planScope').addEventListener('change', renderTourneesPlanifiees);
 
 // ================= Collecte marchandise (source externe/TMS/partenaire → livraison directe, retour dépôt, ou regroupement) =================
 async function loadBaseForCollecte(){
-  state.base = { partenaires: [], contremarques: [] };
+  state.base = { partenaires: [], contremarques: [], livreurs: [], vehicules: [] };
   if(!fsReady() || !configDocRef) return;
   try{
     var snap = await configDocRef.get();
@@ -2143,6 +2394,8 @@ async function loadBaseForCollecte(){
       var d = snap.data();
       state.base.partenaires = d.partenaires || [];
       state.base.contremarques = d.contremarques || [];
+      state.base.livreurs = d.livreurs || [];
+      state.base.vehicules = d.vehicules || [];
     }
   }catch(e){ console.error('Firestore loadBaseForCollecte error', e); }
 }
@@ -2458,6 +2711,7 @@ async function nextBLNumeroForCollecte(){
 (async function init(){
   await initFirebase(10);
   if(fsReady()){ globalDocRef = db.collection('stls_depot').doc('global'); }
+  await ensureAuth();
   await loadGlobalSecurity();
   var unlocked = lsGet('access-unlocked');
   var agencyCode = lsGet('current-agency');
