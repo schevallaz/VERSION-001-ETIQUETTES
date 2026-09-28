@@ -307,7 +307,7 @@ var collectesColRef = null;
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0006';
+var APP_VERSION = '2026.0005';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -506,12 +506,6 @@ function renderBLManagePanel(numero, boxId){
   html += ctrl.checks.map(function(ck){ return '<div class="sub">'+(ck.ok?'🟢':'🔴')+' '+ck.label+'</div>'; }).join('');
 
   html += '<h2 style="font-size:14px;margin-top:14px;">Informations de livraison</h2>';
-  var adr = b.contremarqueAdresse || {};
-  html += '<div class="field"><label>Adresse</label><input type="text" id="bl-adresse1-'+numero+'" value="'+escapeHtml(adr.adresse1||'')+'"></div>';
-  html += '<div class="row2"><div class="field"><label>Code postal</label><input type="text" id="bl-cp-'+numero+'" value="'+escapeHtml(adr.cp||'')+'"></div>'+
-    '<div class="field"><label>Ville</label><input type="text" id="bl-ville-'+numero+'" value="'+escapeHtml(adr.ville||'')+'"></div></div>';
-  html += '<div class="row2"><div class="field"><label>Téléphone 1</label><input type="text" id="bl-tel1-'+numero+'" value="'+escapeHtml(adr.tel1||'')+'"></div>'+
-    '<div class="field"><label>Téléphone 2</label><input type="text" id="bl-tel2-'+numero+'" value="'+escapeHtml(adr.tel2||'')+'"></div></div>';
   html += '<div class="row2"><div class="field"><label>Date souhaitée</label><input type="date" id="bl-dateSouh-'+numero+'" value="'+(b.dateSouhaitee||'')+'"></div>'+
     '<div class="field"><label>Date impérative</label><input type="date" id="bl-dateImp-'+numero+'" value="'+(b.dateImperative||'')+'"></div></div>';
   html += '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="bl-estImp-'+numero+'" '+(b.estImperative?'checked':'')+' style="width:17px;height:17px;">Date impérative (à respecter, ne jamais déplacer silencieusement)</label>';
@@ -532,16 +526,7 @@ function renderBLManagePanel(numero, boxId){
   renderBLActions(numero);
 
   document.getElementById('bl-savectrl-'+numero).addEventListener('click', async function(){
-    var bCur = state.bons.find(function(x){ return x.numero===numero; });
     var patch = {
-      contremarqueAdresse: {
-        adresse1: document.getElementById('bl-adresse1-'+numero).value.trim(),
-        adresse2: (bCur.contremarqueAdresse&&bCur.contremarqueAdresse.adresse2)||'',
-        cp: document.getElementById('bl-cp-'+numero).value.trim(),
-        ville: document.getElementById('bl-ville-'+numero).value.trim(),
-        tel1: document.getElementById('bl-tel1-'+numero).value.trim(),
-        tel2: document.getElementById('bl-tel2-'+numero).value.trim()
-      },
       dateSouhaitee: document.getElementById('bl-dateSouh-'+numero).value,
       dateImperative: document.getElementById('bl-dateImp-'+numero).value,
       estImperative: document.getElementById('bl-estImp-'+numero).checked,
