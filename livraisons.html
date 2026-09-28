@@ -145,7 +145,69 @@
   <nav class="tabs">
     <button class="tab-btn active" data-tab="alivrer">Commandes à Livrer</button>
     <button class="tab-btn" data-tab="emporte">Commandes Emporté</button>
+    <button class="tab-btn" data-tab="collecte">Collecte marchandise</button>
   </nav>
+
+  <!-- ===== TAB: COLLECTE MARCHANDISE ===== -->
+  <section id="tab-collecte" style="display:none;">
+    <div class="card">
+      <h2>🚐📦 Collecte marchandise</h2>
+      <p class="hint" style="margin:0 0 12px;">Aller chercher de la marchandise ailleurs que dans notre stock — livraison directe, retour au dépôt, ou regroupement avec une commande déjà en cours.</p>
+      <div class="btn-row"><button class="btn accent" id="btnNewCollecte" style="width:100%;">+ Nouvelle collecte</button></div>
+      <div id="collecteList" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card" id="collecteFormCard" style="display:none;">
+      <h2>Nouvelle collecte</h2>
+      <div class="field">
+        <label style="margin-bottom:8px;">Source de l'enlèvement</label>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-source" value="occasionnel" style="width:17px;height:17px;">Client occasionnel (saisie libre)</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-source" value="tms_groupe" style="width:17px;height:17px;">TMS de notre groupe</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-source" value="partenaire" style="width:17px;height:17px;">Partenaire régulier</label>
+        </div>
+      </div>
+      <div id="col-source-fields"></div>
+
+      <h2 style="font-size:15px;margin-top:16px;">Marchandise</h2>
+      <div class="row2">
+        <div class="field"><label>Poids estimé (kg)</label><input type="number" id="col-poids" min="0"></div>
+        <div class="field"><label>Colis estimés</label><input type="number" id="col-colis" min="0"></div>
+      </div>
+      <div class="field"><label>Description</label><input type="text" id="col-desc"></div>
+      <div class="row2">
+        <div class="field"><label>Date de collecte</label><input type="date" id="col-date"></div>
+        <div class="field"><label>Créneau</label><input type="text" id="col-creneau" placeholder="ex. 09:00-11:00"></div>
+      </div>
+
+      <h2 style="font-size:15px;margin-top:16px;">Destination</h2>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-dest" value="livraison_directe" style="width:17px;height:17px;">Livraison directe le jour même</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-dest" value="retour_depot" style="width:17px;height:17px;">Retour au dépôt (stockage, livraison ultérieure)</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-dest" value="regroupement" style="width:17px;height:17px;">Regroupement avec une commande du dépôt</label>
+      </div>
+      <div id="col-dest-fields"></div>
+
+      <div class="btn-row" style="margin-top:16px;"><button class="btn accent" id="btnSaveCollecte" style="width:100%;">Créer la collecte</button></div>
+      <div class="btn-row"><button class="btn ghost" id="btnCancelCollecte" style="width:100%;">Annuler</button></div>
+      <div id="collecteMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:15px;">📋 Partenaires réguliers</h2>
+      <div id="partenairesList" style="margin-bottom:10px;"></div>
+      <div class="field"><input type="text" id="pt-nom" placeholder="Nom du partenaire"></div>
+      <div class="row2">
+        <input type="text" id="pt-adresse1" placeholder="Adresse" style="padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;">
+        <input type="text" id="pt-cp" placeholder="Code postal" style="padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;">
+      </div>
+      <div class="row2" style="margin-top:8px;">
+        <input type="text" id="pt-ville" placeholder="Ville" style="padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;">
+        <input type="text" id="pt-tel1" placeholder="Téléphone" style="padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;">
+      </div>
+      <div class="btn-row"><button class="btn primary" id="btnAddPartenaire" style="width:100%;">Ajouter le partenaire</button></div>
+    </div>
+  </section>
 
   <!-- ===== TAB: COMMANDES A LIVRER ===== -->
   <section id="tab-alivrer" style="display:block;">
@@ -240,22 +302,44 @@ function fmtDate(iso){
 
 var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
+var configDocRef = null;
+var collectesColRef = null;
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0004';
+var APP_VERSION = '2026.0009';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
   agenciesList: [],
+  siegesList: [],
   currentAgencyCode: null,
   agencyName: '',
   bons: [],
-  tournees: []
+  tournees: [],
+  base: { partenaires: [], contremarques: [] },
+  collectes: []
 };
 
 var JOURS_SEMAINE = [['lundi','Lundi','Lun'],['mardi','Mardi','Mar'],['mercredi','Mercredi','Mer'],['jeudi','Jeudi','Jeu'],['vendredi','Vendredi','Ven'],['samedi','Samedi','Sam'],['dimanche','Dimanche','Dim']];
 var JS_DAY_TO_KEY = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi']; // Date.getDay() : 0=dimanche
+
+// statuts "de départ" : purement déduits de la complétude du BL (aucune action humaine derrière)
+function isEarlyStatut(s){ return !BL_STATUTS[s] || s==='incomplet' || s==='complet'; }
+// statut qui découle du contrôle : incomplet dès qu'il manque une information, sinon complet
+// (les statuts plus avancés — RDV, validation, tournée — sont conservés tant que le BL reste complet)
+function statutAfterControl(b){
+  if(!controlerBL(b).complet) return 'incomplet';
+  return isEarlyStatut(b.statut) ? 'complet' : b.statut;
+}
+// remet en cohérence un statut de départ obsolète (ancien "preparation", ou jamais recontrôlé) et le conserve
+function reconcileEarlyStatut(b){
+  if(!isEarlyStatut(b.statut)) return false;
+  var s = controlerBL(b).complet ? 'complet' : 'incomplet';
+  if(s === b.statut) return false;
+  saveBonPatch(b.numero, { statut: s });
+  return true;
+}
 
 var BL_STATUTS = {
   incomplet: { label: 'BL incomplet', color: '#c0392b', icon: '🔴' },
@@ -331,6 +415,7 @@ async function loadGlobalSecurity(){
       var d = snap.data();
       globalSecurity = d.globalSecurity || globalSecurity;
       state.agenciesList = d.agenciesList || [];
+      state.siegesList = d.siegesList || [];
     }
   }catch(e){ console.error('Firestore loadGlobalSecurity error', e); }
 }
@@ -342,6 +427,7 @@ async function loadBons(){
     var snap = await blColRef.get();
     snap.forEach(function(doc){ state.bons.push(doc.data()); });
   }catch(e){ console.error('Firestore loadBons error', e); }
+  state.bons.forEach(reconcileEarlyStatut);
 }
 
 function renderBonList(opts){
@@ -426,6 +512,7 @@ function renderBLManagePanel(numero, boxId){
   var box = document.getElementById(boxId);
   var b = state.bons.find(function(x){ return x.numero===numero; });
   if(!b || !box) return;
+  reconcileEarlyStatut(b);
   var ctrl = controlerBL(b);
   var statutInfo = BL_STATUTS[b.statut] || BL_STATUTS.incomplet;
   var c = b.contraintes || {};
@@ -440,6 +527,12 @@ function renderBLManagePanel(numero, boxId){
   html += ctrl.checks.map(function(ck){ return '<div class="sub">'+(ck.ok?'🟢':'🔴')+' '+ck.label+'</div>'; }).join('');
 
   html += '<h2 style="font-size:14px;margin-top:14px;">Informations de livraison</h2>';
+  var adr = b.contremarqueAdresse || {};
+  html += '<div class="field"><label>Adresse</label><input type="text" id="bl-adresse1-'+numero+'" value="'+escapeHtml(adr.adresse1||'')+'"></div>';
+  html += '<div class="row2"><div class="field"><label>Code postal</label><input type="text" id="bl-cp-'+numero+'" value="'+escapeHtml(adr.cp||'')+'"></div>'+
+    '<div class="field"><label>Ville</label><input type="text" id="bl-ville-'+numero+'" value="'+escapeHtml(adr.ville||'')+'"></div></div>';
+  html += '<div class="row2"><div class="field"><label>Téléphone 1</label><input type="text" id="bl-tel1-'+numero+'" value="'+escapeHtml(adr.tel1||'')+'"></div>'+
+    '<div class="field"><label>Téléphone 2</label><input type="text" id="bl-tel2-'+numero+'" value="'+escapeHtml(adr.tel2||'')+'"></div></div>';
   html += '<div class="row2"><div class="field"><label>Date souhaitée</label><input type="date" id="bl-dateSouh-'+numero+'" value="'+(b.dateSouhaitee||'')+'"></div>'+
     '<div class="field"><label>Date impérative</label><input type="date" id="bl-dateImp-'+numero+'" value="'+(b.dateImperative||'')+'"></div></div>';
   html += '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="bl-estImp-'+numero+'" '+(b.estImperative?'checked':'')+' style="width:17px;height:17px;">Date impérative (à respecter, ne jamais déplacer silencieusement)</label>';
@@ -451,6 +544,10 @@ function renderBLManagePanel(numero, boxId){
   html += '<div class="row2"><div class="field"><label>Volume</label><input type="text" id="bl-volume-'+numero+'" value="'+escapeHtml(b.volume||'')+'"></div>'+
     '<div class="field"><label>Nature marchandise</label><input type="text" id="bl-nature-'+numero+'" value="'+escapeHtml(b.natureMarchandise||'')+'"></div></div>';
   html += '<div class="field"><label>Email destinataire</label><input type="email" id="bl-email-'+numero+'" value="'+escapeHtml(b.emailDestinataire||'')+'"></div>';
+  html += '<div style="display:flex;gap:18px;margin-bottom:10px;">'+
+    '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="bl-reprise-'+numero+'" '+(b.reprise?'checked':'')+' style="width:17px;height:17px;">Reprise</label>'+
+    '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="bl-montage-'+numero+'" '+(b.montage?'checked':'')+' style="width:17px;height:17px;">Montage</label></div>';
+  html += '<div class="field"><label>Instruction / Observation</label><textarea id="bl-instr-'+numero+'" style="width:100%;min-height:56px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:14px;">'+escapeHtml(b.instructions||'')+'</textarea></div>';
   html += '<div class="btn-row"><button class="btn primary" id="bl-savectrl-'+numero+'" style="width:100%;">Enregistrer et contrôler</button></div>';
 
   html += '<div id="bl-actions-'+numero+'" style="margin-top:14px;"></div>';
@@ -460,7 +557,16 @@ function renderBLManagePanel(numero, boxId){
   renderBLActions(numero);
 
   document.getElementById('bl-savectrl-'+numero).addEventListener('click', async function(){
+    var bCur = state.bons.find(function(x){ return x.numero===numero; });
     var patch = {
+      contremarqueAdresse: {
+        adresse1: document.getElementById('bl-adresse1-'+numero).value.trim(),
+        adresse2: (bCur.contremarqueAdresse&&bCur.contremarqueAdresse.adresse2)||'',
+        cp: document.getElementById('bl-cp-'+numero).value.trim(),
+        ville: document.getElementById('bl-ville-'+numero).value.trim(),
+        tel1: document.getElementById('bl-tel1-'+numero).value.trim(),
+        tel2: document.getElementById('bl-tel2-'+numero).value.trim()
+      },
       dateSouhaitee: document.getElementById('bl-dateSouh-'+numero).value,
       dateImperative: document.getElementById('bl-dateImp-'+numero).value,
       estImperative: document.getElementById('bl-estImp-'+numero).checked,
@@ -473,16 +579,18 @@ function renderBLManagePanel(numero, boxId){
       },
       volume: document.getElementById('bl-volume-'+numero).value.trim(),
       natureMarchandise: document.getElementById('bl-nature-'+numero).value.trim(),
-      emailDestinataire: document.getElementById('bl-email-'+numero).value.trim()
+      emailDestinataire: document.getElementById('bl-email-'+numero).value.trim(),
+      reprise: document.getElementById('bl-reprise-'+numero).checked,
+      montage: document.getElementById('bl-montage-'+numero).checked,
+      instructions: document.getElementById('bl-instr-'+numero).value.trim()
     };
     await saveBonPatch(numero, patch);
     var bb = state.bons.find(function(x){ return x.numero===numero; });
     var cc = controlerBL(bb);
-    var newStatut = cc.complet ? (bb.statut==='incomplet' ? 'complet' : bb.statut) : 'incomplet';
-    await saveBonPatch(numero, { statut: newStatut });
+    await saveBonPatch(numero, { statut: statutAfterControl(bb) });
     banner('BL '+numero+' mis à jour — '+(cc.complet?'complet':'incomplet'));
-    renderBLManagePanel(numero, boxId);
     renderLivList(); renderEmporteList();
+    renderBLManagePanel(numero, 'bl-panel-'+numero);
   });
 }
 
@@ -561,8 +669,9 @@ function renderBLActions(numero){
         if(!confirm('Retirer ce BL de sa tournée ? Il repassera en "Validé pour tournée".')) return;
         await saveBonPatch(num, { statut: 'valide_pour_tournee', tourneeId: '' });
       }
-      renderBLActions(num);
+      // la liste est réaffichée (badges de statut à jour) puis le panneau du BL est rouvert sur son nouvel état
       renderLivList(); renderEmporteList();
+      if(document.getElementById('bl-panel-'+num)) renderBLManagePanel(num, 'bl-panel-'+num);
       banner('BL '+num+' mis à jour');
     });
   });
@@ -580,7 +689,7 @@ document.getElementById('emporteSearch').addEventListener('input', renderEmporte
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
     var name = btn.getAttribute('data-tab');
-    ['alivrer','emporte'].forEach(function(t){
+    ['alivrer','emporte','collecte'].forEach(function(t){
       document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
     });
     Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(b){
@@ -588,6 +697,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn
     });
     if(name==='emporte') renderEmporteList();
     if(name==='alivrer') renderLivList();
+    if(name==='collecte'){ renderCollecteList(); renderPartenairesList(); renderCollecteSourceFields(); renderCollecteDestFields(); }
   });
 });
 
@@ -598,35 +708,178 @@ document.getElementById('btnFicheSortie').addEventListener('click', function(){
 });
 
 // ---------- PDF : Bon de Livraison (pour le transporteur) ----------
+var JOURS_FR = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+function fmtDateLong(iso){
+  if(!iso) return '';
+  var d = new Date(iso+'T00:00:00');
+  if(isNaN(d.getTime())) return fmtDate(iso);
+  return JOURS_FR[d.getDay()]+' '+fmtDate(iso);
+}
+
+// siège social auquel est rattaché le dépôt émetteur du BL (fiche renseignée dans Paramètres → Sièges)
+function siegeForBL(b){
+  var code = b.depotCode || state.currentAgencyCode;
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===code; });
+  if(!ag || !ag.siegeId) return null;
+  return (state.siegesList||[]).find(function(s){ return s.id===ag.siegeId; }) || null;
+}
+// lignes du pied de page légal (déjà coupées à la largeur voulue) ; tableau vide si aucun siège renseigné
+function legalFooterLines(doc, s, maxW){
+  if(!s) return [];
+  var capNum = /^\d+$/.test(String(s.capital||'').replace(/\s/g,''));
+  var capTxt = capNum ? String(s.capital).replace(/\s/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' €' : String(s.capital||'');
+  var cap = s.capital ? ('capital de '+capTxt) : '';
+  var typeAff = (s.typeSociete && (s.nom||'').toLowerCase().indexOf(String(s.typeSociete).toLowerCase())<0) ? s.typeSociete : '';
+  var identite = [s.nom, typeAff, cap, s.siret?('SIRET '+s.siret):'', s.siren?('SIREN '+s.siren):'', s.tva?('TVA intracom. '+s.tva):''].filter(Boolean).join(' · ');
+  var adresse = [s.adresse1, s.adresse2, [s.cp, s.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  var contact = [s.telephone?('Tél : '+s.telephone):'', s.fax?('Fax : '+s.fax):'', s.mail?('Email : '+s.mail):''].filter(Boolean).join(' · ');
+  var paras = [identite, adresse?('Siège social : '+adresse):'', contact].filter(Boolean);
+  var lines = [];
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  paras.forEach(function(p){ doc.splitTextToSize(p, maxW).forEach(function(l){ lines.push(l); }); });
+  return lines;
+}
+
 function generateBLPdf(b){
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({ unit:'mm', format:'a4' });
-  var marginX = 15, y = 20, pageW = 210;
+  var marginX = 15, y = 20, pageW = 210, contentW = pageW - 2*marginX;
+
+  // écrit un texte en le coupant à la largeur donnée, renvoie la nouvelle position verticale
+  function wrap(text, x, yy, maxW, lineH){
+    doc.splitTextToSize(String(text), maxW).forEach(function(l){ doc.text(l, x, yy); yy += lineH; });
+    return yy;
+  }
+
+  var footerLines = legalFooterLines(doc, siegeForBL(b), contentW);
+  if(!footerLines.length){ banner('⚠ Pas d\'informations légales sur ce BL : rattache le dépôt à un siège renseigné (Paramètres → Sièges / Dépôts)'); }
+  var LINE_H = 3.4;
+  var footerTopY = footerLines.length ? (291 - (footerLines.length-1)*LINE_H - 5) : 292;   // trait de séparation
+  var contentBottom = footerTopY - 3;                                                       // limite basse du contenu
+
+  var adr = b.contremarqueAdresse || {};
+  var c = b.contraintes || {};
+  var rdv = b.rdv || {};
+  var isEmporte = b.type==='emporte';
+  var datePrevue = b.dateLivraisonPrevue || rdv.date || b.dateImperative || b.dateSouhaitee || '';
+
+  // ----- en-tête -----
   doc.setFont('helvetica','bold'); doc.setFontSize(16);
   doc.text('BON DE LIVRAISON', marginX, y);
   doc.setFontSize(12);
   doc.text('N° '+b.numero, pageW-marginX, y, { align:'right' });
-  y += 10;
+  y += 6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  var typeLabel = isEmporte ? 'EMPORTÉ DÉPÔT — retrait sur place par le client'
+    : (b.type==='collecte' ? 'Livraison issue d\'une collecte'+(b.origineCollecte?' (réf. '+b.origineCollecte+')':'') : 'Livraison');
+  doc.text(typeLabel, marginX, y);
+  y += 4;
   doc.setDrawColor(0,0,0); doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y);
   y += 8;
 
-  doc.setFont('helvetica','normal'); doc.setFontSize(10);
-  doc.text('Dépôt expéditeur : '+(b.depotNom||b.depotCode||'—'), marginX, y); y += 6;
-  doc.text('Date d\'édition : '+fmtDate(new Date().toISOString().slice(0,10)), marginX, y);
-  if(b.dateLivraisonPrevue){ doc.text('Livraison prévue : '+fmtDate(b.dateLivraisonPrevue), pageW-marginX, y, { align:'right' }); }
-  y += 10;
+  // ----- bandeau livraison impérative -----
+  if(b.estImperative){
+    doc.setFillColor(192,57,43);
+    doc.rect(marginX, y-5, contentW, 8, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('LIVRAISON IMPÉRATIVE'+(b.dateImperative?' — '+fmtDateLong(b.dateImperative):''), marginX+3, y);
+    doc.setTextColor(0,0,0);
+    y += 9;
+  }
 
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text('Dépôt expéditeur : '+(b.depotNom||b.depotCode||'—'), marginX, y);
+  doc.text('Édité le '+fmtDate(new Date().toISOString().slice(0,10)), pageW-marginX, y, { align:'right' });
+  y += 5;
+  if(datePrevue){ doc.setFont('helvetica','bold'); doc.text('Livraison prévue : '+fmtDateLong(datePrevue), marginX, y); doc.setFont('helvetica','normal'); }
+  if(b.tourneeId){ doc.text('Tournée : '+b.tourneeId, pageW-marginX, y, { align:'right' }); }
+  y += 9;
+
+  // ----- deux blocs : destinataire (gauche) / conditions de livraison (droite) -----
+  var colGap = 8, colW = (contentW - colGap) / 2, xL = marginX, xR = marginX + colW + colGap;
+  var yL = y, yR = y;
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
-  doc.text('Destinataire (contremarque)', marginX, y); y += 6;
-  doc.setFont('helvetica','normal'); doc.setFontSize(10);
-  doc.text(b.contremarque||'—', marginX, y); y += 5;
-  var adr = b.contremarqueAdresse || {};
-  if(adr.adresse1){ doc.text(adr.adresse1, marginX, y); y += 5; }
-  if(adr.adresse2){ doc.text(adr.adresse2, marginX, y); y += 5; }
-  if(adr.cp||adr.ville){ doc.text([adr.cp,adr.ville].filter(Boolean).join(' '), marginX, y); y += 5; }
-  if(adr.tel1){ doc.text('Tél : '+adr.tel1+(adr.tel2?' / '+adr.tel2:''), marginX, y); y += 5; }
-  y += 6;
+  doc.text(isEmporte ? 'Contremarque — retrait au dépôt' : 'Destinataire (contremarque)', xL, yL); yL += 6;
+  doc.text(isEmporte ? 'Retrait' : 'Conditions de livraison', xR, yR); yR += 6;
 
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  yL = wrap(b.contremarque||'—', xL, yL, colW, 5);
+  doc.setFont('helvetica','normal');
+  if(adr.adresse1) yL = wrap(adr.adresse1, xL, yL, colW, 5);
+  if(adr.adresse2) yL = wrap(adr.adresse2, xL, yL, colW, 5);
+  if(adr.cp||adr.ville) yL = wrap([adr.cp,adr.ville].filter(Boolean).join(' '), xL, yL, colW, 5);
+  if(adr.tel1) yL = wrap('Tél : '+adr.tel1+(adr.tel2?' / '+adr.tel2:''), xL, yL, colW, 5);
+  if(b.emailDestinataire) yL = wrap('Email : '+b.emailDestinataire, xL, yL, colW, 5);
+
+  var hasCond = false;
+  if(rdv.date){
+    hasCond = true;
+    doc.setFont('helvetica','bold');
+    yR = wrap('RDV confirmé : '+fmtDateLong(rdv.date)+(rdv.creneauDebut?', de '+rdv.creneauDebut+(rdv.creneauFin?' à '+rdv.creneauFin:''):''), xR, yR, colW, 5);
+    doc.setFont('helvetica','normal');
+    if(rdv.observations) yR = wrap('Obs. RDV : '+rdv.observations, xR, yR, colW, 5);
+  }
+  if(b.creneauSouhaite){ hasCond = true; yR = wrap('Créneau souhaité : '+b.creneauSouhaite, xR, yR, colW, 5); }
+  if(!isEmporte){
+    var hasAccess = !!(c.etage || c.ascenseur || c.accesDifficile || c.contactSurPlace);
+    hasCond = true;
+    if(hasAccess){
+      if(c.etage) yR = wrap('Étage : '+c.etage, xR, yR, colW, 5);
+      yR = wrap('Ascenseur : '+(c.ascenseur?'Oui':'Non'), xR, yR, colW, 5);
+      if(c.accesDifficile){ doc.setFont('helvetica','bold'); yR = wrap('Accès difficile : OUI', xR, yR, colW, 5); doc.setFont('helvetica','normal'); }
+      if(c.contactSurPlace) yR = wrap('Contact sur place : '+c.contactSurPlace, xR, yR, colW, 5);
+    } else {
+      // rien n'a été saisi : on le dit plutôt que d'afficher un "Non" trompeur
+      doc.setTextColor(120,120,120);
+      yR = wrap('Étage / ascenseur / accès : non renseigné', xR, yR, colW, 5);
+      doc.setTextColor(0,0,0);
+    }
+  }
+  if(!hasCond){ doc.setTextColor(120,120,120); yR = wrap('Aucune condition particulière renseignée', xR, yR, colW, 5); doc.setTextColor(0,0,0); }
+  y = Math.max(yL, yR) + 4;
+
+  // ----- marchandise -----
+  if(b.natureMarchandise || b.volume){
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('Marchandise', marginX, y); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    var marchLine = [];
+    if(b.natureMarchandise) marchLine.push('Nature : '+b.natureMarchandise);
+    if(b.volume) marchLine.push('Volume : '+b.volume);
+    y = wrap(marchLine.join('   ·   '), marginX, y, contentW, 5);
+    y += 4;
+  }
+
+  // ----- prestations (reprise / montage) et instruction -----
+  var hasPresta = (typeof b.reprise==='boolean') || (typeof b.montage==='boolean');
+  {
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('Prestations et instructions', marginX, y); y += 6;
+    doc.setFontSize(10);
+    if(hasPresta){
+      var anyOui = !!(b.montage || b.reprise);
+      doc.setFont('helvetica', anyOui ? 'bold' : 'normal');
+      doc.text('Montage : '+(b.montage?'OUI':'Non')+'     ·     Reprise : '+(b.reprise?'OUI':'Non'), marginX, y);
+      doc.setFont('helvetica','normal');
+      y += 6;
+    } else {
+      doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120); doc.text('Reprise / montage : non renseigné', marginX, y); doc.setTextColor(0,0,0); y += 6;
+    }
+    if(b.instructions){
+      var instrLines = doc.splitTextToSize(b.instructions, contentW - 6);
+      var boxH = instrLines.length*5 + 9;
+      if(y + boxH > contentBottom){ doc.addPage(); y = 20; }
+      doc.setFont('helvetica','bold'); doc.setFontSize(9);
+      doc.text('Instruction / Observation', marginX+3, y+5);
+      doc.setFont('helvetica','normal'); doc.setFontSize(10);
+      instrLines.forEach(function(l, i){ doc.text(l, marginX+3, y+11+i*5); });
+      doc.setLineWidth(0.3); doc.rect(marginX, y, contentW, boxH);
+      y += boxH + 5;
+    }
+    y += 2;
+  }
+
+  // ----- détail des commandes -----
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.text('Détail des commandes', marginX, y); y += 7;
   var colX = [marginX, marginX+38, marginX+95, marginX+140, marginX+165];
@@ -636,26 +889,41 @@ function generateBLPdf(b){
   y += 2; doc.setLineWidth(0.2); doc.line(marginX, y, pageW-marginX, y); y += 5;
 
   doc.setFont('helvetica','normal');
-  (b.commandes||[]).forEach(function(c){
-    if(y > 270){ doc.addPage(); y = 20; }
-    doc.text(String(c.labelNumber||''), colX[0], y);
-    doc.text(String(c.client||'').slice(0,28), colX[1], y);
-    doc.text(String(c.fournisseur||'').slice(0,20), colX[2], y);
-    doc.text((c.poids||0)+' kg', colX[3], y);
-    doc.text(String(c.colis||0), colX[4], y);
+  (b.commandes||[]).forEach(function(cmd){
+    if(y > contentBottom - 8){ doc.addPage(); y = 20; }
+    doc.text(String(cmd.labelNumber||''), colX[0], y);
+    doc.text(String(cmd.client||'').slice(0,28), colX[1], y);
+    doc.text(String(cmd.fournisseur||'').slice(0,20), colX[2], y);
+    doc.text((cmd.poids||0)+' kg', colX[3], y);
+    doc.text(String(cmd.colis||0), colX[4], y);
     y += 6;
   });
 
   y += 2; doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y); y += 7;
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.text('Total : '+(b.poidsTotal||0).toFixed(1)+' kg — '+(b.nbColisTotal||0)+' colis', marginX, y);
-  y += 20;
+  y += 16;
 
+  // ----- signatures -----
+  if(y + 32 > contentBottom){ doc.addPage(); y = 25; }
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text('Signature expéditeur', marginX, y);
   doc.text('Signature destinataire (réception)', pageW-marginX, y, { align:'right' });
   doc.rect(marginX, y+3, 70, 25);
   doc.rect(pageW-marginX-70, y+3, 70, 25);
+
+  // ----- pied de page : informations légales du siège social, sur chaque page -----
+  if(footerLines.length){
+    var nbPages = doc.getNumberOfPages();
+    for(var pg=1; pg<=nbPages; pg++){
+      doc.setPage(pg);
+      doc.setDrawColor(150,150,150); doc.setLineWidth(0.2);
+      doc.line(marginX, footerTopY, pageW-marginX, footerTopY);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(90,90,90);
+      footerLines.forEach(function(l, i){ doc.text(l, pageW/2, footerTopY + 4 + i*LINE_H, { align:'center' }); });
+      doc.setTextColor(0,0,0); doc.setDrawColor(0,0,0);
+    }
+  }
 
   downloadPdf(doc, 'BL_'+b.numero+'.pdf');
 }
@@ -735,11 +1003,19 @@ async function startForAgency(code){
   document.getElementById('accessGateOverlay').style.display = 'none';
   blColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('bonsLivraison') : null;
   tourneesColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('tournees') : null;
+  configDocRef = agencyDocRef(code);
+  collectesColRef = configDocRef ? configDocRef.collection('collectes') : null;
   document.getElementById('livDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
   await loadBons();
   await loadTournees();
+  await loadBaseForCollecte();
+  await loadCollectes();
   renderLivList();
   renderEmporteList();
+  renderCollecteSourceFields();
+  renderCollecteDestFields();
+  renderPartenairesList();
+  renderCollecteList();
 }
 
 function showAccessGate(){
@@ -766,6 +1042,325 @@ document.getElementById('btnAccessSubmit').addEventListener('click', async funct
   lsSet('access-identity', userMatch ? userMatch.name : val.toUpperCase());
   await startForAgency(agencyCode);
 });
+
+// ================= Collecte marchandise (source externe/TMS/partenaire → livraison directe, retour dépôt, ou regroupement) =================
+async function loadBaseForCollecte(){
+  state.base = { partenaires: [], contremarques: [] };
+  if(!fsReady() || !configDocRef) return;
+  try{
+    var snap = await configDocRef.get();
+    if(snap.exists){
+      var d = snap.data();
+      state.base.partenaires = d.partenaires || [];
+      state.base.contremarques = d.contremarques || [];
+    }
+  }catch(e){ console.error('Firestore loadBaseForCollecte error', e); }
+}
+async function savePartenaires(){
+  if(!fsReady() || !configDocRef) return;
+  try{ await configDocRef.set({ partenaires: state.base.partenaires }, { merge: true }); }
+  catch(e){ console.error('Firestore savePartenaires error', e); }
+}
+
+async function loadCollectes(){
+  state.collectes = [];
+  if(!fsReady() || !collectesColRef) return;
+  try{
+    var snap = await collectesColRef.get();
+    snap.forEach(function(doc){ state.collectes.push(doc.data()); });
+  }catch(e){ console.error('Firestore loadCollectes error', e); }
+}
+
+async function nextCollecteNumero(){
+  var now = new Date();
+  var yymm = String(now.getFullYear()).slice(2)+String(now.getMonth()+1).padStart(2,'0');
+  if(fsReady() && configDocRef){
+    try{
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var counters = (snap.exists && snap.data().collecteCounters) || {};
+        var current = counters[yymm] || 0;
+        var next = current + 1;
+        counters[yymm] = next;
+        tx.set(configDocRef, { collecteCounters: counters }, { merge: true });
+        return next;
+      });
+      return 'C'+yymm+String(n).padStart(4,'0');
+    }catch(e){ console.error('Firestore nextCollecteNumero error', e); }
+  }
+  var key = 'collecte-counter-'+yymm;
+  var raw = lsGet(key);
+  var n2 = (raw?parseInt(raw,10):0)+1;
+  lsSet(key, String(n2));
+  return 'C'+yymm+String(n2).padStart(4,'0');
+}
+
+// numéro d'étiquette (même compteur que Gestion Dépôt, pour rester cohérent)
+async function nextLabelNumberForCollecte(){
+  if(fsReady() && configDocRef){
+    try{
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var current = (snap.exists && snap.data().labelCounter) || 0;
+        var next = current + 1;
+        tx.set(configDocRef, { labelCounter: next }, { merge: true });
+        return next;
+      });
+      return 'R'+String(n).padStart(6,'0');
+    }catch(e){ console.error('Firestore nextLabelNumberForCollecte error', e); }
+  }
+  var raw = lsGet('label-counter');
+  var n2 = (raw?parseInt(raw,10):0)+1;
+  lsSet('label-counter', String(n2));
+  return 'R'+String(n2).padStart(6,'0');
+}
+
+document.getElementById('btnNewCollecte').addEventListener('click', function(){
+  document.getElementById('collecteFormCard').style.display = 'block';
+  document.getElementById('collecteMsg').textContent = '';
+});
+document.getElementById('btnCancelCollecte').addEventListener('click', function(){
+  document.getElementById('collecteFormCard').style.display = 'none';
+});
+
+// ---------- source de la collecte : champs dynamiques selon le type choisi ----------
+function renderCollecteSourceFields(){
+  var type = (document.querySelector('input[name="col-source"]:checked')||{}).value;
+  var el = document.getElementById('col-source-fields');
+  if(!type){ el.innerHTML = ''; return; }
+  if(type==='occasionnel'){
+    el.innerHTML =
+      '<div class="field"><label>Nom / société</label><input type="text" id="col-src-nom"></div>'+
+      '<div class="field"><label>Adresse</label><input type="text" id="col-src-adresse"></div>'+
+      '<div class="row2"><div class="field"><label>Code postal</label><input type="text" id="col-src-cp"></div>'+
+        '<div class="field"><label>Ville</label><input type="text" id="col-src-ville"></div></div>'+
+      '<div class="field"><label>Téléphone</label><input type="text" id="col-src-tel"></div>';
+  } else if(type==='tms_groupe'){
+    el.innerHTML = '<div class="field"><label>Dépôt du groupe</label><select id="col-src-depot" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
+      '<option value="">— Choisir —</option>'+
+      (state.agenciesList||[]).filter(function(a){ return a.code!==state.currentAgencyCode; }).map(function(a){ return '<option value="'+a.code+'">'+a.code+' — '+escapeHtml(a.name||'')+'</option>'; }).join('')+
+      '</select></div>';
+  } else if(type==='partenaire'){
+    el.innerHTML = '<div class="field"><label>Partenaire</label><select id="col-src-partenaire" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
+      '<option value="">— Choisir —</option>'+
+      (state.base.partenaires||[]).map(function(p,idx){ return '<option value="'+idx+'">'+escapeHtml(p.nom)+'</option>'; }).join('')+
+      '</select></div>';
+  }
+}
+Array.prototype.forEach.call(document.querySelectorAll('input[name="col-source"]'), function(r){
+  r.addEventListener('change', renderCollecteSourceFields);
+});
+
+// ---------- destination de la collecte : champs dynamiques ----------
+function renderCollecteDestFields(){
+  var type = (document.querySelector('input[name="col-dest"]:checked')||{}).value;
+  var el = document.getElementById('col-dest-fields');
+  if(!type){ el.innerHTML = ''; return; }
+  if(type==='livraison_directe'){
+    el.innerHTML = '<div class="field"><label>Contremarque destinataire</label>'+
+      '<input type="text" id="col-dest-contremarque" list="col-dest-cm-list" placeholder="Nom de la contremarque">'+
+      '<datalist id="col-dest-cm-list">'+(state.base.contremarques||[]).map(function(c){ return '<option value="'+escapeHtml(c.nom)+'">'; }).join('')+'</datalist></div>'+
+      '<div style="display:flex;gap:18px;margin-bottom:10px;">'+
+        '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="col-dest-reprise" style="width:17px;height:17px;">Reprise</label>'+
+        '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="col-dest-montage" style="width:17px;height:17px;">Montage</label>'+
+      '</div>'+
+      '<div class="field"><label>Instruction / Observation</label><textarea id="col-dest-instr" style="width:100%;min-height:56px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:14px;"></textarea></div>';
+  } else if(type==='retour_depot'){
+    el.innerHTML = '<div class="field"><label>Client (pour la fiche de réception)</label><input type="text" id="col-dest-client" placeholder="Nom du client STLS"></div>';
+  } else if(type==='regroupement'){
+    var enCours = state.bons.filter(function(b){ return b.statut!=='affecte_tournee'; });
+    el.innerHTML = '<div class="field"><label>Commande / BL du dépôt à compléter</label><select id="col-dest-bl" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
+      '<option value="">— Choisir —</option>'+
+      enCours.map(function(b){ return '<option value="'+b.numero+'">BL '+b.numero+' — '+escapeHtml(b.contremarque||'—')+'</option>'; }).join('')+
+      '</select></div>';
+  }
+}
+Array.prototype.forEach.call(document.querySelectorAll('input[name="col-dest"]'), function(r){
+  r.addEventListener('change', renderCollecteDestFields);
+});
+
+// ---------- partenaires réguliers ----------
+function renderPartenairesList(){
+  var el = document.getElementById('partenairesList');
+  var arr = state.base.partenaires||[];
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucun partenaire enregistré</div>'; return; }
+  el.innerHTML = arr.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||'',  'fr', {numeric:true}); }).map(function(p){
+    return '<div class="base-row"><span>'+escapeHtml(p.nom)+(p.ville?' — '+escapeHtml(p.ville):'')+'</span></div>';
+  }).join('');
+}
+document.getElementById('btnAddPartenaire').addEventListener('click', async function(){
+  var nom = document.getElementById('pt-nom').value.trim();
+  if(!nom){ banner('Saisis un nom de partenaire'); return; }
+  var p = {
+    id: 'pt_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+    nom: nom,
+    adresse1: document.getElementById('pt-adresse1').value.trim(),
+    cp: document.getElementById('pt-cp').value.trim(),
+    ville: document.getElementById('pt-ville').value.trim(),
+    tel1: document.getElementById('pt-tel1').value.trim()
+  };
+  state.base.partenaires.push(p);
+  await savePartenaires();
+  ['pt-nom','pt-adresse1','pt-cp','pt-ville','pt-tel1'].forEach(function(id){ document.getElementById(id).value = ''; });
+  renderPartenairesList();
+  renderCollecteSourceFields();
+  banner('Partenaire « '+nom+' » ajouté');
+});
+
+// ---------- liste des collectes ----------
+function renderCollecteList(){
+  var el = document.getElementById('collecteList');
+  var items = state.collectes.slice().sort(function(a,b){ return (b.createdAt||'').localeCompare(a.createdAt||''); });
+  if(!items.length){ el.innerHTML = '<div class="empty">Aucune collecte pour le moment</div>'; return; }
+  var destLabels = { livraison_directe:'Livraison directe', retour_depot:'Retour au dépôt', regroupement:'Regroupement avec commande' };
+  el.innerHTML = items.map(function(c){
+    return '<div class="hist-item">'+
+      '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">'+escapeHtml(c.numero)+'</span></div>'+
+      '<div class="sub">Chez '+escapeHtml(c.sourceNom||'—')+' → '+(destLabels[c.destination]||c.destination)+'</div>'+
+      '<div class="sub">'+(c.dateCollecte?fmtDate(c.dateCollecte):'date à définir')+(c.creneauCollecte?' · '+escapeHtml(c.creneauCollecte):'')+' · '+(c.poidsEstime||0)+' kg · '+(c.colisEstime||0)+' colis</div>'+
+      (c.resultBlNumero?'<div class="sub" style="color:var(--accent);">→ BL '+escapeHtml(c.resultBlNumero)+'</div>':'')+
+      (c.resultReceptionLabel?'<div class="sub" style="color:var(--accent);">→ Étiquette '+escapeHtml(c.resultReceptionLabel)+' (CDE en attente)</div>':'')+
+    '</div>';
+  }).join('');
+}
+
+// ---------- enregistrement de la collecte + traitement selon la destination ----------
+document.getElementById('btnSaveCollecte').addEventListener('click', async function(){
+  var msg = document.getElementById('collecteMsg');
+  msg.textContent = ''; msg.style.color = '';
+  var sourceType = (document.querySelector('input[name="col-source"]:checked')||{}).value;
+  var destType = (document.querySelector('input[name="col-dest"]:checked')||{}).value;
+  if(!sourceType){ msg.textContent = 'Choisis une source'; msg.style.color='var(--danger)'; return; }
+  if(!destType){ msg.textContent = 'Choisis une destination'; msg.style.color='var(--danger)'; return; }
+
+  var sourceNom = '', sourceAdresse = { adresse1:'', adresse2:'', cp:'', ville:'', tel1:'', tel2:'' }, sourceDepotCode = '', sourcePartenaireId = '';
+  if(sourceType==='occasionnel'){
+    sourceNom = document.getElementById('col-src-nom').value.trim();
+    sourceAdresse = { adresse1: document.getElementById('col-src-adresse').value.trim(), adresse2:'', cp: document.getElementById('col-src-cp').value.trim(), ville: document.getElementById('col-src-ville').value.trim(), tel1: document.getElementById('col-src-tel').value.trim(), tel2:'' };
+  } else if(sourceType==='tms_groupe'){
+    sourceDepotCode = document.getElementById('col-src-depot').value;
+    var ag = (state.agenciesList||[]).find(function(a){ return a.code===sourceDepotCode; });
+    if(!ag){ msg.textContent = 'Choisis un dépôt'; msg.style.color='var(--danger)'; return; }
+    sourceNom = ag.name || ag.code;
+    sourceAdresse = { adresse1: ag.adresse1||'', adresse2: ag.adresse2||'', cp: ag.cp||'', ville: ag.ville||'', tel1: ag.telephone||'', tel2:'' };
+  } else if(sourceType==='partenaire'){
+    var pidx = document.getElementById('col-src-partenaire').value;
+    var pt = state.base.partenaires[parseInt(pidx,10)];
+    if(!pt){ msg.textContent = 'Choisis un partenaire'; msg.style.color='var(--danger)'; return; }
+    sourcePartenaireId = pt.id;
+    sourceNom = pt.nom;
+    sourceAdresse = { adresse1: pt.adresse1||'', adresse2:'', cp: pt.cp||'', ville: pt.ville||'', tel1: pt.tel1||'', tel2:'' };
+  }
+  if(!sourceNom){ msg.textContent = 'La source doit avoir un nom'; msg.style.color='var(--danger)'; return; }
+
+  var poidsEstime = parseFloat(document.getElementById('col-poids').value)||0;
+  var colisEstime = parseFloat(document.getElementById('col-colis').value)||0;
+  var descriptionMarchandise = document.getElementById('col-desc').value.trim();
+  var dateCollecte = document.getElementById('col-date').value;
+  var creneauCollecte = document.getElementById('col-creneau').value.trim();
+
+  var numero = await nextCollecteNumero();
+  var collecte = {
+    numero: numero, sourceType: sourceType, sourceNom: sourceNom, sourceAdresse: sourceAdresse,
+    sourceDepotCode: sourceDepotCode, sourcePartenaireId: sourcePartenaireId,
+    destination: destType,
+    poidsEstime: poidsEstime, colisEstime: colisEstime, descriptionMarchandise: descriptionMarchandise,
+    dateCollecte: dateCollecte, creneauCollecte: creneauCollecte,
+    depotCode: state.currentAgencyCode||'', createdAt: new Date().toISOString(),
+    resultBlNumero: '', resultReceptionLabel: ''
+  };
+
+  if(destType==='livraison_directe'){
+    var contremarque = document.getElementById('col-dest-contremarque').value.trim();
+    if(!contremarque){ msg.textContent = 'Indique la contremarque destinataire'; msg.style.color='var(--danger)'; return; }
+    var cmProfile = (state.base.contremarques||[]).find(function(c){ return (c.nom||'').toLowerCase()===contremarque.toLowerCase(); }) || {};
+    var blNumero = await nextBLNumeroForCollecte();
+    var bl = {
+      numero: blNumero, contremarque: contremarque, contremarqueId: cmProfile.id||'', commandeIds: [],
+      commandes: [{ id:'', labelNumber: numero, client: sourceNom, fournisseur: sourceNom, poids: poidsEstime, colis: colisEstime, emplacement: '' }],
+      contremarqueAdresse: cmProfile.adresse1 ? { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' } : { adresse1:'', adresse2:'', cp:'', ville:'', tel1:'', tel2:'' },
+      depotCode: state.currentAgencyCode||'', depotNom: state.agencyName||'',
+      poidsTotal: poidsEstime, nbColisTotal: colisEstime,
+      dateLivraisonPrevue: dateCollecte, dateSouhaitee: dateCollecte, dateImperative: '', estImperative: false, creneauSouhaite: creneauCollecte,
+      contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '' },
+      volume: '', natureMarchandise: descriptionMarchandise, emailDestinataire: cmProfile.mail||'',
+      rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
+      validationExploitant: { valide:false, par:'', le:'' },
+      reprise: document.getElementById('col-dest-reprise').checked, montage: document.getElementById('col-dest-montage').checked, instructions: document.getElementById('col-dest-instr').value.trim(),
+      tourneeId: '', type: 'collecte', origineCollecte: numero, createdAt: new Date().toISOString()
+    };
+    bl.statut = controlerBL(bl).complet ? 'complet' : 'incomplet';
+    if(fsReady() && blColRef){
+      try{ await blColRef.doc(blNumero).set(bl); }catch(e){ console.error('Firestore create BL collecte error', e); }
+    }
+    state.bons.push(bl);
+    collecte.resultBlNumero = blNumero;
+  } else if(destType==='retour_depot'){
+    var client = document.getElementById('col-dest-client').value.trim();
+    if(!client){ msg.textContent = 'Indique le client pour la réception'; msg.style.color='var(--danger)'; return; }
+    var labelNumber = await nextLabelNumberForCollecte();
+    var recData = {
+      labelNumber: labelNumber, date: dateCollecte||new Date().toISOString().slice(0,10), weekNumber: '',
+      client: client, clientCode: '', fournisseur: sourceNom, transporteur: '', contremarque: '',
+      nrecep: '', poids: String(poidsEstime), colis: String(colisEstime), palettes: '0', vrac: '', support: '',
+      emplacement: '', receivedAt: new Date().toISOString(), origineCollecte: numero
+    };
+    var receptionsColRefLocal = configDocRef ? configDocRef.collection('receptions') : null;
+    if(fsReady() && receptionsColRefLocal){
+      try{ await receptionsColRefLocal.add({ data: recData, savedAt: new Date().toISOString() }); }
+      catch(e){ console.error('Firestore create reception collecte error', e); }
+    }
+    collecte.resultReceptionLabel = labelNumber;
+  } else if(destType==='regroupement'){
+    var targetNumero = document.getElementById('col-dest-bl').value;
+    var targetBl = state.bons.find(function(b){ return b.numero===targetNumero; });
+    if(!targetBl){ msg.textContent = 'Choisis une commande du dépôt à compléter'; msg.style.color='var(--danger)'; return; }
+    targetBl.poidsTotal = (targetBl.poidsTotal||0) + poidsEstime;
+    targetBl.nbColisTotal = (targetBl.nbColisTotal||0) + colisEstime;
+    targetBl.commandes = (targetBl.commandes||[]).concat([{ id:'', labelNumber: numero, client: sourceNom, fournisseur: sourceNom, poids: poidsEstime, colis: colisEstime, emplacement: '(collecte '+numero+')' }]);
+    if(fsReady() && blColRef){
+      try{ await blColRef.doc(targetNumero).set({ poidsTotal: targetBl.poidsTotal, nbColisTotal: targetBl.nbColisTotal, commandes: targetBl.commandes }, { merge: true }); }
+      catch(e){ console.error('Firestore regroupement error', e); }
+    }
+    collecte.resultBlNumero = targetNumero;
+  }
+
+  if(fsReady() && collectesColRef){
+    try{ await collectesColRef.doc(numero).set(collecte); }catch(e){ console.error('Firestore create collecte error', e); }
+  }
+  state.collectes.push(collecte);
+
+  banner('Collecte '+numero+' créée');
+  document.getElementById('collecteFormCard').style.display = 'none';
+  renderCollecteList();
+  renderLivList();
+  renderEmporteList();
+});
+
+// numéro de BL réutilisant le même compteur/format que Gestion Dépôt
+async function nextBLNumeroForCollecte(){
+  var now = new Date();
+  var yymm = String(now.getFullYear()).slice(2)+String(now.getMonth()+1).padStart(2,'0');
+  if(fsReady() && configDocRef){
+    try{
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var counters = (snap.exists && snap.data().blCounters) || {};
+        var current = counters[yymm] || 0;
+        var next = current + 1;
+        counters[yymm] = next;
+        tx.set(configDocRef, { blCounters: counters }, { merge: true });
+        return next;
+      });
+      return yymm+String(n).padStart(4,'0');
+    }catch(e){ console.error('Firestore nextBLNumeroForCollecte error', e); }
+  }
+  var key = 'bl-counter-'+yymm;
+  var raw = lsGet(key);
+  var n2 = (raw?parseInt(raw,10):0)+1;
+  lsSet(key, String(n2));
+  return yymm+String(n2).padStart(4,'0');
+}
 
 // ---------- init ----------
 (async function init(){
