@@ -368,7 +368,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0015';
+var APP_VERSION = '2026.0016';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -1712,12 +1712,13 @@ async function construireTournee(bons, t, date, opts){
 }
 
 // retire un BL de sa tournée (tant qu'elle n'est pas validée) : il redevient « disponible pour tournée »
-async function retirerBLDeTournee(numero, motif){
+async function retirerBLDeTournee(numero, motif, opts){
+  opts = opts || {};
   var b = state.bons.find(function(x){ return x.numero===numero; });
   if(!b) return false;
   var aff = b.affectation || {};
   var inst = state.instances.find(function(i){ return i.id===aff.instanceId; });
-  if(inst && !instanceModifiable(inst)){
+  if(inst && !instanceModifiable(inst) && !opts.force){
     banner('La tournée est « '+((INSTANCE_STATUTS[inst.statut]||{}).label||inst.statut)+' » : retrait impossible');
     return false;
   }
@@ -1816,7 +1817,9 @@ function renderTourBuild(){
   document.getElementById('tbExistingHint').innerHTML = hint;
 
   var totalKg = cur.sel.reduce(function(s,b){ return s + (b.poidsTotal||0); }, 0), totalColis = cur.sel.reduce(function(s,b){ return s + (b.nbColisTotal||0); }, 0);
-  var h = '<div class="hint" style="font-weight:600;margin:6px 0;">CONTRÔLE DE LA TOURNÉE</div>'+
+  var imps = cur.sel.filter(function(b){ return b.estImperative; });
+  var h = (imps.length ? '<div class="sub" style="color:#c0392b;font-weight:700;margin-top:6px;">🔴 LIVRAISON IMPÉRATIVE : '+imps.map(function(b){ return 'BL '+escapeHtml(b.numero)+' ('+escapeHtml(fmtDate(b.dateImperative||''))+')'; }).join(' · ')+'</div>' : '')+
+    '<div class="hint" style="font-weight:600;margin:6px 0;">CONTRÔLE DE LA TOURNÉE</div>'+
     '<div class="sub" style="color:'+(nKo?'#c0392b':'#1e8e3e')+';font-weight:700;">'+(nOk ? '🟢 '+nOk+' BL conforme'+(nOk>1?'s':'') : '')+(nOk && nKo ? ' · ' : '')+(nKo ? '🔴 '+nKo+' anomalie'+(nKo>1?'s':'') : '')+'</div>';
   h += cur.ctl.map(function(x){
     var b = x.b, adr = b.contremarqueAdresse || {};
@@ -1864,6 +1867,85 @@ document.getElementById('tbCreate').addEventListener('click', async function(){
   document.getElementById('tourPlannedCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
+// ---------- Phase 3 : contrôle global, validation, dérogation, statuts de la tournée ----------
+var planCtlOpen = {};   // tournées dont le contrôle est affiché
+
+// Contrôle global d'une tournée planifiée. Seule la date impérative non respectée peut faire l'objet d'une dérogation justifiée ;
+// toute autre anomalie bloque la validation tant qu'elle n'est pas résolue.
+function controleTournee(inst){
+  var t = state.tournees.find(function(x){ return x.id===inst.tourneeId; });
+  var bons = bonsDeInstance(inst);
+  var res = { bons: [], nbConformes: 0, nbAnomalies: 0, bloquant: false, global: [], warnings: [] };
+  if(!t) res.global.push('La tournée type '+inst.tourneeId+' est introuvable dans le référentiel');
+  if(!bons.length) res.global.push('Aucun BL dans la tournée');
+  if(inst.date && inst.date < todayIso()) res.warnings.push('La date de la tournée ('+fmtDate(inst.date)+') est passée');
+  var sansAcces = 0;
+  bons.forEach(function(b){
+    var an = [];
+    var ctrl = controlerBL(b);
+    if(b.statut==='annule') an.push({ texte: 'BL annulé', derogeable: false });
+    var manques = ctrl.checks.filter(function(k){ return !k.ok; }).map(function(k){ return LIBELLES_MANQUE[k.key] || k.label; });
+    if(manques.length) an.push({ texte: 'BL incomplet : '+manques.join(', '), derogeable: false });
+    if(!b.estImperative && !(b.rdv && b.rdv.date)) an.push({ texte: 'RDV non réalisé', derogeable: false });
+    if(!(b.validationExploitant && b.validationExploitant.valide)) an.push({ texte: 'BL non validé par l\'exploitant', derogeable: false });
+    if(b.estImperative && b.dateImperative){
+      if(b.dateImperative !== inst.date){
+        var dg = (inst.derogations||[]).filter(function(d){ return d.bl===b.numero && d.code==='date_imperative' && d.dateImperative===b.dateImperative && d.dateTournee===inst.date; })[0];
+        an.push({ texte: 'Date impérative non respectée : impérative le '+fmtDate(b.dateImperative)+', tournée le '+fmtDate(inst.date), derogeable: true, code: 'date_imperative', derogation: dg || null });
+      }
+    } else if(bonDateLivraison(b) !== inst.date){
+      an.push({ texte: 'Date du BL ('+(bonDateLivraison(b) ? fmtDateLong(bonDateLivraison(b)) : 'non définie')+') différente de celle de la tournée ('+fmtDateLong(inst.date)+')', derogeable: false });
+    }
+    if(t){ var ev = evaluerTournee(b, t, inst.date); if(!ev.ok) an.push({ texte: ev.message, derogeable: false }); }
+    var c = b.contraintes || {};
+    if(!(c.etage || c.ascenseur || c.accesDifficile || c.contactSurPlace)) sansAcces++;
+    var bloquants = an.filter(function(a){ return !(a.derogeable && a.derogation); });
+    res.bons.push({ b: b, anomalies: an, ok: !bloquants.length });
+    if(bloquants.length) res.nbAnomalies++; else res.nbConformes++;
+  });
+  if(sansAcces) res.warnings.push(sansAcces+' BL sans contraintes d\'accès renseignées (étage, ascenseur, accès)');
+  res.bloquant = res.global.length > 0 || res.nbAnomalies > 0;
+  return res;
+}
+
+function renderControleHtml(inst){
+  var res = controleTournee(inst), modif = instanceModifiable(inst);
+  var pl = function(n){ return n>1 ? 's' : ''; };
+  var h = '<div style="border:1px solid var(--line-strong);border-radius:10px;padding:10px;margin:10px 0;font-size:13px;line-height:1.5;">'+
+    '<div style="font-weight:700;margin-bottom:4px;">CONTRÔLE DE LA TOURNÉE</div>';
+  res.global.forEach(function(g){ h += '<div style="color:#c0392b;font-weight:600;">🔴 '+escapeHtml(g)+'</div>'; });
+  h += '<div style="font-weight:700;color:'+((res.nbAnomalies || res.global.length) ? '#c0392b' : '#1e8e3e')+';">'+
+    (res.nbConformes ? '🟢 '+res.nbConformes+' BL conforme'+pl(res.nbConformes) : '')+((res.nbConformes && res.nbAnomalies) ? ' · ' : '')+
+    (res.nbAnomalies ? '🔴 '+res.nbAnomalies+' anomalie'+pl(res.nbAnomalies) : '')+'</div>';
+  res.bons.forEach(function(x){
+    if(!x.anomalies.length) return;
+    var b = x.b;
+    h += '<div style="margin-top:8px;font-weight:600;color:'+(x.ok ? '#e8792e' : '#c0392b')+';">'+(x.ok ? '🟠' : '🔴')+' BL '+escapeHtml(b.numero)+' — '+escapeHtml(b.contremarque||'—')+'</div>';
+    x.anomalies.forEach(function(a){
+      if(a.derogation){
+        var d = a.derogation;
+        h += '<div style="color:#e8792e;">• '+escapeHtml(a.texte)+'<br><strong>Dérogation :</strong> '+escapeHtml(d.motif)+' <span style="color:var(--ink-soft);">(par '+escapeHtml(d.par||'?')+')</span>'+
+          (modif ? ' <button class="btn ghost pl-derog-off" data-id="'+escapeHtml(inst.id)+'" data-bl="'+escapeHtml(b.numero)+'" style="width:auto;padding:4px 8px;font-size:12px;">Retirer la dérogation</button>' : '')+'</div>';
+      } else {
+        h += '<div style="color:#c0392b;">• '+escapeHtml(a.texte)+
+          ((a.derogeable && modif) ? ' <button class="btn ghost pl-derog" data-id="'+escapeHtml(inst.id)+'" data-bl="'+escapeHtml(b.numero)+'" style="width:auto;padding:4px 8px;font-size:12px;">Déroger (justification)</button>' : '')+'</div>';
+      }
+    });
+  });
+  res.warnings.forEach(function(w){ h += '<div style="margin-top:6px;color:#e8792e;">⚠ '+escapeHtml(w)+'</div>'; });
+  if(modif || inst.statut==='validee') h += '<div style="margin-top:8px;font-weight:700;color:'+(res.bloquant ? '#c0392b' : '#1e8e3e')+';">'+(res.bloquant ? '🔴 Validation bloquée tant que les anomalies ne sont pas résolues' : '🟢 La tournée peut être validée')+'</div>';
+  return h + '</div>';
+}
+
+// change le statut d'une tournée planifiée et le consigne dans son historique
+async function transitionInstance(inst, statut, extra, action, motif){
+  var par = lsGet('access-identity') || '', now = new Date().toISOString();
+  inst.statut = statut;
+  if(extra) Object.keys(extra).forEach(function(k){ inst[k] = extra[k]; });
+  inst.historique = (inst.historique||[]).concat([{ action: action, statut: statut, par: par, le: now, motif: motif||'' }]);
+  await saveInstance(inst);
+}
+
 // ---------- vue « Tournées planifiées » ----------
 function renderTourneesPlanifiees(){
   var scope = document.getElementById('planScope').value;
@@ -1884,68 +1966,169 @@ function renderTourneesPlanifiees(){
     el.innerHTML = list.map(function(inst){
       var bons = bonsDeInstance(inst), ref = inst.referentiel || {};
       var st = INSTANCE_STATUTS[inst.statut] || INSTANCE_STATUTS.brouillon;
+      var modif = instanceModifiable(inst), enCours = inst.statut==='en_cours';
+      var nLivres = bons.filter(function(b){ return b.statut==='livre'; }).length;
       var kg = bons.reduce(function(s,b){ return s + (b.poidsTotal||0); }, 0), colis = bons.reduce(function(s,b){ return s + (b.nbColisTotal||0); }, 0);
       var imp = bons.filter(function(b){ return b.estImperative; });
+      var idA = escapeHtml(inst.id);
       var h = '<div class="hist-item">'+
         '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">🚛 '+escapeHtml(inst.tourneeId)+' — '+escapeHtml(fmtDateLong(inst.date))+'</span>'+
         '<span style="color:'+st.color+';font-weight:700;font-size:12.5px;">'+st.icon+' '+st.label+'</span></div>'+
-        '<div class="sub">'+escapeHtml((TOURNEE_TYPE_LABELS[ref.type]||ref.type||'')+' '+(ref.heureDebut||'')+'–'+(ref.heureFin||''))+' · <strong>'+bons.length+' BL · '+kg.toFixed(1)+' kg · '+colis+' colis</strong></div>';
+        '<div class="sub">'+escapeHtml((TOURNEE_TYPE_LABELS[ref.type]||ref.type||'')+' '+(ref.heureDebut||'')+'–'+(ref.heureFin||''))+' · <strong>'+bons.length+' BL · '+kg.toFixed(1)+' kg · '+colis+' colis</strong>'+(enCours || inst.statut==='terminee' ? ' · '+nLivres+'/'+bons.length+' livré'+(nLivres>1?'s':'') : '')+'</div>';
+      if(inst.validePar && ['validee','en_cours','terminee'].indexOf(inst.statut) >= 0) h += '<div class="sub" style="color:var(--ink-soft);">✅ Validée par '+escapeHtml(inst.validePar)+' le '+escapeHtml(fmtDate((inst.valideLe||'').slice(0,10)))+'</div>';
+      if(inst.statut==='annulee' && inst.annulation) h += '<div class="sub" style="color:#c0392b;">⛔ Annulée : '+escapeHtml(inst.annulation.motif||'')+' (par '+escapeHtml(inst.annulation.par||'?')+')</div>';
       if(imp.length) h += '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE : '+imp.map(function(b){ return 'BL '+escapeHtml(b.numero)+' ('+escapeHtml(fmtDate(b.dateImperative||inst.date))+')'+((b.dateImperative && b.dateImperative!==inst.date) ? ' — DATE NON RESPECTÉE' : ''); }).join(' · ')+'</div>';
+      (inst.derogations||[]).forEach(function(d){
+        h += '<div class="sub" style="color:#e8792e;">🟠 Dérogation BL '+escapeHtml(d.bl)+' : '+escapeHtml(d.motif)+' <span style="color:var(--ink-soft);">(par '+escapeHtml(d.par||'?')+')</span></div>';
+      });
+      if(planCtlOpen[inst.id]) h += renderControleHtml(inst);
+
       var rows = bons.slice().sort(function(a,b){
         var da = hhmmToMin((a.rdv||{}).creneauDebut), db = hhmmToMin((b.rdv||{}).creneauDebut);
         if(da===null && db!==null) return 1; if(db===null && da!==null) return -1;
         return (da||0)-(db||0) || a.numero.localeCompare(b.numero);
       });
       h += rows.map(function(b){
-        var r = b.rdv || {}, adr = b.contremarqueAdresse || {};
+        var r = b.rdv || {}, adr = b.contremarqueAdresse || {}, livre = b.statut==='livre';
         var cren = r.creneauDebut ? r.creneauDebut+(r.creneauFin ? '–'+r.creneauFin : '') : '—';
         var tels = [adr.tel1, adr.tel2].filter(Boolean).map(function(t){ return '<a href="'+telHref(t)+'" style="color:var(--accent);font-weight:600;text-decoration:none;">📞 '+escapeHtml(t)+'</a>'; }).join(' &nbsp; ');
         var presta = []; if(b.montage) presta.push('Montage'); if(b.reprise) presta.push('Reprise');
+        var nA = escapeHtml(b.numero);
         return '<div style="border-top:1px solid var(--line);padding:8px 0;">'+
-          '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(cren)+' · BL '+escapeHtml(b.numero)+' — '+escapeHtml(b.contremarque||'—')+(b.estImperative ? ' <span style="color:#c0392b;">· IMPÉRATIF</span>' : '')+'</div>'+
+          '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(cren)+' · BL '+nA+' — '+escapeHtml(b.contremarque||'—')+(b.estImperative ? ' <span style="color:#c0392b;">· IMPÉRATIF</span>' : '')+(livre ? ' <span style="color:#1e8e3e;">· 📦 Livré</span>' : '')+'</div>'+
           '<div class="sub">'+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' '))+(tels ? ' · '+tels : '')+' · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
           (presta.length ? '<div class="sub"><strong>'+presta.join(' + ')+'</strong></div>' : '')+
           (b.instructions ? '<div class="sub" style="font-style:italic;">« '+escapeHtml(b.instructions)+' »</div>' : '')+
-          '<div class="btn-row"><button class="btn ghost plan-pdf" data-numero="'+escapeHtml(b.numero)+'">📄 BL</button>'+
-            '<button class="btn ghost plan-open" data-numero="'+escapeHtml(b.numero)+'">⚙️ Fiche</button>'+
-            (instanceModifiable(inst) ? '<button class="btn ghost plan-remove" data-numero="'+escapeHtml(b.numero)+'">↩ Retirer</button>' : '')+'</div></div>';
+          '<div class="btn-row"><button class="btn ghost plan-pdf" data-numero="'+nA+'">📄 BL</button>'+
+            '<button class="btn ghost plan-open" data-numero="'+nA+'">⚙️ Fiche</button>'+
+            (modif ? '<button class="btn ghost plan-remove" data-numero="'+nA+'">↩ Retirer</button>' : '')+
+            (enCours && !livre ? '<button class="btn primary pl-livre" data-numero="'+nA+'">📦 Livré</button><button class="btn ghost pl-nonlivre" data-numero="'+nA+'">Non livré</button>' : '')+'</div></div>';
       }).join('');
       if(!bons.length) h += '<div class="sub" style="color:var(--ink-soft);">Aucun BL dans cette tournée.</div>';
-      h += '<div class="btn-row">'+
-        (bons.length ? '<button class="btn primary plan-fiche" data-id="'+escapeHtml(inst.id)+'" style="width:100%;">📋 Fiche de sortie (chargement)</button>' : '')+
-        (!bons.length && instanceModifiable(inst) ? '<button class="btn ghost plan-delete" data-id="'+escapeHtml(inst.id)+'" style="width:100%;">🗑 Supprimer cette tournée vide</button>' : '')+'</div></div>';
-      return h;
+
+      // actions de la tournée selon son statut
+      var act = '';
+      if(modif){
+        act += '<div class="btn-row"><button class="btn ghost pl-ctl" data-id="'+idA+'">🔍 '+(planCtlOpen[inst.id] ? 'Masquer le contrôle' : 'Contrôler la tournée')+'</button>'+
+               (inst.statut==='brouillon' ? '<button class="btn ghost pl-prep" data-id="'+idA+'">🛠️ Passer en préparation</button>' : '')+'</div>'+
+               '<div class="btn-row"><button class="btn accent pl-valider" data-id="'+idA+'" style="width:100%;">✅ Valider la tournée</button></div>';
+      } else if(inst.statut==='validee'){
+        act += '<div class="btn-row"><button class="btn accent pl-demarrer" data-id="'+idA+'" style="width:100%;">🚚 Démarrer la tournée</button></div>'+
+               '<div class="btn-row"><button class="btn ghost pl-ctl" data-id="'+idA+'">🔍 Contrôle</button><button class="btn ghost pl-rouvrir" data-id="'+idA+'">↩ Rouvrir la tournée</button></div>';
+      } else if(enCours){
+        act += '<div class="btn-row"><button class="btn accent pl-terminer" data-id="'+idA+'" style="width:100%;"'+(nLivres<bons.length ? ' disabled' : '')+'>🏁 Terminer la tournée ('+nLivres+'/'+bons.length+' livrés)</button></div>';
+      }
+      if(bons.length) act += '<div class="btn-row"><button class="btn primary plan-fiche" data-id="'+idA+'" style="width:100%;">📋 Fiche de sortie (chargement)</button></div>';
+      if(['brouillon','preparation','validee'].indexOf(inst.statut) >= 0) act += '<div class="btn-row"><button class="btn ghost pl-annuler" data-id="'+idA+'" style="width:100%;color:#c0392b;">⛔ Annuler la tournée</button></div>';
+      if(!bons.length && modif) act += '<div class="btn-row"><button class="btn ghost plan-delete" data-id="'+idA+'" style="width:100%;">🗑 Supprimer cette tournée vide</button></div>';
+      return h + act + '</div>';
     }).join('')+orphHtml;
   }
 
-  Array.prototype.forEach.call(el.querySelectorAll('.plan-pdf'), function(btn){
-    btn.addEventListener('click', function(){ var b = state.bons.find(function(x){ return x.numero===btn.getAttribute('data-numero'); }); if(b) generateBLPdf(b); });
+  var byId = function(id){ return state.instances.find(function(i){ return i.id===id; }); };
+  var on = function(sel, fn){ Array.prototype.forEach.call(el.querySelectorAll(sel), function(btn){ btn.addEventListener('click', function(ev){ ev.preventDefault(); fn(btn); }); }); };
+  on('.plan-pdf', function(btn){ var b = state.bons.find(function(x){ return x.numero===btn.getAttribute('data-numero'); }); if(b) generateBLPdf(b); });
+  on('.plan-open, .plan-orph', function(btn){ openBonFiche(btn.getAttribute('data-numero')); });
+  on('.plan-remove', async function(btn){
+    var n = btn.getAttribute('data-numero');
+    var motif = prompt('Retirer le BL '+n+' de cette tournée. Motif (facultatif) :');
+    if(motif===null) return;
+    if(await retirerBLDeTournee(n, motif.trim())){ banner('BL '+n+' retiré de la tournée : de nouveau disponible'); refreshAllBonLists(); }
   });
-  Array.prototype.forEach.call(el.querySelectorAll('.plan-open, .plan-orph'), function(btn){
-    btn.addEventListener('click', function(ev){ ev.preventDefault(); openBonFiche(btn.getAttribute('data-numero')); });
+  on('.plan-fiche', function(btn){ var inst = byId(btn.getAttribute('data-id')); if(inst) generateFicheSortiePdf(bonsDeInstance(inst)); });
+  on('.plan-delete', async function(btn){
+    var id = btn.getAttribute('data-id');
+    if(!confirm('Supprimer la tournée vide '+id+' ?')) return;
+    state.instances = state.instances.filter(function(i){ return i.id!==id; });
+    if(fsReady() && instancesColRef){ try{ await instancesColRef.doc(id).delete(); }catch(e){ console.error('Firestore delete instance error', e); } }
+    renderTourneesPlanifiees();
   });
-  Array.prototype.forEach.call(el.querySelectorAll('.plan-remove'), function(btn){
-    btn.addEventListener('click', async function(){
-      var n = btn.getAttribute('data-numero');
-      var motif = prompt('Retirer le BL '+n+' de cette tournée. Motif (facultatif) :');
-      if(motif===null) return;
-      if(await retirerBLDeTournee(n, motif.trim())){ banner('BL '+n+' retiré de la tournée : de nouveau disponible'); refreshAllBonLists(); }
-    });
+  // contrôle, validation, dérogation
+  on('.pl-ctl', function(btn){ var id = btn.getAttribute('data-id'); planCtlOpen[id] = !planCtlOpen[id]; renderTourneesPlanifiees(); });
+  on('.pl-prep', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    await transitionInstance(inst, 'preparation', null, 'preparation');
+    banner('Tournée '+inst.tourneeId+' en préparation'); renderTourneesPlanifiees();
   });
-  Array.prototype.forEach.call(el.querySelectorAll('.plan-fiche'), function(btn){
-    btn.addEventListener('click', function(){
-      var inst = state.instances.find(function(i){ return i.id===btn.getAttribute('data-id'); });
-      if(inst) generateFicheSortiePdf(bonsDeInstance(inst));
-    });
+  on('.pl-valider', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    var res = controleTournee(inst);
+    if(res.bloquant){
+      planCtlOpen[inst.id] = true; renderTourneesPlanifiees();
+      banner('Validation bloquée : '+(res.global.length ? res.global[0] : res.nbAnomalies+' anomalie'+(res.nbAnomalies>1?'s':'')+' à résoudre'));
+      return;
+    }
+    var nbDerog = (inst.derogations||[]).length;
+    if(!confirm('VALIDATION DE LA TOURNÉE\n\nTournée : '+inst.tourneeId+'\nDate : '+fmtDateLong(inst.date)+'\nBL : '+res.bons.length+'\nDérogations : '+nbDerog+'\n\nValider cette tournée ?')) return;
+    await transitionInstance(inst, 'validee', { validePar: (lsGet('access-identity')||''), valideLe: new Date().toISOString() }, 'validation');
+    banner('Tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' validée'); renderTourneesPlanifiees();
   });
-  Array.prototype.forEach.call(el.querySelectorAll('.plan-delete'), function(btn){
-    btn.addEventListener('click', async function(){
-      var id = btn.getAttribute('data-id');
-      if(!confirm('Supprimer la tournée vide '+id+' ?')) return;
-      state.instances = state.instances.filter(function(i){ return i.id!==id; });
-      if(fsReady() && instancesColRef){ try{ await instancesColRef.doc(id).delete(); }catch(e){ console.error('Firestore delete instance error', e); } }
-      renderTourneesPlanifiees();
-    });
+  on('.pl-derog', async function(btn){
+    var inst = byId(btn.getAttribute('data-id')), n = btn.getAttribute('data-bl');
+    var b = state.bons.find(function(x){ return x.numero===n; });
+    var motif = prompt('DÉROGATION — BL '+n+' : la date impérative ('+fmtDate(b.dateImperative)+') ne sera pas respectée.\nJustification (obligatoire) :');
+    if(motif===null) return;
+    motif = motif.trim();
+    if(!motif){ banner('Une justification est obligatoire pour déroger à une date impérative'); return; }
+    var par = lsGet('access-identity') || '', now = new Date().toISOString();
+    inst.derogations = (inst.derogations||[]).filter(function(d){ return d.bl!==n; }).concat([{ bl: n, code: 'date_imperative', motif: motif, par: par, le: now, dateImperative: b.dateImperative, dateTournee: inst.date }]);
+    inst.historique = (inst.historique||[]).concat([{ action: 'derogation', bl: n, par: par, le: now, motif: motif }]);
+    await saveInstance(inst);
+    planCtlOpen[inst.id] = true; renderTourneesPlanifiees();
+  });
+  on('.pl-derog-off', async function(btn){
+    var inst = byId(btn.getAttribute('data-id')), n = btn.getAttribute('data-bl');
+    inst.derogations = (inst.derogations||[]).filter(function(d){ return d.bl!==n; });
+    inst.historique = (inst.historique||[]).concat([{ action: 'derogation_retiree', bl: n, par: (lsGet('access-identity')||''), le: new Date().toISOString() }]);
+    await saveInstance(inst);
+    renderTourneesPlanifiees();
+  });
+  // statuts suivants
+  on('.pl-rouvrir', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    if(!confirm('Rouvrir la tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' ? Elle repasse en préparation et devra être validée de nouveau.')) return;
+    await transitionInstance(inst, 'preparation', { validePar: '', valideLe: '' }, 'reouverture');
+    banner('Tournée rouverte'); renderTourneesPlanifiees();
+  });
+  on('.pl-demarrer', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    if(!confirm('Démarrer la tournée '+inst.tourneeId+' du '+fmtDateLong(inst.date)+' ?')) return;
+    await transitionInstance(inst, 'en_cours', { demarrePar: (lsGet('access-identity')||''), demarreLe: new Date().toISOString() }, 'demarrage');
+    banner('Tournée démarrée'); renderTourneesPlanifiees();
+  });
+  on('.pl-livre', async function(btn){
+    var n = btn.getAttribute('data-numero');
+    var b = state.bons.find(function(x){ return x.numero===n; });
+    var par = lsGet('access-identity') || '', now = new Date().toISOString();
+    await saveBonPatch(n, { statut: 'livre', livraison: { par: par, le: now }, historiqueAffectations: (b.historiqueAffectations||[]).concat([{ action: 'livraison', instanceId: (b.affectation||{}).instanceId||'', par: par, le: now }]) });
+    banner('BL '+n+' livré'); refreshAllBonLists();
+  });
+  on('.pl-nonlivre', async function(btn){
+    var n = btn.getAttribute('data-numero');
+    var motif = prompt('BL '+n+' non livré : il sera retiré de la tournée et redeviendra disponible.\nMotif (obligatoire) :');
+    if(motif===null) return;
+    motif = motif.trim();
+    if(!motif){ banner('Un motif est obligatoire'); return; }
+    if(await retirerBLDeTournee(n, 'Non livré : '+motif, { force: true })){ banner('BL '+n+' retiré de la tournée (non livré)'); refreshAllBonLists(); }
+  });
+  on('.pl-terminer', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    var restants = bonsDeInstance(inst).filter(function(b){ return b.statut!=='livre'; });
+    if(restants.length){ banner('Il reste '+restants.length+' BL non livré(s) : '+restants.map(function(b){ return b.numero; }).join(', ')); return; }
+    if(!confirm('Terminer la tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' ? Toutes les livraisons sont terminées.')) return;
+    await transitionInstance(inst, 'terminee', { terminePar: (lsGet('access-identity')||''), termineLe: new Date().toISOString() }, 'fin');
+    banner('Tournée terminée'); renderTourneesPlanifiees();
+  });
+  on('.pl-annuler', async function(btn){
+    var inst = byId(btn.getAttribute('data-id'));
+    var bons = bonsDeInstance(inst);
+    var motif = prompt('Annuler la tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' ('+bons.length+' BL, qui redeviendront disponibles).\nMotif (obligatoire) :');
+    if(motif===null) return;
+    motif = motif.trim();
+    if(!motif){ banner('Un motif est obligatoire pour annuler une tournée'); return; }
+    for(var i=0; i<bons.length; i++) await retirerBLDeTournee(bons[i].numero, 'Tournée annulée : '+motif, { force: true });
+    await transitionInstance(inst, 'annulee', { annulation: { motif: motif, par: (lsGet('access-identity')||''), le: new Date().toISOString() } }, 'annulation', motif);
+    banner('Tournée annulée : BL de nouveau disponibles'); refreshAllBonLists();
   });
 }
 document.getElementById('planScope').addEventListener('change', renderTourneesPlanifiees);
