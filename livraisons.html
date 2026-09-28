@@ -146,8 +146,24 @@
   <nav class="tabs">
     <button class="tab-btn active" data-tab="alivrer">Commandes à Livrer</button>
     <button class="tab-btn" data-tab="emporte">Commandes Emporté</button>
+    <button class="tab-btn" data-tab="rdv">Prise de RDV</button>
     <button class="tab-btn" data-tab="collecte">Collecte marchandise</button>
   </nav>
+
+  <!-- ===== TAB: PRISE DE RDV ===== -->
+  <section id="tab-rdv" style="display:none;">
+    <div class="card">
+      <h2>📞 Prise de RDV <span id="rdvQueueCount" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">BL complets à confirmer avec le client. Une fois le rendez-vous obtenu, le BL passe à la validation de l'exploitant.</p>
+      <div class="field"><input type="text" id="rdvSearch" placeholder="Rechercher : n° BL, destinataire, ville, code postal..."></div>
+      <div id="rdvQueue"></div>
+    </div>
+    <div class="card">
+      <h2>✅ À valider par l'exploitant <span id="rdvValidateCount" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Rendez-vous pris (ou livraison impérative) : ta validation autorise le BL à entrer dans une tournée.</p>
+      <div id="rdvValidateList"></div>
+    </div>
+  </section>
 
   <!-- ===== TAB: COLLECTE MARCHANDISE ===== -->
   <section id="tab-collecte" style="display:none;">
@@ -308,7 +324,7 @@ var collectesColRef = null;
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0011';
+var APP_VERSION = '2026.0012';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -590,7 +606,7 @@ function renderBLManagePanel(numero, boxId){
     var cc = controlerBL(bb);
     await saveBonPatch(numero, { statut: statutAfterControl(bb) });
     banner('BL '+numero+' mis à jour — '+(cc.complet?'complet':'incomplet'));
-    renderLivList(); renderEmporteList();
+    renderLivList(); renderEmporteList(); renderRdvQueue();
     renderBLManagePanel(numero, 'bl-panel-'+numero);
   });
 }
@@ -671,7 +687,7 @@ function renderBLActions(numero){
         await saveBonPatch(num, { statut: 'valide_pour_tournee', tourneeId: '' });
       }
       // la liste est réaffichée (badges de statut à jour) puis le panneau du BL est rouvert sur son nouvel état
-      renderLivList(); renderEmporteList();
+      renderLivList(); renderEmporteList(); renderRdvQueue();
       if(document.getElementById('bl-panel-'+num)) renderBLManagePanel(num, 'bl-panel-'+num);
       banner('BL '+num+' mis à jour');
     });
@@ -690,7 +706,7 @@ document.getElementById('emporteSearch').addEventListener('input', renderEmporte
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
     var name = btn.getAttribute('data-tab');
-    ['alivrer','emporte','collecte'].forEach(function(t){
+    ['alivrer','emporte','rdv','collecte'].forEach(function(t){
       document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
     });
     Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(b){
@@ -698,6 +714,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn
     });
     if(name==='emporte') renderEmporteList();
     if(name==='alivrer') renderLivList();
+    if(name==='rdv') renderRdvQueue();
     if(name==='collecte'){ renderCollecteList(); renderPartenairesList(); renderCollecteSourceFields(); renderCollecteDestFields(); }
   });
 });
@@ -1013,6 +1030,7 @@ async function startForAgency(code){
   await loadCollectes();
   renderLivList();
   renderEmporteList();
+  renderRdvQueue();
   renderCollecteSourceFields();
   renderCollecteDestFields();
   renderPartenairesList();
@@ -1043,6 +1061,194 @@ document.getElementById('btnAccessSubmit').addEventListener('click', async funct
   lsSet('access-identity', userMatch ? userMatch.name : val.toUpperCase());
   await startForAgency(agencyCode);
 });
+
+// ================= Prise de RDV (file d'exploitation) + validation exploitant =================
+function isInRdvQueue(b){
+  return (b.statut==='complet' && !b.estImperative) || b.statut==='a_prendre_rdv' || b.statut==='rdv_en_cours';
+}
+function bonSortKey(b){ return b.dateImperative || b.dateSouhaitee || b.dateLivraisonPrevue || '9999-99-99'; }
+function sortBonsForExploitation(arr){
+  return arr.sort(function(a,b){
+    if(!!a.estImperative !== !!b.estImperative) return a.estImperative ? -1 : 1;
+    return bonSortKey(a).localeCompare(bonSortKey(b));
+  });
+}
+function bonMatchesQuery(b, q){
+  var adr = b.contremarqueAdresse || {};
+  return [b.numero, b.contremarque, adr.ville, adr.cp].join(' ').toLowerCase().indexOf(q) >= 0;
+}
+function telHref(t){ return 'tel:'+String(t).replace(/[^\d+]/g,''); }
+
+// informations utiles à l'exploitant pour appeler le client
+function rdvInfoHtml(b){
+  var adr = b.contremarqueAdresse || {}, c = b.contraintes || {};
+  var typeTag = b.type==='emporte' ? ' <span style="font-weight:400;color:var(--ink-soft);">· Emporté Dépôt</span>'
+    : (b.type==='collecte' ? ' <span style="font-weight:400;color:var(--ink-soft);">· Collecte</span>' : '');
+  var h = '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(b.contremarque||'—')+typeTag+'</div>';
+  var addr = [adr.adresse1, [adr.cp, adr.ville].filter(Boolean).join(' ')].filter(Boolean).join(' — ');
+  if(addr) h += '<div class="sub">'+escapeHtml(addr)+'</div>';
+  var tels = [adr.tel1, adr.tel2].filter(Boolean).map(function(t){
+    return '<a href="'+telHref(t)+'" style="color:var(--accent);font-weight:600;text-decoration:none;">📞 '+escapeHtml(t)+'</a>';
+  });
+  h += '<div class="sub">'+(tels.length ? tels.join(' &nbsp; ') : '<span style="color:#c0392b;">Téléphone non renseigné</span>')+'</div>';
+  if(b.estImperative) h += '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — '+(b.dateImperative?fmtDateLong(b.dateImperative):'date à fixer')+'</div>';
+  var dates = [];
+  if(b.dateSouhaitee) dates.push('Date souhaitée : '+fmtDateLong(b.dateSouhaitee));
+  if(b.creneauSouhaite) dates.push('Créneau souhaité : '+escapeHtml(b.creneauSouhaite));
+  if(dates.length) h += '<div class="sub">'+dates.join(' · ')+'</div>';
+  var cons = [];
+  if(c.etage) cons.push('Étage '+escapeHtml(c.etage));
+  if(c.etage || c.ascenseur) cons.push('Ascenseur '+(c.ascenseur?'oui':'non'));
+  if(c.accesDifficile) cons.push('<strong>Accès difficile</strong>');
+  if(c.contactSurPlace) cons.push('Contact : '+escapeHtml(c.contactSurPlace));
+  h += '<div class="sub">'+(cons.length ? cons.join(' · ') : '<span style="color:var(--ink-soft);">Contraintes d\'accès : non renseignées</span>')+'</div>';
+  var presta = [];
+  if(b.montage) presta.push('Montage');
+  if(b.reprise) presta.push('Reprise');
+  if(presta.length) h += '<div class="sub"><strong>'+presta.join(' + ')+'</strong></div>';
+  if(b.instructions) h += '<div class="sub" style="font-style:italic;">« '+escapeHtml(b.instructions)+' »</div>';
+  return h;
+}
+
+function refreshAllBonLists(){
+  renderLivList(); renderEmporteList(); renderRdvQueue();
+}
+
+function renderRdvQueue(openNumero){
+  var q = (document.getElementById('rdvSearch').value || '').trim().toLowerCase();
+
+  // ----- file "Prise de RDV" -----
+  var all = state.bons.filter(isInRdvQueue);
+  var tabBtn = document.querySelector('.tab-btn[data-tab="rdv"]');
+  if(tabBtn) tabBtn.textContent = 'Prise de RDV'+(all.length ? ' ('+all.length+')' : '');
+  document.getElementById('rdvQueueCount').textContent = all.length ? '('+all.length+')' : '';
+  var items = sortBonsForExploitation(all.filter(function(b){ return !q || bonMatchesQuery(b, q); }));
+  var el = document.getElementById('rdvQueue');
+  if(!items.length){
+    el.innerHTML = '<div class="empty">'+(all.length ? 'Aucun résultat' : 'Aucun BL en attente de rendez-vous')+'</div>';
+  } else {
+    el.innerHTML = items.map(function(b){
+      var n = b.numero, r = b.rdv || {};
+      var enCours = b.statut==='rdv_en_cours';
+      var badge = enCours ? '<span style="color:#e8792e;font-weight:700;font-size:12.5px;">⏳ Contact en cours</span>'
+                          : '<span style="color:#e8792e;font-weight:700;font-size:12.5px;">📞 À prendre</span>';
+      return '<div class="hist-item">'+
+        '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(n)+'</span>'+badge+'</div>'+
+        rdvInfoHtml(b)+
+        '<div class="btn-row"><button class="btn primary rdvq-toggle" data-numero="'+n+'" style="width:100%;">📅 RDV obtenu</button></div>'+
+        '<div class="btn-row">'+
+          (enCours ? '' : '<button class="btn ghost rdvq-contact" data-numero="'+n+'">📞 Contact en cours</button>')+
+          '<button class="btn ghost rdvq-open" data-numero="'+n+'">⚙️ Fiche du BL</button>'+
+        '</div>'+
+        '<div id="rdvq-form-'+n+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">'+
+          '<div class="row2"><div class="field"><label>Date du RDV</label><input type="date" id="rdvq-date-'+n+'" value="'+(r.date||'')+'"></div>'+
+            '<div class="field"><label>Pris par</label><input type="text" id="rdvq-par-'+n+'" value="'+escapeHtml(r.prisPar||lsGet('access-identity')||'')+'"></div></div>'+
+          '<div class="row2"><div class="field"><label>Créneau début</label><input type="time" id="rdvq-debut-'+n+'" value="'+(r.creneauDebut||'')+'"></div>'+
+            '<div class="field"><label>Créneau fin</label><input type="time" id="rdvq-fin-'+n+'" value="'+(r.creneauFin||'')+'"></div></div>'+
+          '<div class="field"><label>Observations</label><textarea id="rdvq-obs-'+n+'" style="width:100%;min-height:56px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:14px;">'+escapeHtml(r.observations||'')+'</textarea></div>'+
+          '<div class="btn-row"><button class="btn accent rdvq-save" data-numero="'+n+'" style="width:100%;">Enregistrer le RDV</button></div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+
+    Array.prototype.forEach.call(el.querySelectorAll('.rdvq-toggle'), function(btn){
+      btn.addEventListener('click', function(){
+        var f = document.getElementById('rdvq-form-'+btn.getAttribute('data-numero'));
+        f.style.display = (f.style.display==='block') ? 'none' : 'block';
+      });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('.rdvq-contact'), function(btn){
+      btn.addEventListener('click', async function(){
+        var n = btn.getAttribute('data-numero');
+        await saveBonPatch(n, { statut: 'rdv_en_cours' });
+        banner('BL '+n+' : contact client en cours');
+        refreshAllBonLists(); renderRdvQueue(n);
+      });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('.rdvq-save'), function(btn){
+      btn.addEventListener('click', async function(){
+        var n = btn.getAttribute('data-numero');
+        var date = document.getElementById('rdvq-date-'+n).value;
+        if(!date){ banner('Indique la date du rendez-vous'); return; }
+        var rdv = {
+          date: date,
+          creneauDebut: document.getElementById('rdvq-debut-'+n).value,
+          creneauFin: document.getElementById('rdvq-fin-'+n).value,
+          prisPar: document.getElementById('rdvq-par-'+n).value.trim(),
+          dateHeurePrise: new Date().toISOString(),
+          observations: document.getElementById('rdvq-obs-'+n).value.trim()
+        };
+        await saveBonPatch(n, { rdv: rdv, statut: 'a_valider_exploitant' });
+        banner('RDV enregistré pour le BL '+n+' — à valider par l\'exploitant');
+        refreshAllBonLists();
+      });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('.rdvq-open'), function(btn){
+      btn.addEventListener('click', function(){ openBonFiche(btn.getAttribute('data-numero')); });
+    });
+    if(openNumero){
+      var f0 = document.getElementById('rdvq-form-'+openNumero);
+      if(f0) f0.style.display = 'block';
+    }
+  }
+
+  // ----- validation exploitant -----
+  var toValidate = sortBonsForExploitation(state.bons.filter(function(b){ return b.statut==='a_valider_exploitant' && (!q || bonMatchesQuery(b, q)); }));
+  var totalValidate = state.bons.filter(function(b){ return b.statut==='a_valider_exploitant'; }).length;
+  document.getElementById('rdvValidateCount').textContent = totalValidate ? '('+totalValidate+')' : '';
+  var ev = document.getElementById('rdvValidateList');
+  if(!toValidate.length){
+    ev.innerHTML = '<div class="empty">'+(totalValidate ? 'Aucun résultat' : 'Aucun BL à valider')+'</div>';
+    return;
+  }
+  ev.innerHTML = toValidate.map(function(b){
+    var n = b.numero, r = b.rdv || {};
+    var rdvLine = r.date
+      ? '<div class="sub" style="color:var(--ink);font-weight:600;">📅 RDV : '+fmtDateLong(r.date)+(r.creneauDebut?', de '+r.creneauDebut+(r.creneauFin?' à '+r.creneauFin:''):'')+(r.prisPar?' <span style="font-weight:400;color:var(--ink-soft);">(pris par '+escapeHtml(r.prisPar)+')</span>':'')+'</div>'+
+        (r.observations ? '<div class="sub">Obs. RDV : '+escapeHtml(r.observations)+'</div>' : '')
+      : '<div class="sub" style="color:var(--ink-soft);">Pas de RDV (livraison impérative)</div>';
+    return '<div class="hist-item">'+
+      '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(n)+'</span><span style="color:#2563eb;font-weight:700;font-size:12.5px;">🔎 À valider</span></div>'+
+      rdvInfoHtml(b)+rdvLine+
+      '<div class="btn-row"><button class="btn accent rdvv-valid" data-numero="'+n+'" style="width:100%;">✅ Valider pour tournée</button></div>'+
+      '<div class="btn-row">'+
+        (r.date ? '<button class="btn ghost rdvv-back" data-numero="'+n+'">↩ Reprendre le RDV</button>' : '')+
+        '<button class="btn ghost rdvq-open" data-numero="'+n+'">⚙️ Fiche du BL</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  Array.prototype.forEach.call(ev.querySelectorAll('.rdvv-valid'), function(btn){
+    btn.addEventListener('click', async function(){
+      var n = btn.getAttribute('data-numero');
+      if(!confirm('Confirmer la validation du BL '+n+' pour intégration dans une tournée ?')) return;
+      await saveBonPatch(n, { statut: 'valide_pour_tournee', validationExploitant: { valide: true, par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+      banner('BL '+n+' validé — à affecter à une tournée dans « Commandes à Livrer »');
+      refreshAllBonLists();
+    });
+  });
+  Array.prototype.forEach.call(ev.querySelectorAll('.rdvv-back'), function(btn){
+    btn.addEventListener('click', async function(){
+      var n = btn.getAttribute('data-numero');
+      await saveBonPatch(n, { statut: 'a_prendre_rdv' });
+      banner('BL '+n+' remis dans la prise de RDV');
+      refreshAllBonLists();
+    });
+  });
+  Array.prototype.forEach.call(ev.querySelectorAll('.rdvq-open'), function(btn){
+    btn.addEventListener('click', function(){ openBonFiche(btn.getAttribute('data-numero')); });
+  });
+}
+document.getElementById('rdvSearch').addEventListener('input', function(){ renderRdvQueue(); });
+
+// ouvre la fiche complète d'un BL (panneau "Gérer le BL") depuis la file RDV
+function openBonFiche(numero){
+  var b = state.bons.find(function(x){ return x.numero===numero; });
+  if(!b) return;
+  var tab = b.type==='emporte' ? 'emporte' : 'alivrer';
+  document.querySelector('.tab-btn[data-tab="'+tab+'"]').click();
+  var btn = document.querySelector((tab==='emporte' ? '#emporteList' : '#livList')+' .bl-manage-btn[data-numero="'+numero+'"]');
+  if(btn){ btn.click(); btn.scrollIntoView({ behavior:'smooth', block:'center' }); }
+}
 
 // ================= Collecte marchandise (source externe/TMS/partenaire → livraison directe, retour dépôt, ou regroupement) =================
 async function loadBaseForCollecte(){
@@ -1336,6 +1542,7 @@ document.getElementById('btnSaveCollecte').addEventListener('click', async funct
   renderCollecteList();
   renderLivList();
   renderEmporteList();
+  renderRdvQueue();
 });
 
 // numéro de BL réutilisant le même compteur/format que Gestion Dépôt
