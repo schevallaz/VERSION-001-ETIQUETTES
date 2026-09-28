@@ -307,7 +307,7 @@ var collectesColRef = null;
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0005';
+var APP_VERSION = '2026.0007';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -506,6 +506,12 @@ function renderBLManagePanel(numero, boxId){
   html += ctrl.checks.map(function(ck){ return '<div class="sub">'+(ck.ok?'🟢':'🔴')+' '+ck.label+'</div>'; }).join('');
 
   html += '<h2 style="font-size:14px;margin-top:14px;">Informations de livraison</h2>';
+  var adr = b.contremarqueAdresse || {};
+  html += '<div class="field"><label>Adresse</label><input type="text" id="bl-adresse1-'+numero+'" value="'+escapeHtml(adr.adresse1||'')+'"></div>';
+  html += '<div class="row2"><div class="field"><label>Code postal</label><input type="text" id="bl-cp-'+numero+'" value="'+escapeHtml(adr.cp||'')+'"></div>'+
+    '<div class="field"><label>Ville</label><input type="text" id="bl-ville-'+numero+'" value="'+escapeHtml(adr.ville||'')+'"></div></div>';
+  html += '<div class="row2"><div class="field"><label>Téléphone 1</label><input type="text" id="bl-tel1-'+numero+'" value="'+escapeHtml(adr.tel1||'')+'"></div>'+
+    '<div class="field"><label>Téléphone 2</label><input type="text" id="bl-tel2-'+numero+'" value="'+escapeHtml(adr.tel2||'')+'"></div></div>';
   html += '<div class="row2"><div class="field"><label>Date souhaitée</label><input type="date" id="bl-dateSouh-'+numero+'" value="'+(b.dateSouhaitee||'')+'"></div>'+
     '<div class="field"><label>Date impérative</label><input type="date" id="bl-dateImp-'+numero+'" value="'+(b.dateImperative||'')+'"></div></div>';
   html += '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="bl-estImp-'+numero+'" '+(b.estImperative?'checked':'')+' style="width:17px;height:17px;">Date impérative (à respecter, ne jamais déplacer silencieusement)</label>';
@@ -526,7 +532,16 @@ function renderBLManagePanel(numero, boxId){
   renderBLActions(numero);
 
   document.getElementById('bl-savectrl-'+numero).addEventListener('click', async function(){
+    var bCur = state.bons.find(function(x){ return x.numero===numero; });
     var patch = {
+      contremarqueAdresse: {
+        adresse1: document.getElementById('bl-adresse1-'+numero).value.trim(),
+        adresse2: (bCur.contremarqueAdresse&&bCur.contremarqueAdresse.adresse2)||'',
+        cp: document.getElementById('bl-cp-'+numero).value.trim(),
+        ville: document.getElementById('bl-ville-'+numero).value.trim(),
+        tel1: document.getElementById('bl-tel1-'+numero).value.trim(),
+        tel2: document.getElementById('bl-tel2-'+numero).value.trim()
+      },
       dateSouhaitee: document.getElementById('bl-dateSouh-'+numero).value,
       dateImperative: document.getElementById('bl-dateImp-'+numero).value,
       estImperative: document.getElementById('bl-estImp-'+numero).checked,
@@ -665,35 +680,119 @@ document.getElementById('btnFicheSortie').addEventListener('click', function(){
 });
 
 // ---------- PDF : Bon de Livraison (pour le transporteur) ----------
+var JOURS_FR = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+function fmtDateLong(iso){
+  if(!iso) return '';
+  var d = new Date(iso+'T00:00:00');
+  if(isNaN(d.getTime())) return fmtDate(iso);
+  return JOURS_FR[d.getDay()]+' '+fmtDate(iso);
+}
+
 function generateBLPdf(b){
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({ unit:'mm', format:'a4' });
-  var marginX = 15, y = 20, pageW = 210;
+  var marginX = 15, y = 20, pageW = 210, contentW = pageW - 2*marginX;
+
+  // écrit un texte en le coupant à la largeur donnée, renvoie la nouvelle position verticale
+  function wrap(text, x, yy, maxW, lineH){
+    doc.splitTextToSize(String(text), maxW).forEach(function(l){ doc.text(l, x, yy); yy += lineH; });
+    return yy;
+  }
+
+  var adr = b.contremarqueAdresse || {};
+  var c = b.contraintes || {};
+  var rdv = b.rdv || {};
+  var isEmporte = b.type==='emporte';
+  var datePrevue = b.dateLivraisonPrevue || rdv.date || b.dateImperative || b.dateSouhaitee || '';
+
+  // ----- en-tête -----
   doc.setFont('helvetica','bold'); doc.setFontSize(16);
   doc.text('BON DE LIVRAISON', marginX, y);
   doc.setFontSize(12);
   doc.text('N° '+b.numero, pageW-marginX, y, { align:'right' });
-  y += 10;
+  y += 6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  var typeLabel = isEmporte ? 'EMPORTÉ DÉPÔT — retrait sur place par le client'
+    : (b.type==='collecte' ? 'Livraison issue d\'une collecte'+(b.origineCollecte?' (réf. '+b.origineCollecte+')':'') : 'Livraison');
+  doc.text(typeLabel, marginX, y);
+  y += 4;
   doc.setDrawColor(0,0,0); doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y);
   y += 8;
 
-  doc.setFont('helvetica','normal'); doc.setFontSize(10);
-  doc.text('Dépôt expéditeur : '+(b.depotNom||b.depotCode||'—'), marginX, y); y += 6;
-  doc.text('Date d\'édition : '+fmtDate(new Date().toISOString().slice(0,10)), marginX, y);
-  if(b.dateLivraisonPrevue){ doc.text('Livraison prévue : '+fmtDate(b.dateLivraisonPrevue), pageW-marginX, y, { align:'right' }); }
-  y += 10;
+  // ----- bandeau livraison impérative -----
+  if(b.estImperative){
+    doc.setFillColor(192,57,43);
+    doc.rect(marginX, y-5, contentW, 8, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('LIVRAISON IMPÉRATIVE'+(b.dateImperative?' — '+fmtDateLong(b.dateImperative):''), marginX+3, y);
+    doc.setTextColor(0,0,0);
+    y += 9;
+  }
 
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text('Dépôt expéditeur : '+(b.depotNom||b.depotCode||'—'), marginX, y);
+  doc.text('Édité le '+fmtDate(new Date().toISOString().slice(0,10)), pageW-marginX, y, { align:'right' });
+  y += 5;
+  if(datePrevue){ doc.setFont('helvetica','bold'); doc.text('Livraison prévue : '+fmtDateLong(datePrevue), marginX, y); doc.setFont('helvetica','normal'); }
+  if(b.tourneeId){ doc.text('Tournée : '+b.tourneeId, pageW-marginX, y, { align:'right' }); }
+  y += 9;
+
+  // ----- deux blocs : destinataire (gauche) / conditions de livraison (droite) -----
+  var colGap = 8, colW = (contentW - colGap) / 2, xL = marginX, xR = marginX + colW + colGap;
+  var yL = y, yR = y;
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
-  doc.text('Destinataire (contremarque)', marginX, y); y += 6;
-  doc.setFont('helvetica','normal'); doc.setFontSize(10);
-  doc.text(b.contremarque||'—', marginX, y); y += 5;
-  var adr = b.contremarqueAdresse || {};
-  if(adr.adresse1){ doc.text(adr.adresse1, marginX, y); y += 5; }
-  if(adr.adresse2){ doc.text(adr.adresse2, marginX, y); y += 5; }
-  if(adr.cp||adr.ville){ doc.text([adr.cp,adr.ville].filter(Boolean).join(' '), marginX, y); y += 5; }
-  if(adr.tel1){ doc.text('Tél : '+adr.tel1+(adr.tel2?' / '+adr.tel2:''), marginX, y); y += 5; }
-  y += 6;
+  doc.text(isEmporte ? 'Contremarque — retrait au dépôt' : 'Destinataire (contremarque)', xL, yL); yL += 6;
+  doc.text(isEmporte ? 'Retrait' : 'Conditions de livraison', xR, yR); yR += 6;
 
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  yL = wrap(b.contremarque||'—', xL, yL, colW, 5);
+  doc.setFont('helvetica','normal');
+  if(adr.adresse1) yL = wrap(adr.adresse1, xL, yL, colW, 5);
+  if(adr.adresse2) yL = wrap(adr.adresse2, xL, yL, colW, 5);
+  if(adr.cp||adr.ville) yL = wrap([adr.cp,adr.ville].filter(Boolean).join(' '), xL, yL, colW, 5);
+  if(adr.tel1) yL = wrap('Tél : '+adr.tel1+(adr.tel2?' / '+adr.tel2:''), xL, yL, colW, 5);
+  if(b.emailDestinataire) yL = wrap('Email : '+b.emailDestinataire, xL, yL, colW, 5);
+
+  var hasCond = false;
+  if(rdv.date){
+    hasCond = true;
+    doc.setFont('helvetica','bold');
+    yR = wrap('RDV confirmé : '+fmtDateLong(rdv.date)+(rdv.creneauDebut?', de '+rdv.creneauDebut+(rdv.creneauFin?' à '+rdv.creneauFin:''):''), xR, yR, colW, 5);
+    doc.setFont('helvetica','normal');
+    if(rdv.observations) yR = wrap('Obs. RDV : '+rdv.observations, xR, yR, colW, 5);
+  }
+  if(b.creneauSouhaite){ hasCond = true; yR = wrap('Créneau souhaité : '+b.creneauSouhaite, xR, yR, colW, 5); }
+  if(!isEmporte){
+    var hasAccess = !!(c.etage || c.ascenseur || c.accesDifficile || c.contactSurPlace);
+    hasCond = true;
+    if(hasAccess){
+      if(c.etage) yR = wrap('Étage : '+c.etage, xR, yR, colW, 5);
+      yR = wrap('Ascenseur : '+(c.ascenseur?'Oui':'Non'), xR, yR, colW, 5);
+      if(c.accesDifficile){ doc.setFont('helvetica','bold'); yR = wrap('Accès difficile : OUI', xR, yR, colW, 5); doc.setFont('helvetica','normal'); }
+      if(c.contactSurPlace) yR = wrap('Contact sur place : '+c.contactSurPlace, xR, yR, colW, 5);
+    } else {
+      // rien n'a été saisi : on le dit plutôt que d'afficher un "Non" trompeur
+      doc.setTextColor(120,120,120);
+      yR = wrap('Étage / ascenseur / accès : non renseigné', xR, yR, colW, 5);
+      doc.setTextColor(0,0,0);
+    }
+  }
+  if(!hasCond){ doc.setTextColor(120,120,120); yR = wrap('Aucune condition particulière renseignée', xR, yR, colW, 5); doc.setTextColor(0,0,0); }
+  y = Math.max(yL, yR) + 4;
+
+  // ----- marchandise -----
+  if(b.natureMarchandise || b.volume){
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('Marchandise', marginX, y); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    var marchLine = [];
+    if(b.natureMarchandise) marchLine.push('Nature : '+b.natureMarchandise);
+    if(b.volume) marchLine.push('Volume : '+b.volume);
+    y = wrap(marchLine.join('   ·   '), marginX, y, contentW, 5);
+    y += 4;
+  }
+
+  // ----- détail des commandes -----
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.text('Détail des commandes', marginX, y); y += 7;
   var colX = [marginX, marginX+38, marginX+95, marginX+140, marginX+165];
@@ -703,21 +802,23 @@ function generateBLPdf(b){
   y += 2; doc.setLineWidth(0.2); doc.line(marginX, y, pageW-marginX, y); y += 5;
 
   doc.setFont('helvetica','normal');
-  (b.commandes||[]).forEach(function(c){
+  (b.commandes||[]).forEach(function(cmd){
     if(y > 270){ doc.addPage(); y = 20; }
-    doc.text(String(c.labelNumber||''), colX[0], y);
-    doc.text(String(c.client||'').slice(0,28), colX[1], y);
-    doc.text(String(c.fournisseur||'').slice(0,20), colX[2], y);
-    doc.text((c.poids||0)+' kg', colX[3], y);
-    doc.text(String(c.colis||0), colX[4], y);
+    doc.text(String(cmd.labelNumber||''), colX[0], y);
+    doc.text(String(cmd.client||'').slice(0,28), colX[1], y);
+    doc.text(String(cmd.fournisseur||'').slice(0,20), colX[2], y);
+    doc.text((cmd.poids||0)+' kg', colX[3], y);
+    doc.text(String(cmd.colis||0), colX[4], y);
     y += 6;
   });
 
   y += 2; doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y); y += 7;
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.text('Total : '+(b.poidsTotal||0).toFixed(1)+' kg — '+(b.nbColisTotal||0)+' colis', marginX, y);
-  y += 20;
+  y += 16;
 
+  // ----- signatures -----
+  if(y + 32 > 285){ doc.addPage(); y = 25; }
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   doc.text('Signature expéditeur', marginX, y);
   doc.text('Signature destinataire (réception)', pageW-marginX, y, { align:'right' });
