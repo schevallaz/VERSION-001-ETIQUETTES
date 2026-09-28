@@ -28,6 +28,7 @@
     background:var(--card);font-size:13px;font-weight:500;color:var(--ink-soft);cursor:pointer;
   }
   nav.tabs button.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .tour-select-bar{position:sticky;bottom:10px;background:#fff;border:1px solid var(--line-strong);border-radius:12px;padding:12px;box-shadow:0 4px 14px rgba(0,0,0,.14);margin-top:12px;z-index:4;}
   .tour-chip{padding:8px 12px;border-radius:999px;border:1px solid var(--line-strong);background:var(--card);font-size:13px;cursor:pointer;color:var(--ink);font-family:inherit;}
   .tour-chip.active{background:var(--ink);color:#fff;border-color:var(--ink);}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
@@ -172,7 +173,7 @@
   <section id="tab-tournees" style="display:none;">
     <div class="card">
       <h2>🚛 BL disponibles pour tournée <span id="tourAvailCount" style="font-weight:400;color:var(--ink-soft);"></span></h2>
-      <p class="hint" style="margin:0 0 12px;">Un BL n'est disponible que s'il est complet, avec RDV pris (sauf livraison impérative), validé par l'exploitant, non affecté, et compatible avec au moins une tournée. La compatibilité seule ne suffit jamais. L'affectation se fait pour l'instant depuis la fiche du BL.</p>
+      <p class="hint" style="margin:0 0 12px;">Un BL n'est disponible que s'il est complet, avec RDV pris (sauf livraison impérative), validé par l'exploitant, non affecté, et compatible avec au moins une tournée. La compatibilité seule ne suffit jamais. Coche des BL éligibles puis « Construire une tournée » : chaque BL est contrôlé avant d'y entrer.</p>
       <div class="field"><input type="text" id="tourSearch" placeholder="Rechercher : n° BL, destinataire, ville, code postal..."></div>
       <div id="tourFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
         <button class="tour-chip active" data-filter="eligibles">BL éligibles</button>
@@ -180,6 +181,30 @@
         <button class="tour-chip" data-filter="tous">Tous les BL</button>
       </div>
       <div id="tourAvailList"></div>
+      <div id="tourSelBar" class="tour-select-bar" style="display:none;">
+        <div style="font-weight:700;margin-bottom:8px;" id="tourSelCount"></div>
+        <div class="btn-row" style="margin:0;"><button class="btn ghost" id="tourSelAll" style="width:auto;">Tout sélectionner</button><button class="btn ghost" id="tourSelNone" style="width:auto;">Vider</button></div>
+        <div class="btn-row" style="margin-top:8px;"><button class="btn accent" id="tourBuildBtn" style="width:100%;">🚛 Construire une tournée</button></div>
+      </div>
+    </div>
+
+    <div class="card" id="tourBuildCard" style="display:none;">
+      <h2>🛠️ Construire une tournée</h2>
+      <p class="hint" style="margin:0 0 10px;">La tournée est créée en brouillon. Un BL en anomalie doit être corrigé ou retiré de la sélection avant de pouvoir créer la tournée.</p>
+      <div class="field"><label for="tbTournee">Tournée</label><select id="tbTournee" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select></div>
+      <div class="field"><label for="tbDate">Date de la tournée</label><input type="date" id="tbDate"></div>
+      <div id="tbExistingHint"></div>
+      <div id="tbControl" style="font-size:13px;line-height:1.5;"></div>
+      <div id="tbSummary" style="font-size:13px;"></div>
+      <div class="btn-row" style="margin-top:12px;"><button class="btn accent" id="tbCreate" style="width:100%;">CRÉER LA TOURNÉE</button></div>
+      <div class="btn-row"><button class="btn ghost" id="tbCancel" style="width:100%;">Annuler</button></div>
+    </div>
+
+    <div class="card" id="tourPlannedCard">
+      <h2>🗓️ Tournées planifiées <span id="tourPlannedCount" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Tournées réellement planifiées (tournée type + date) avec leurs BL. Un BL peut être retiré tant que la tournée n'est pas validée : il redevient disponible.</p>
+      <div class="field"><label for="planScope">Afficher</label><select id="planScope" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="avenir">À venir (aujourd'hui et après)</option><option value="toutes">Toutes</option></select></div>
+      <div id="tourPlannedList"></div>
     </div>
   </section>
 
@@ -339,10 +364,11 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var configDocRef = null;
 var collectesColRef = null;
+var instancesColRef = null;   // tournées planifiées (instances : tournée type + date)
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0014';
+var APP_VERSION = '2026.0015';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -353,7 +379,8 @@ var state = {
   bons: [],
   tournees: [],
   base: { partenaires: [], contremarques: [] },
-  collectes: []
+  collectes: [],
+  instances: []
 };
 
 var JOURS_SEMAINE = [['lundi','Lundi','Lun'],['mardi','Mardi','Mar'],['mercredi','Mercredi','Mer'],['jeudi','Jeudi','Jeu'],['vendredi','Vendredi','Ven'],['samedi','Samedi','Sam'],['dimanche','Dimanche','Dim']];
@@ -533,6 +560,36 @@ function analyseCompatibilite(bl){
   return res;
 }
 function tourneesCompatibles(bl){ return analyseCompatibilite(bl).compatibles; }
+
+// évalue UNE tournée pour UN BL à une date donnée (mêmes critères que analyseCompatibilite : département, code postal,
+// commune, jour, créneau, actif). Sert au contrôle avant construction d'une tournée : renvoie la raison précise du refus.
+function evaluerTournee(b, t, date){
+  var adr = b.contremarqueAdresse || {}, cp = String(adr.cp||'').trim();
+  function ko(etape, message){ return { ok: false, etape: etape, message: message }; }
+  if(t.statut!=='active') return ko('actif', 'La tournée '+t.id+' est inactive');
+  if(!cp) return ko('cp', 'Code postal du BL manquant');
+  var zones = tourneeZones(t);
+  if(!zones.some(function(z){ return z.cp.slice(0,2)===cp.slice(0,2); })) return ko('dept', t.id+' ne dessert pas le département '+cp.slice(0,2));
+  var zc = zones.filter(function(z){ return z.cp===cp; });
+  if(!zc.length) return ko('cp', t.id+' ne dessert pas le code postal '+cp);
+  var cs = communeStatus(cp, adr.ville), nb = communesOfCp(cp).length;
+  if(zc.length < nb && nb > 1){
+    if(cs.etat==='reconnue'){
+      if(!zc.some(function(z){ return canonCommune(z.commune)===canonCommune(cs.commune); })) return ko('commune', t.id+' ne dessert pas la commune '+cs.commune+' ('+cp+')');
+    } else return ko('commune_non_reconnue', 'Commune du BL '+(cs.etat==='vide' ? 'non renseignée' : 'non reconnue')+' : la zone de '+t.id+' ne peut pas être vérifiée');
+  }
+  var jourKey = null, jourLabel = '';
+  if(date){
+    var d = new Date(date+'T00:00:00');
+    if(!isNaN(d.getTime())){ jourKey = JS_DAY_TO_KEY[d.getDay()]; jourLabel = JOURS_FR[d.getDay()]; }
+  }
+  if(jourKey && !t[jourKey]) return ko('jour', t.id+' ne roule pas le '+jourLabel);
+  if(!tourneeAcceptsCreneau(t, b.rdv)){
+    var r = b.rdv || {};
+    return ko('creneau', 'Le créneau '+r.creneauDebut+(r.creneauFin ? '–'+r.creneauFin : '')+' est hors de la plage horaire de '+t.id+' ('+t.heureDebut+'–'+t.heureFin+')');
+  }
+  return { ok: true };
+}
 
 async function saveBonPatch(numero, patch){
   var b = state.bons.find(function(x){ return x.numero===numero; });
@@ -797,7 +854,7 @@ function renderBLActions(numero){
       }).join('');
     }
   } else if(b.statut==='affecte_tournee'){
-    html += '<div class="hint" style="font-weight:600;color:var(--accent);">🚛 Affecté à la tournée '+escapeHtml(b.tourneeId||'')+'</div>';
+    html += '<div class="hint" style="font-weight:600;color:var(--accent);">🚛 Affecté à la tournée '+escapeHtml(b.tourneeId||'')+((b.affectation && b.affectation.date) ? ' du '+escapeHtml(fmtDateLong(b.affectation.date)) : '')+'</div>';
     html += '<div class="btn-row"><button class="btn ghost bl-act" data-act="desaffecter" data-numero="'+numero+'" style="width:100%;">Retirer de la tournée</button></div>';
   } else if(b.statut==='annule'){
     var an0 = b.annulation || {};
@@ -836,12 +893,19 @@ function renderBLActions(numero){
       }
       else if(act==='affecter'){
         var tid = btn.getAttribute('data-tournee');
-        if(!confirm('Affecter le BL '+num+' à la tournée '+tid+' ?')) return;
-        await saveBonPatch(num, { statut: 'affecte_tournee', tourneeId: tid });
+        var bAff = state.bons.find(function(x){ return x.numero===num; });
+        var tAff = state.tournees.find(function(x){ return x.id===tid; });
+        var dAff = bonDateLivraison(bAff);
+        if(!tAff || !dAff){ banner(!dAff ? 'Date de livraison manquante : affectation impossible' : 'Tournée introuvable'); return; }
+        var ctlAff = controleBLPourTournee(bAff, tAff, dAff);
+        if(!ctlAff.ok){ banner('Affectation impossible : '+ctlAff.raisons.join(' · ')); return; }
+        if(!confirm('Affecter le BL '+num+' à la tournée '+tid+' du '+fmtDateLong(dAff)+' ?')) return;
+        await construireTournee([bAff], tAff, dAff);
       }
       else if(act==='desaffecter'){
-        if(!confirm('Retirer ce BL de sa tournée ? Il repassera en "Validé pour tournée".')) return;
-        await saveBonPatch(num, { statut: 'valide_pour_tournee', tourneeId: '' });
+        var motifRet = prompt('Retirer ce BL de sa tournée. Motif (facultatif) :');
+        if(motifRet===null) return;
+        await retirerBLDeTournee(num, motifRet.trim());
       }
       else if(act==='annuler'){
         var motif = prompt('Motif de l\'annulation du BL '+num+' (obligatoire) :');
@@ -884,7 +948,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn
     if(name==='emporte') renderEmporteList();
     if(name==='alivrer') renderLivList();
     if(name==='rdv') renderRdvQueue();
-    if(name==='tournees') renderTourneesDispo();
+    if(name==='tournees'){ renderTourneesDispo(); renderTourneesPlanifiees(); }
     if(name==='collecte'){ renderCollecteList(); renderPartenairesList(); renderCollecteSourceFields(); renderCollecteDestFields(); }
   });
 });
@@ -1193,15 +1257,19 @@ async function startForAgency(code){
   tourneesColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('tournees') : null;
   configDocRef = agencyDocRef(code);
   collectesColRef = configDocRef ? configDocRef.collection('collectes') : null;
+  instancesColRef = configDocRef ? configDocRef.collection('tourneesPlanifiees') : null;
   document.getElementById('livDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
   await loadBons();
   await loadTournees();
   await loadBaseForCollecte();
   await loadCollectes();
+  await loadInstances();
+  await migrerAffectationsAnciennes();
   renderLivList();
   renderEmporteList();
   renderRdvQueue();
   renderTourneesDispo();
+  renderTourneesPlanifiees();
   renderCollecteSourceFields();
   renderCollecteDestFields();
   renderPartenairesList();
@@ -1282,7 +1350,7 @@ function rdvInfoHtml(b){
 }
 
 function refreshAllBonLists(){
-  renderLivList(); renderEmporteList(); renderRdvQueue(); renderTourneesDispo();
+  renderLivList(); renderEmporteList(); renderRdvQueue(); renderTourneesDispo(); renderTourneesPlanifiees();
 }
 
 function renderRdvQueue(openNumero){
@@ -1428,7 +1496,7 @@ function isValideExploitant(b){
   var v = b.validationExploitant || {};
   return !!v.valide || b.statut==='valide_pour_tournee' || b.statut==='affecte_tournee';
 }
-function isAffecte(b){ return !!b.tourneeId || b.statut==='affecte_tournee'; }
+function isAffecte(b){ return !!b.tourneeId || !!(b.affectation && b.affectation.instanceId) || b.statut==='affecte_tournee'; }
 var LIBELLES_MANQUE = {
   destinataire: 'Destinataire manquant', adresse: 'Adresse manquante', cp: 'Code postal manquant', ville: 'Ville manquante',
   telephone: 'Téléphone manquant', marchandise: 'Marchandise (poids/colis) non renseignée', date: 'Date de livraison manquante'
@@ -1452,7 +1520,7 @@ function eligibiliteBL(b){
   function stop(etape, reasons, prochaine){ r.etape = etape; r.bloquants = reasons; r.prochaine = prochaine || ''; return r; }
   if(b.statut==='annule') return stop('annule', ['BL annulé'+(b.annulation && b.annulation.motif ? ' — '+b.annulation.motif : '')]);
   if(b.statut==='livre') return stop('livre', ['BL déjà livré']);
-  if(r.niveaux.affecte) return stop('affecte', ['Déjà affecté à la tournée '+(b.tourneeId || '?')]);
+  if(r.niveaux.affecte) return stop('affecte', ['Déjà affecté à la tournée '+(b.tourneeId || '?')+((b.affectation && b.affectation.date) ? ' du '+fmtDate(b.affectation.date) : '')]);
   if(b.type==='emporte') return stop('emporte', ['Retrait au dépôt (Emporté) : pas de tournée de livraison']);
   var manques = ctrl.checks.filter(function(k){ return !k.ok; }).map(function(k){ return LIBELLES_MANQUE[k.key] || k.label; });
   if(b.estImperative && !b.dateImperative) manques.push('Date impérative non renseignée');
@@ -1509,6 +1577,7 @@ function renderTourneesDispo(){
   var el = document.getElementById('tourAvailList');
   if(!ordered.length){
     el.innerHTML = '<div class="empty">'+(tourFilter==='eligibles' ? 'Aucun BL éligible pour le moment' : (tourFilter==='a_traiter' ? 'Aucun BL à traiter' : 'Aucun BL'))+'</div>';
+    updateTourSelBar();
     return;
   }
   el.innerHTML = ordered.map(function(b){
@@ -1517,8 +1586,9 @@ function renderTourneesDispo(){
     var badge = e.eligible ? '<span style="color:#1e8e3e;font-weight:700;font-size:12.5px;">🟢 Éligible</span>'
       : (e.etape==='a_traiter' ? '<span style="color:#c0392b;font-weight:700;font-size:12.5px;">🔴 À traiter</span>'
                                : '<span style="color:#c0392b;font-weight:700;font-size:12.5px;">🔴 Pas encore disponible</span>');
+    var selBox = e.eligible ? '<input type="checkbox" class="tour-sel" data-numero="'+escapeHtml(n)+'" '+(tourSelection[n] ? 'checked' : '')+' style="width:18px;height:18px;">' : '';
     var h = '<div class="hist-item">'+
-      '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(n)+'</span>'+badge+'</div>'+
+      '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;">'+selBox+'<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(n)+'</span></label>'+badge+'</div>'+
       '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(b.contremarque || '—')+' <span style="font-weight:400;color:var(--ink-soft);">· Client : '+escapeHtml(bonClient(b))+'</span></div>'+
       '<div class="sub">'+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' ') || 'Adresse non renseignée')+'</div>';
     if(b.estImperative) h += '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — '+(b.dateImperative ? fmtDateLong(b.dateImperative) : 'date à fixer')+'</div>';
@@ -1552,11 +1622,333 @@ function renderTourneesDispo(){
   Array.prototype.forEach.call(el.querySelectorAll('.tour-open'), function(btn){
     btn.addEventListener('click', function(){ openBonFiche(btn.getAttribute('data-numero')); });
   });
+  Array.prototype.forEach.call(el.querySelectorAll('.tour-sel'), function(cb){
+    cb.addEventListener('change', function(){
+      if(cb.checked) tourSelection[cb.getAttribute('data-numero')] = true; else delete tourSelection[cb.getAttribute('data-numero')];
+      updateTourSelBar(); renderTourBuild();
+    });
+  });
+  updateTourSelBar();
 }
 Array.prototype.forEach.call(document.querySelectorAll('.tour-chip'), function(ch){
   ch.addEventListener('click', function(){ tourFilter = ch.getAttribute('data-filter'); renderTourneesDispo(); });
 });
 document.getElementById('tourSearch').addEventListener('input', renderTourneesDispo);
+
+// ================= Phase 2 : construction des tournées, tournées planifiées =================
+// Le référentiel (Paramètres) reste la « tournée type » ; une tournée planifiée est une INSTANCE : tournée type + date.
+var INSTANCE_STATUTS = {
+  brouillon:   { label: 'Brouillon',   icon: '📝', color: '#7a7a72' },
+  preparation: { label: 'Préparation', icon: '🛠️', color: '#2563eb' },
+  validee:     { label: 'Validée',     icon: '✅', color: '#1e8e3e' },
+  en_cours:    { label: 'En cours',    icon: '🚚', color: '#e8792e' },
+  terminee:    { label: 'Terminée',    icon: '🏁', color: '#1e8e3e' },
+  annulee:     { label: 'Annulée',     icon: '⛔', color: '#c0392b' }
+};
+function instanceIdOf(tid, date){ return tid+'_'+date; }
+function instanceModifiable(i){ return i.statut==='brouillon' || i.statut==='preparation'; }
+function bonsDeInstance(i){ return state.bons.filter(function(b){ return b.affectation && b.affectation.instanceId===i.id; }); }
+function todayIso(){ var d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function tourneeLibelle(t){ return t.id+' — '+(TOURNEE_TYPE_LABELS[t.type]||t.type)+' '+t.heureDebut+'–'+t.heureFin; }
+
+async function loadInstances(){
+  state.instances = [];
+  if(!fsReady() || !instancesColRef) return;
+  try{
+    var snap = await instancesColRef.get();
+    snap.forEach(function(doc){ state.instances.push(doc.data()); });
+  }catch(e){ console.error('Firestore loadInstances error', e); }
+}
+async function saveInstance(inst){
+  if(fsReady() && instancesColRef){
+    try{ await instancesColRef.doc(inst.id).set(inst); }
+    catch(e){ console.error('Firestore saveInstance error', e); banner('⚠ Enregistrement de la tournée échoué : '+(e.message||e)); }
+  }
+}
+
+// contrôle d'un BL vis-à-vis d'une tournée cible et d'une date (jamais d'affectation sans ce contrôle)
+function controleBLPourTournee(b, t, date){
+  var raisons = [], e = eligibiliteBL(b);
+  if(e.etape!=='eligible' && e.etape!=='a_traiter') raisons = raisons.concat(e.bloquants);   // état du BL (annulé, déjà affecté, RDV, validation...)
+  var dBl = bonDateLivraison(b);
+  if(!dBl) raisons.push('Date de livraison manquante');
+  else if(dBl !== date) raisons.push('Date du BL ('+fmtDateLong(dBl)+') différente de celle de la tournée ('+fmtDateLong(date)+')'+(b.estImperative ? ' — date impérative : ne pas la déplacer' : ''));
+  var ev = evaluerTournee(b, t, date);
+  if(!ev.ok) raisons.push(ev.message);
+  return { ok: !raisons.length, raisons: raisons };
+}
+
+// crée l'instance (ou ajoute à l'instance existante) et affecte les BL, avec historique
+async function construireTournee(bons, t, date, opts){
+  opts = opts || {};
+  var mode = opts.mode || 'manuel';
+  var par = lsGet('access-identity') || '', now = new Date().toISOString();
+  var id = instanceIdOf(t.id, date);
+  var inst = state.instances.find(function(i){ return i.id===id; });
+  if(inst && !instanceModifiable(inst)){
+    banner('La tournée '+id+' est « '+((INSTANCE_STATUTS[inst.statut]||{}).label||inst.statut)+' » : on ne peut plus y ajouter de BL');
+    return '';
+  }
+  if(!inst){
+    var jours = {};
+    JOURS_SEMAINE.forEach(function(j){ jours[j[0]] = !!t[j[0]]; });
+    inst = { id: id, tourneeId: t.id, date: date,
+      referentiel: { type: t.type, heureDebut: t.heureDebut, heureFin: t.heureFin, departement: t.departement, jours: jours },   // copie figée du référentiel
+      statut: 'brouillon', creePar: par, creeLe: now, derogations: [], historique: [{ action: 'creation', par: par, le: now }] };
+    state.instances.push(inst);
+  }
+  inst.historique = (inst.historique||[]).concat([{ action: mode==='migration' ? 'migration' : 'ajout', bls: bons.map(function(b){ return b.numero; }), par: par, le: now }]);
+  await saveInstance(inst);
+  for(var i=0; i<bons.length; i++){
+    var b = bons[i];
+    var entry = { action: mode==='migration' ? 'migration' : 'affectation', instanceId: id, tourneeId: t.id, date: date, par: par, le: now, mode: mode };
+    await saveBonPatch(b.numero, {
+      statut: 'affecte_tournee', tourneeId: t.id, tourneeInstanceId: id,
+      affectation: { instanceId: id, tourneeId: t.id, date: date, par: par, le: now, mode: mode },
+      historiqueAffectations: (b.historiqueAffectations||[]).concat([entry])
+    });
+  }
+  return id;
+}
+
+// retire un BL de sa tournée (tant qu'elle n'est pas validée) : il redevient « disponible pour tournée »
+async function retirerBLDeTournee(numero, motif){
+  var b = state.bons.find(function(x){ return x.numero===numero; });
+  if(!b) return false;
+  var aff = b.affectation || {};
+  var inst = state.instances.find(function(i){ return i.id===aff.instanceId; });
+  if(inst && !instanceModifiable(inst)){
+    banner('La tournée est « '+((INSTANCE_STATUTS[inst.statut]||{}).label||inst.statut)+' » : retrait impossible');
+    return false;
+  }
+  var par = lsGet('access-identity') || '', now = new Date().toISOString();
+  await saveBonPatch(numero, {
+    statut: 'valide_pour_tournee', tourneeId: '', tourneeInstanceId: '', affectation: null,
+    historiqueAffectations: (b.historiqueAffectations||[]).concat([{ action: 'retrait', instanceId: aff.instanceId||'', tourneeId: aff.tourneeId||b.tourneeId||'', date: aff.date||'', par: par, le: now, motif: motif||'' }])
+  });
+  if(inst){
+    inst.historique = (inst.historique||[]).concat([{ action: 'retrait', bl: numero, par: par, le: now, motif: motif||'' }]);
+    await saveInstance(inst);
+  }
+  return true;
+}
+
+// BL affectés avec l'ancienne méthode (tournée type seule, sans date) : rattachés à une tournée planifiée
+async function migrerAffectationsAnciennes(){
+  if(!fsReady()) return;
+  var anciens = state.bons.filter(function(b){ return b.statut==='affecte_tournee' && b.tourneeId && !b.affectation; });
+  for(var i=0; i<anciens.length; i++){
+    var b = anciens[i];
+    var t = state.tournees.find(function(x){ return x.id===b.tourneeId; });
+    var date = bonDateLivraison(b);
+    if(!t || !date) continue;
+    await construireTournee([b], t, date, { mode: 'migration' });
+  }
+}
+
+// ---------- sélection des BL éligibles et construction ----------
+var tourSelection = {};
+var tourBuildOpen = false;
+
+function selectedBons(){
+  return state.bons.filter(function(b){ return tourSelection[b.numero]; });
+}
+function updateTourSelBar(){
+  var n = selectedBons().length;
+  var bar = document.getElementById('tourSelBar');
+  bar.style.display = n ? 'block' : 'none';
+  document.getElementById('tourSelCount').textContent = n+' BL sélectionné'+(n>1?'s':'');
+}
+
+function tbTargets(sel){
+  var count = {};
+  sel.forEach(function(b){ analyseCompatibilite(b).compatibles.forEach(function(t){ count[t.id] = (count[t.id]||0) + 1; }); });
+  return state.tournees.filter(function(t){ return count[t.id]; })
+    .sort(function(a,b){ return count[b.id]-count[a.id] || a.id.localeCompare(b.id); })
+    .map(function(t){ return { t: t, n: count[t.id] }; });
+}
+function tbDefaultDate(sel){
+  var cnt = {};
+  sel.forEach(function(b){ var d = bonDateLivraison(b); if(d) cnt[d] = (cnt[d]||0) + 1; });
+  var ds = Object.keys(cnt).sort(function(a,b){ return cnt[b]-cnt[a] || a.localeCompare(b); });
+  return ds[0] || '';
+}
+
+function openTourBuild(){
+  var sel = selectedBons();
+  if(!sel.length){ banner('Sélectionne au moins un BL éligible'); return; }
+  tourBuildOpen = true;
+  document.getElementById('tourBuildCard').style.display = 'block';
+  var targets = tbTargets(sel);
+  var selEl = document.getElementById('tbTournee');
+  selEl.innerHTML = targets.length
+    ? targets.map(function(x){ return '<option value="'+escapeHtml(x.t.id)+'">'+escapeHtml(tourneeLibelle(x.t))+' ('+x.n+'/'+sel.length+' BL)</option>'; }).join('')
+    : '<option value="">Aucune tournée compatible</option>';
+  document.getElementById('tbDate').value = tbDefaultDate(sel);
+  renderTourBuild();
+  document.getElementById('tourBuildCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function closeTourBuild(){
+  tourBuildOpen = false;
+  document.getElementById('tourBuildCard').style.display = 'none';
+}
+
+function tbCurrent(){
+  var t = state.tournees.find(function(x){ return x.id===document.getElementById('tbTournee').value; });
+  var date = document.getElementById('tbDate').value;
+  var sel = selectedBons();
+  var ctl = sel.map(function(b){ return { b: b, c: (t && date) ? controleBLPourTournee(b, t, date) : { ok: false, raisons: ['Choisis une tournée et une date'] } }; });
+  var inst = (t && date) ? state.instances.find(function(i){ return i.id===instanceIdOf(t.id, date); }) : null;
+  var bloque = !sel.length || !t || !date || ctl.some(function(x){ return !x.c.ok; }) || (inst && !instanceModifiable(inst));
+  return { t: t, date: date, sel: sel, ctl: ctl, inst: inst, bloque: bloque };
+}
+
+function renderTourBuild(){
+  if(!tourBuildOpen) return;
+  var cur = tbCurrent();
+  var nOk = cur.ctl.filter(function(x){ return x.c.ok; }).length, nKo = cur.ctl.length - nOk;
+  var hint = '';
+  if(cur.inst){
+    hint = instanceModifiable(cur.inst)
+      ? '<div class="hint" style="color:var(--accent);font-weight:600;">Cette tournée est déjà planifiée ('+bonsDeInstance(cur.inst).length+' BL) : les BL seront ajoutés à cette tournée.</div>'
+      : '<div class="hint" style="color:#c0392b;font-weight:700;">🔴 Cette tournée est « '+escapeHtml((INSTANCE_STATUTS[cur.inst.statut]||{}).label||cur.inst.statut)+' » : on ne peut plus y ajouter de BL.</div>';
+  }
+  document.getElementById('tbExistingHint').innerHTML = hint;
+
+  var totalKg = cur.sel.reduce(function(s,b){ return s + (b.poidsTotal||0); }, 0), totalColis = cur.sel.reduce(function(s,b){ return s + (b.nbColisTotal||0); }, 0);
+  var h = '<div class="hint" style="font-weight:600;margin:6px 0;">CONTRÔLE DE LA TOURNÉE</div>'+
+    '<div class="sub" style="color:'+(nKo?'#c0392b':'#1e8e3e')+';font-weight:700;">'+(nOk ? '🟢 '+nOk+' BL conforme'+(nOk>1?'s':'') : '')+(nOk && nKo ? ' · ' : '')+(nKo ? '🔴 '+nKo+' anomalie'+(nKo>1?'s':'') : '')+'</div>';
+  h += cur.ctl.map(function(x){
+    var b = x.b, adr = b.contremarqueAdresse || {};
+    var head = 'BL '+escapeHtml(b.numero)+' — '+escapeHtml(b.contremarque||'—')+' <span style="color:var(--ink-soft);">('+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' '))+')</span>';
+    if(x.c.ok) return '<div class="sub" style="margin-top:6px;">🟢 '+head+(cur.t ? ' → compatible '+escapeHtml(cur.t.id) : '')+'</div>';
+    return '<div class="sub" style="margin-top:8px;color:#c0392b;font-weight:600;">🔴 '+head+'</div>'+
+      x.c.raisons.map(function(rs){ return '<div class="sub" style="color:#c0392b;">'+escapeHtml(rs)+'</div>'; }).join('')+
+      '<div class="btn-row"><button class="btn ghost tb-remove" data-numero="'+escapeHtml(b.numero)+'" style="width:auto;">Retirer de la sélection</button></div>';
+  }).join('');
+  document.getElementById('tbControl').innerHTML = h;
+  document.getElementById('tbSummary').innerHTML = cur.sel.length ? '<div class="sub" style="margin-top:10px;">'+cur.sel.length+' BL · '+totalKg.toFixed(1)+' kg · '+totalColis+' colis</div>' : '';
+  var btn = document.getElementById('tbCreate');
+  btn.disabled = cur.bloque;
+  btn.textContent = cur.inst && instanceModifiable(cur.inst) ? 'AJOUTER À LA TOURNÉE' : 'CRÉER LA TOURNÉE';
+  Array.prototype.forEach.call(document.querySelectorAll('.tb-remove'), function(bt){
+    bt.addEventListener('click', function(){
+      delete tourSelection[bt.getAttribute('data-numero')];
+      renderTourneesDispo(); renderTourBuild();
+      if(!selectedBons().length) closeTourBuild();
+    });
+  });
+}
+
+document.getElementById('tbTournee').addEventListener('change', renderTourBuild);
+document.getElementById('tbDate').addEventListener('change', renderTourBuild);
+document.getElementById('tourBuildBtn').addEventListener('click', openTourBuild);
+document.getElementById('tbCancel').addEventListener('click', closeTourBuild);
+document.getElementById('tourSelNone').addEventListener('click', function(){ tourSelection = {}; renderTourneesDispo(); closeTourBuild(); });
+document.getElementById('tourSelAll').addEventListener('click', function(){
+  Array.prototype.forEach.call(document.querySelectorAll('#tourAvailList .tour-sel'), function(cb){ tourSelection[cb.getAttribute('data-numero')] = true; });
+  renderTourneesDispo(); renderTourBuild();
+});
+document.getElementById('tbCreate').addEventListener('click', async function(){
+  var cur = tbCurrent();
+  if(cur.bloque){ banner('Résous les anomalies (ou retire les BL concernés) avant de créer la tournée'); return; }
+  var kg = cur.sel.reduce(function(s,b){ return s + (b.poidsTotal||0); }, 0);
+  var recap = (cur.inst ? 'AJOUT À LA TOURNÉE' : 'CRÉATION DE LA TOURNÉE')+'\n\nTournée : '+tourneeLibelle(cur.t)+'\nDate : '+fmtDateLong(cur.date)+'\nBL sélectionnés : '+cur.sel.length+'\nPoids : '+kg.toFixed(1)+' kg\n\nConfirmer ?';
+  if(!confirm(recap)) return;
+  var id = await construireTournee(cur.sel, cur.t, cur.date);
+  if(!id) return;
+  banner('Tournée '+cur.t.id+' du '+fmtDate(cur.date)+' : '+cur.sel.length+' BL affecté'+(cur.sel.length>1?'s':''));
+  tourSelection = {};
+  closeTourBuild();
+  refreshAllBonLists();
+  document.getElementById('tourPlannedCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+// ---------- vue « Tournées planifiées » ----------
+function renderTourneesPlanifiees(){
+  var scope = document.getElementById('planScope').value;
+  var today = todayIso();
+  var all = state.instances.slice();
+  var list = all.filter(function(i){ return scope==='toutes' || !i.date || i.date >= today; })
+    .sort(function(a,b){ return (a.date||'').localeCompare(b.date||'') || a.id.localeCompare(b.id); });
+  document.getElementById('tourPlannedCount').textContent = all.length ? '('+list.length+')' : '';
+  var el = document.getElementById('tourPlannedList');
+
+  var orphelins = state.bons.filter(function(b){ return b.statut==='affecte_tournee' && !b.affectation; });
+  var orphHtml = orphelins.length ? '<div class="hint" style="color:#e8792e;margin-top:12px;">⚠ '+orphelins.length+' BL marqué(s) « affecté » sans tournée planifiée (date ou tournée introuvable) : '+
+    orphelins.map(function(b){ return '<a href="#" class="plan-orph" data-numero="'+escapeHtml(b.numero)+'" style="color:var(--accent);font-weight:600;">BL '+escapeHtml(b.numero)+'</a>'; }).join(', ')+'</div>' : '';
+
+  if(!list.length){
+    el.innerHTML = '<div class="empty">'+(all.length ? 'Aucune tournée à venir' : 'Aucune tournée planifiée pour le moment')+'</div>'+orphHtml;
+  } else {
+    el.innerHTML = list.map(function(inst){
+      var bons = bonsDeInstance(inst), ref = inst.referentiel || {};
+      var st = INSTANCE_STATUTS[inst.statut] || INSTANCE_STATUTS.brouillon;
+      var kg = bons.reduce(function(s,b){ return s + (b.poidsTotal||0); }, 0), colis = bons.reduce(function(s,b){ return s + (b.nbColisTotal||0); }, 0);
+      var imp = bons.filter(function(b){ return b.estImperative; });
+      var h = '<div class="hist-item">'+
+        '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">🚛 '+escapeHtml(inst.tourneeId)+' — '+escapeHtml(fmtDateLong(inst.date))+'</span>'+
+        '<span style="color:'+st.color+';font-weight:700;font-size:12.5px;">'+st.icon+' '+st.label+'</span></div>'+
+        '<div class="sub">'+escapeHtml((TOURNEE_TYPE_LABELS[ref.type]||ref.type||'')+' '+(ref.heureDebut||'')+'–'+(ref.heureFin||''))+' · <strong>'+bons.length+' BL · '+kg.toFixed(1)+' kg · '+colis+' colis</strong></div>';
+      if(imp.length) h += '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE : '+imp.map(function(b){ return 'BL '+escapeHtml(b.numero)+' ('+escapeHtml(fmtDate(b.dateImperative||inst.date))+')'+((b.dateImperative && b.dateImperative!==inst.date) ? ' — DATE NON RESPECTÉE' : ''); }).join(' · ')+'</div>';
+      var rows = bons.slice().sort(function(a,b){
+        var da = hhmmToMin((a.rdv||{}).creneauDebut), db = hhmmToMin((b.rdv||{}).creneauDebut);
+        if(da===null && db!==null) return 1; if(db===null && da!==null) return -1;
+        return (da||0)-(db||0) || a.numero.localeCompare(b.numero);
+      });
+      h += rows.map(function(b){
+        var r = b.rdv || {}, adr = b.contremarqueAdresse || {};
+        var cren = r.creneauDebut ? r.creneauDebut+(r.creneauFin ? '–'+r.creneauFin : '') : '—';
+        var tels = [adr.tel1, adr.tel2].filter(Boolean).map(function(t){ return '<a href="'+telHref(t)+'" style="color:var(--accent);font-weight:600;text-decoration:none;">📞 '+escapeHtml(t)+'</a>'; }).join(' &nbsp; ');
+        var presta = []; if(b.montage) presta.push('Montage'); if(b.reprise) presta.push('Reprise');
+        return '<div style="border-top:1px solid var(--line);padding:8px 0;">'+
+          '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(cren)+' · BL '+escapeHtml(b.numero)+' — '+escapeHtml(b.contremarque||'—')+(b.estImperative ? ' <span style="color:#c0392b;">· IMPÉRATIF</span>' : '')+'</div>'+
+          '<div class="sub">'+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' '))+(tels ? ' · '+tels : '')+' · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
+          (presta.length ? '<div class="sub"><strong>'+presta.join(' + ')+'</strong></div>' : '')+
+          (b.instructions ? '<div class="sub" style="font-style:italic;">« '+escapeHtml(b.instructions)+' »</div>' : '')+
+          '<div class="btn-row"><button class="btn ghost plan-pdf" data-numero="'+escapeHtml(b.numero)+'">📄 BL</button>'+
+            '<button class="btn ghost plan-open" data-numero="'+escapeHtml(b.numero)+'">⚙️ Fiche</button>'+
+            (instanceModifiable(inst) ? '<button class="btn ghost plan-remove" data-numero="'+escapeHtml(b.numero)+'">↩ Retirer</button>' : '')+'</div></div>';
+      }).join('');
+      if(!bons.length) h += '<div class="sub" style="color:var(--ink-soft);">Aucun BL dans cette tournée.</div>';
+      h += '<div class="btn-row">'+
+        (bons.length ? '<button class="btn primary plan-fiche" data-id="'+escapeHtml(inst.id)+'" style="width:100%;">📋 Fiche de sortie (chargement)</button>' : '')+
+        (!bons.length && instanceModifiable(inst) ? '<button class="btn ghost plan-delete" data-id="'+escapeHtml(inst.id)+'" style="width:100%;">🗑 Supprimer cette tournée vide</button>' : '')+'</div></div>';
+      return h;
+    }).join('')+orphHtml;
+  }
+
+  Array.prototype.forEach.call(el.querySelectorAll('.plan-pdf'), function(btn){
+    btn.addEventListener('click', function(){ var b = state.bons.find(function(x){ return x.numero===btn.getAttribute('data-numero'); }); if(b) generateBLPdf(b); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('.plan-open, .plan-orph'), function(btn){
+    btn.addEventListener('click', function(ev){ ev.preventDefault(); openBonFiche(btn.getAttribute('data-numero')); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('.plan-remove'), function(btn){
+    btn.addEventListener('click', async function(){
+      var n = btn.getAttribute('data-numero');
+      var motif = prompt('Retirer le BL '+n+' de cette tournée. Motif (facultatif) :');
+      if(motif===null) return;
+      if(await retirerBLDeTournee(n, motif.trim())){ banner('BL '+n+' retiré de la tournée : de nouveau disponible'); refreshAllBonLists(); }
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('.plan-fiche'), function(btn){
+    btn.addEventListener('click', function(){
+      var inst = state.instances.find(function(i){ return i.id===btn.getAttribute('data-id'); });
+      if(inst) generateFicheSortiePdf(bonsDeInstance(inst));
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('.plan-delete'), function(btn){
+    btn.addEventListener('click', async function(){
+      var id = btn.getAttribute('data-id');
+      if(!confirm('Supprimer la tournée vide '+id+' ?')) return;
+      state.instances = state.instances.filter(function(i){ return i.id!==id; });
+      if(fsReady() && instancesColRef){ try{ await instancesColRef.doc(id).delete(); }catch(e){ console.error('Firestore delete instance error', e); } }
+      renderTourneesPlanifiees();
+    });
+  });
+}
+document.getElementById('planScope').addEventListener('change', renderTourneesPlanifiees);
 
 // ================= Collecte marchandise (source externe/TMS/partenaire → livraison directe, retour dépôt, ou regroupement) =================
 async function loadBaseForCollecte(){
