@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6b57">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ma tournée">
+<title>Ma tournée — STLS</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root{ --bg:#f5f4ee; --card:#fff; --ink:#1c1c1a; --soft:#6b6a63; --line:#e2e0d6; --accent:#0f6b57; --red:#c0392b; --orange:#e8792e; --green:#1e8e3e; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:16px; line-height:1.4; }
+  #app{ max-width:560px; margin:0 auto; padding:calc(12px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom)); }
+  .brand{ font-size:12px; font-weight:700; letter-spacing:.08em; color:var(--soft); text-transform:uppercase; }
+  .titre{ font-size:26px; font-weight:800; margin:4px 0 0; }
+  .sous{ color:var(--soft); margin:2px 0; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:12px 0; }
+  .compteurs{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:10px; font-weight:600; }
+  .compteurs div{ background:#faf9f4; border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+  .total{ font-size:20px; font-weight:800; }
+  .bandeau{ border-radius:12px; padding:12px; margin:12px 0; font-weight:600; }
+  .bandeau.warn{ background:#fff3e6; border:1px solid var(--orange); color:#8a4200; }
+  .bandeau.err{ background:#fdecea; border:1px solid var(--red); color:var(--red); }
+  .bandeau.info{ background:#eef6f3; border:1px solid var(--accent); color:var(--accent); }
+  .bandeau button{ margin-top:8px; }
+  button.btn{ width:100%; padding:14px; border-radius:12px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-size:16px; font-weight:700; font-family:inherit; }
+  button.btn.ghost{ background:#fff; color:var(--accent); }
+  .bl{ background:var(--card); border:1px solid var(--line); border-radius:14px; margin:10px 0; overflow:hidden; }
+  .bl-h{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px 0; gap:8px; }
+  .num{ font-weight:800; color:var(--accent); }
+  .etat{ font-size:12px; font-weight:800; padding:4px 8px; border-radius:999px; white-space:nowrap; }
+  .etat-a_faire{ background:#efeee8; color:var(--soft); }
+  .etat-en_cours{ background:#fff3e6; color:#8a4200; }
+  .etat-livre{ background:#e6f5ea; color:var(--green); }
+  .etat-echec{ background:#fdecea; color:var(--red); }
+  .bl-resume{ padding:6px 14px 12px; cursor:pointer; }
+  .bl-resume .dest{ font-size:17px; font-weight:700; }
+  .ligne{ color:var(--soft); }
+  .detail{ display:none; border-top:1px solid var(--line); padding:12px 14px; background:#fcfbf7; }
+  .bl.ouvert .detail{ display:block; }
+  .detail h4{ margin:12px 0 4px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--soft); }
+  .detail h4:first-child{ margin-top:0; }
+  .tel{ display:inline-block; margin:2px 8px 2px 0; padding:10px 14px; border-radius:10px; background:var(--accent); color:#fff; text-decoration:none; font-weight:700; }
+  .chip{ display:inline-block; padding:3px 9px; border-radius:999px; background:#e8f3ee; color:var(--accent); font-weight:700; font-size:13px; margin:2px 4px 2px 0; }
+  .imperatif{ background:#fdecea; color:var(--red); border-radius:8px; padding:8px 10px; font-weight:800; margin-bottom:8px; }
+  .instr{ background:#fff8e1; border:1px solid #f0d78c; border-radius:8px; padding:8px 10px; white-space:pre-wrap; }
+  .msg{ text-align:center; padding:48px 12px; }
+  .msg h1{ font-size:22px; margin:0 0 8px; }
+  .maj{ font-size:12px; color:var(--soft); margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="msg"><h1>Chargement…</h1></div></div>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+// ================= Application livreur (PWA) — étape 1 : accès sécurisé à la tournée et affichage des BL =================
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c"
+};
+var LS_TOKEN = 'stls_livreur_token';
+var db = null, token = '', chargementEnCours = false, ouvertureEnregistree = false;
+var S = { lien: null, tournee: null, bls: [], events: [], hors: false, majLe: '' };
+var JOURS = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+
+function ls(k, v){
+  try{ if(v===undefined) return localStorage.getItem(k); if(v===null) localStorage.removeItem(k); else localStorage.setItem(k, v); }catch(e){ return null; }
+}
+function esc(s){ return String(s==null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
+function fmtDate(iso){ var p = String(iso||'').slice(0,10).split('-'); return p.length===3 ? p[2]+'/'+p[1]+'/'+p[0] : ''; }
+function fmtDateLong(iso){
+  var d = new Date(String(iso||'').slice(0,10)+'T00:00:00');
+  return isNaN(d.getTime()) ? fmtDate(iso) : JOURS[d.getDay()]+' '+fmtDate(iso);
+}
+function deviceId(){
+  var id = ls('stls_livreur_device');
+  if(!id){ id = 'dv_'+Math.random().toString(36).slice(2,10)+Date.now().toString(36); ls('stls_livreur_device', id); }
+  return id;
+}
+function telHref(t){ return 'tel:'+String(t).replace(/[^\d+]/g,''); }
+
+// le jeton est dans le # de l'adresse : on le mémorise puis on le retire de la barre d'adresse
+function lireToken(){
+  var m = /[#&]t=([A-Za-z0-9_-]{16,})/.exec(location.hash || '');
+  if(m){
+    ls(LS_TOKEN, m[1]);
+    try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
+    return m[1];
+  }
+  return ls(LS_TOKEN) || '';
+}
+function verifierLien(lien){
+  if(lien.actif === false) return { t: 'Lien désactivé', m: 'Ce lien a été désactivé par l\'exploitation. Demande un nouveau lien.' };
+  if(lien.expireLe && new Date(lien.expireLe) < new Date()) return { t: 'Lien expiré', m: 'Ce lien a expiré. Demande un nouveau lien à l\'exploitation.' };
+  return null;
+}
+function afficherMessage(titre, texte, retry){
+  document.getElementById('app').innerHTML = '<div class="msg"><h1>'+esc(titre)+'</h1><p class="sous">'+esc(texte)+'</p>'+
+    (retry ? '<p><button class="btn" id="btnRetry">Réessayer</button></p>' : '')+'</div>';
+  if(retry) document.getElementById('btnRetry').addEventListener('click', charger);
+}
+
+// ---------- cache local : la tournée reste consultable sans réseau ----------
+function cleCache(){ return 'stls_livreur_cache_'+token; }
+function sauverCache(){ ls(cleCache(), JSON.stringify({ lien: S.lien, tournee: S.tournee, bls: S.bls, events: S.events, majLe: S.majLe })); }
+function lireCache(){ try{ var c = JSON.parse(ls(cleCache())||'null'); return c && c.tournee ? c : null; }catch(e){ return null; } }
+
+// ---------- état d'un BL, déduit des événements ----------
+var EVT_ETAT = { arrivee: 'en_cours', prise_en_charge: 'en_cours', arrivee_client: 'en_cours', livraison_validee: 'livre', echec_confirme: 'echec' };
+var ETAT_LABEL = { a_faire: 'À FAIRE', en_cours: 'EN COURS', livre: 'LIVRÉ', echec: 'ÉCHEC DE LIVRAISON' };
+function etatBL(num){
+  var evs = S.events.filter(function(e){ return e.bl===num && EVT_ETAT[e.type]; })
+    .sort(function(a,b){ return (a.dateHeureAppareil||'').localeCompare(b.dateHeureAppareil||''); });
+  return evs.length ? EVT_ETAT[evs[evs.length-1].type] : 'a_faire';
+}
+
+// ---------- chargement ----------
+async function charger(){
+  if(chargementEnCours) return;
+  chargementEnCours = true;
+  try{
+    var ref = db.collection('stls_livreur').doc(token);
+    var l = await ref.get();
+    if(!l.exists){ ls(cleCache(), null); afficherMessage('Lien invalide', 'Ce lien n\'existe pas. Demande un nouveau lien à l\'exploitation.'); return; }
+    var lien = l.data(), refus = verifierLien(lien);
+    if(refus){ afficherMessage(refus.t, refus.m); return; }
+    var t = await ref.collection('tournee').doc('main').get();
+    var b = await ref.collection('bl').get();
+    var e = await ref.collection('evenements').get();
+    var bls = [], events = [];
+    b.forEach(function(d){ bls.push(d.data()); });
+    e.forEach(function(d){ events.push(d.data()); });
+    bls.sort(function(x,y){ return (x.ordre||0)-(y.ordre||0); });
+    S = { lien: lien, tournee: t.exists ? t.data() : null, bls: bls, events: events, hors: false, majLe: new Date().toISOString() };
+    if(!S.tournee){ afficherMessage('Tournée non publiée', 'La tournée n\'est pas encore disponible. Réessaie dans un instant.', true); return; }
+    sauverCache();
+    enregistrerOuverture();
+    render();
+  }catch(err){
+    var c = lireCache();
+    if(c && !verifierLien(c.lien || {})){ S = { lien: c.lien, tournee: c.tournee, bls: c.bls, events: c.events, hors: true, majLe: c.majLe }; render(); }
+    else if(c){ var r = verifierLien(c.lien || {}); afficherMessage(r.t, r.m); }
+    else afficherMessage('Connexion impossible', 'Impossible de charger ta tournée pour le moment. Vérifie ta connexion puis réessaie.', true);
+  }finally{ chargementEnCours = false; }
+}
+
+// ---------- événements écrits par le livreur (jamais modifiés ni supprimés) ----------
+async function ecrireEvenement(id, data){
+  try{ await db.collection('stls_livreur').doc(token).collection('evenements').doc(id).set(Object.assign({ id: id, deviceId: deviceId(), dateHeureAppareil: new Date().toISOString() }, data)); return true; }
+  catch(e){ return false; }
+}
+function enregistrerOuverture(){
+  if(ouvertureEnregistree) return;
+  ouvertureEnregistree = true;
+  ecrireEvenement('open_'+deviceId()+'_'+Date.now(), { type: 'lien_ouvert', version: S.tournee.version||1, appareil: (navigator.userAgent||'').slice(0,120) });
+}
+
+// ---------- tournée modifiée après l'envoi ----------
+function cleVue(){ return 'stls_livreur_seen_'+token; }
+function versionVue(){ var v = ls(cleVue()); return v==null ? null : parseInt(v,10); }
+function modifsNonVues(){
+  var vu = versionVue(), v = S.tournee.version||1;
+  if(vu===null){ ls(cleVue(), String(v)); return []; }          // première ouverture : rien à signaler
+  if(v <= vu) return [];
+  return (S.tournee.modifications||[]).filter(function(m){ return m.version > vu; });
+}
+var LIB_MODIF = { ajout: 'BL ajouté', retrait: 'BL retiré', modification: 'BL modifié', envoi: 'Tournée envoyée' };
+async function acquitter(){
+  var v = S.tournee.version||1;
+  ls(cleVue(), String(v));
+  ecrireEvenement('ack_'+v+'_'+deviceId(), { type: 'acquittement_modification', version: v });
+  render();
+}
+
+// ---------- affichage ----------
+function compteurs(){
+  var c = { a_faire: 0, en_cours: 0, livre: 0, echec: 0 };
+  S.bls.forEach(function(b){ c[etatBL(b.numero)]++; });
+  return c;
+}
+function blHtml(b){
+  var etat = etatBL(b.numero), ct = b.contraintes || {};
+  var adr = [b.adresse1, b.adresse2].filter(Boolean).join(', ');
+  var tels = [b.tel1, b.tel2].filter(Boolean).map(function(t){ return '<a class="tel" href="'+esc(telHref(t))+'">📞 '+esc(t)+'</a>'; }).join('');
+  var cons = [];
+  if(ct.etage) cons.push('Étage '+esc(ct.etage));
+  if(ct.etage || ct.ascenseur) cons.push('Ascenseur '+(ct.ascenseur ? 'oui' : 'non'));
+  if(ct.accesDifficile) cons.push('<strong>Accès difficile</strong>');
+  if(ct.contactSurPlace) cons.push('Contact sur place : '+esc(ct.contactSurPlace));
+  var presta = []; if(b.montage) presta.push('Montage'); if(b.reprise) presta.push('Reprise');
+  var d = '';
+  if(b.estImperative) d += '<div class="imperatif">🔴 LIVRAISON IMPÉRATIVE'+(b.dateImperative ? ' — '+esc(fmtDateLong(b.dateImperative)) : '')+'</div>';
+  d += '<h4>Adresse</h4><div>'+esc(adr || '—')+'<br>'+esc([b.cp, b.ville].filter(Boolean).join(' '))+'</div>';
+  d += '<h4>Contact</h4><div>'+(tels || '<span class="ligne">Téléphone non renseigné</span>')+'</div>';
+  d += '<h4>Marchandise</h4><div>'+esc(b.colis||0)+' colis · '+esc((b.poids||0))+' kg'+(b.volume ? ' · '+esc(b.volume) : '')+(b.nature ? '<br>'+esc(b.nature) : '')+'</div>';
+  if(presta.length) d += '<div style="margin-top:6px;">'+presta.map(function(p){ return '<span class="chip">'+esc(p)+'</span>'; }).join('')+'</div>';
+  d += '<h4>Accès</h4><div>'+(cons.length ? cons.join(' · ') : '<span class="ligne">Non renseigné</span>')+'</div>';
+  if(b.instructions) d += '<h4>Instructions / observations</h4><div class="instr">'+esc(b.instructions)+'</div>';
+  d += '<h4>Client</h4><div>'+esc(b.client||'—')+'</div>';
+  var cmd = (b.commandes||[]).filter(function(c){ return c.labelNumber; });
+  if(cmd.length) d += '<h4>À enlever au dépôt</h4><div>'+cmd.map(function(c){ return esc(c.labelNumber)+' · '+esc(c.colis||0)+' colis'+(c.emplacement ? ' · 📍 '+esc(c.emplacement) : ''); }).join('<br>')+'</div>';
+  return '<div class="bl" data-n="'+esc(b.numero)+'">'+
+    '<div class="bl-h"><span class="num">BL '+esc(b.numero)+'</span><span class="etat etat-'+etat+'">'+ETAT_LABEL[etat]+'</span></div>'+
+    '<div class="bl-resume">'+(b.estImperative ? '<div style="color:var(--red);font-weight:800;font-size:13px;">🔴 IMPÉRATIF'+(b.dateImperative ? ' — '+esc(fmtDate(b.dateImperative)) : '')+'</div>' : '')+'<div class="dest">'+esc(b.ordre)+'. '+esc(b.destinataire||'—')+'</div>'+
+    '<div class="ligne">'+esc([b.cp, b.ville].filter(Boolean).join(' '))+'</div>'+
+    '<div class="ligne">'+esc(b.creneau ? '🕒 '+b.creneau+' · ' : '')+esc(b.colis||0)+' colis · '+esc(b.poids||0)+' kg</div></div>'+
+    '<div class="detail">'+d+'</div></div>';
+}
+function render(){
+  var t = S.tournee, c = compteurs(), n = S.bls.length;
+  var modifs = modifsNonVues();
+  var h = '<div class="brand">STLS · Ma tournée</div>'+
+    '<div class="titre">TOURNÉE '+esc(t.tourneeId)+'</div>'+
+    '<div class="sous">'+esc(fmtDateLong(t.date))+(t.referentiel && t.referentiel.heureDebut ? ' · '+esc(t.referentiel.heureDebut)+'–'+esc(t.referentiel.heureFin) : '')+'</div>'+
+    '<div class="sous">Livreur : <strong>'+esc(t.livreurNom||'—')+'</strong>'+(t.vehicule ? ' · '+esc(t.vehicule) : '')+'</div>';
+  if(S.hors) h += '<div class="bandeau warn">Hors connexion — données du '+esc(S.majLe ? fmtDate(S.majLe)+' '+new Date(S.majLe).toTimeString().slice(0,5) : '?')+'. Elles se mettront à jour au retour du réseau.</div>';
+  if(t.statut==='annulee') h += '<div class="bandeau err">Cette tournée a été annulée par l\'exploitation.</div>';
+  if(modifs.length){
+    h += '<div class="bandeau warn">⚠ Ta tournée a été modifiée<br>'+modifs.map(function(m){ return '• '+esc(LIB_MODIF[m.type]||m.type)+(m.bl ? ' : '+esc(m.bl) : ''); }).join('<br>')+
+      '<br><button class="btn" id="btnAck">J\'ai pris connaissance</button></div>';
+  }
+  h += '<div class="card"><div class="total">'+n+' LIVRAISON'+(n>1?'S':'')+'</div><div class="compteurs">'+
+    '<div>🟢 '+c.livre+' réalisée'+(c.livre>1?'s':'')+'</div><div>🟠 '+c.en_cours+' en cours</div>'+
+    '<div>🔴 '+c.echec+' en échec</div><div>⚪ '+c.a_faire+' restante'+(c.a_faire>1?'s':'')+'</div></div>'+
+    '<div class="maj">Mis à jour à '+esc(S.majLe ? new Date(S.majLe).toTimeString().slice(0,5) : '')+'</div></div>';
+  h += S.bls.map(blHtml).join('') || '<div class="card">Aucun BL dans cette tournée.</div>';
+  document.getElementById('app').innerHTML = h;
+  Array.prototype.forEach.call(document.querySelectorAll('.bl-resume'), function(el){
+    el.addEventListener('click', function(){ el.parentNode.classList.toggle('ouvert'); });
+  });
+  var ack = document.getElementById('btnAck');
+  if(ack) ack.addEventListener('click', acquitter);
+}
+
+// ---------- veille : lien désactivé, tournée modifiée, retour du réseau ----------
+function demarrerVeille(){
+  var ref = db.collection('stls_livreur').doc(token);
+  try{
+    ref.onSnapshot(function(s){
+      if(!s.exists || !S.lien) return;
+      var lien = s.data(), refus = verifierLien(lien);
+      if(refus){ afficherMessage(refus.t, refus.m); return; }
+      if(lien.version !== S.lien.version) charger();
+    }, function(){});
+    ref.collection('tournee').doc('main').onSnapshot(function(s){
+      if(s.exists && S.tournee && s.data().version !== S.tournee.version) charger();
+    }, function(){});
+  }catch(e){}
+  window.addEventListener('online', function(){ if(S.hors) charger(); });
+}
+
+async function demarrer(){
+  token = lireToken();
+  if(!token){ afficherMessage('Lien absent', 'Ouvre le lien reçu par WhatsApp pour accéder à ta tournée.'); return; }
+  try{ firebase.initializeApp(firebaseConfig); db = firebase.firestore(); }
+  catch(e){
+    var c = lireCache();
+    if(c){ S = { lien: c.lien, tournee: c.tournee, bls: c.bls, events: c.events, hors: true, majLe: c.majLe }; render(); }
+    else afficherMessage('Service indisponible', 'Impossible de démarrer l\'application. Vérifie ta connexion.', true);
+    return;
+  }
+  await charger();
+  demarrerVeille();
+}
+if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+  window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+}
+demarrer();
+</script>
+</body>
+</html>
