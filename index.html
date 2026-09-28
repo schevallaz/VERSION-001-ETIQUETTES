@@ -1099,21 +1099,29 @@
         <div class="field"><label for="tf-heurefin">Heure de fin</label><input type="time" id="tf-heurefin"></div>
       </div>
 
-      <h2 style="font-size:15px;margin-top:16px;">Codes postaux desservis</h2>
+      <h2 style="font-size:15px;margin-top:16px;">Zone desservie</h2>
+      <p class="hint" style="margin:0 0 10px;">Département → code postal → communes. Un même code postal peut être réparti sur plusieurs tournées : ne coche que les communes de cette tournée.</p>
       <div class="field">
-        <label for="tf-cpsearch">Rechercher un code postal</label>
-        <input type="text" id="tf-cpsearch" placeholder="Ex. 831" inputmode="numeric">
+        <label for="tf-zdept">1. Département</label>
+        <select id="tf-zdept" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select>
       </div>
-      <div id="tf-cpresults" style="max-height:220px;overflow-y:auto;margin-bottom:8px;"></div>
-      <div class="btn-row">
-        <button class="btn ghost" id="tf-cpselectall" style="width:auto;">Tout sélectionner</button>
-        <button class="btn ghost" id="tf-cpdeselectall" style="width:auto;">Tout désélectionner</button>
+      <div class="field">
+        <label for="tf-cpsearch">2. Code postal</label>
+        <input type="text" id="tf-cpsearch" placeholder="Filtrer la liste (ex. 834)" inputmode="numeric">
       </div>
-      <div class="btn-row"><button class="btn primary" id="tf-cpaddselection" style="width:100%;">Ajouter la sélection à la tournée</button></div>
+      <div id="tf-cpresults" style="max-height:200px;overflow-y:auto;margin-bottom:10px;"></div>
+      <div id="tf-communes"></div>
+      <div id="tf-communes-actions" style="display:none;">
+        <div class="btn-row">
+          <button class="btn ghost" id="tf-cpselectall" style="width:auto;">Tout sélectionner</button>
+          <button class="btn ghost" id="tf-cpdeselectall" style="width:auto;">Tout désélectionner</button>
+        </div>
+        <div class="btn-row"><button class="btn primary" id="tf-cpaddselection" style="width:100%;">Ajouter la sélection à la tournée</button></div>
+      </div>
 
-      <h2 style="font-size:15px;margin-top:16px;">Codes postaux de la tournée (<span id="tf-cpcount">0</span>)</h2>
+      <h2 style="font-size:15px;margin-top:16px;">Zones de la tournée (<span id="tf-cpcount">0</span> communes)</h2>
       <div class="field">
-        <input type="text" id="tf-cpfilter" placeholder="Filtrer la liste...">
+        <input type="text" id="tf-cpfilter" placeholder="Filtrer : code postal ou commune...">
       </div>
       <div id="tf-cplist" style="max-height:260px;overflow-y:auto;"></div>
 
@@ -2727,7 +2735,44 @@ var TOURNEE_TYPES = {
 };
 var JOURS_SEMAINE = [['lundi','Lundi','Lun'],['mardi','Mardi','Mar'],['mercredi','Mercredi','Mer'],['jeudi','Jeudi','Jeu'],['vendredi','Vendredi','Ven'],['samedi','Samedi','Sam'],['dimanche','Dimanche','Dim']];
 var tourneeEditId = null; // code de la tournée en cours de modification ; null = création
-var tourneeFormCps = []; // codes postaux en cours de constitution dans le formulaire
+var tourneeFormZones = []; // zones en cours de constitution : [{cp, commune}]
+var tourneeZoneCp = '';    // code postal dont on affiche les communes (étape 3 du formulaire)
+
+// ---- zones par commune (base CP/communes existante, aucune nouvelle base) ----
+var DEPT_LABELS = { '04':'ALPES-DE-HAUTE-PROVENCE','05':'HAUTES-ALPES','06':'ALPES-MARITIMES','13':'BOUCHES-DU-RHÔNE','26':'DRÔME','34':'HÉRAULT','83':'VAR','84':'VAUCLUSE','98':'MONACO','CO':'CORSE' };
+function deptLabel(d){ return d + (DEPT_LABELS[d] ? ' — '+DEPT_LABELS[d] : ''); }
+// forme normalisée d'un nom de commune : majuscules, sans accents ni ponctuation, Saint → ST
+function canonCommune(s){
+  s = String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  s = s.replace(/\bCEDEX\b.*$/,'').replace(/[-'’.,\/]/g,' ').replace(/\s+/g,' ').trim();
+  return s.split(' ').map(function(t){ return t==='SAINT' ? 'ST' : (t==='SAINTE' ? 'STE' : t); }).join(' ');
+}
+function communesOfCp(cp){ return CP_TO_VILLES[cp] || []; }
+// zones d'une tournée : nouveau format (communes) ou ancien format (codes postaux entiers = toutes leurs communes)
+function tourneeZones(t){
+  if(Array.isArray(t.communes)) return t.communes;
+  var out = [];
+  (t.codesPostaux||[]).forEach(function(cp){ communesOfCp(cp).forEach(function(cm){ out.push({ cp: cp, commune: cm }); }); });
+  return out;
+}
+function zonesDistinctCps(zones){
+  var seen = {}; zones.forEach(function(z){ seen[z.cp] = 1; });
+  return Object.keys(seen).sort();
+}
+function tourneeZoneSummary(t){
+  var zs = tourneeZones(t), nCp = zonesDistinctCps(zs).length;
+  if(Array.isArray(t.communes)) return zs.length+' commune(s) · '+nCp+' code(s) postal(aux)';
+  return nCp+' code(s) postal(aux) — zone entière';
+}
+// "83470 (OLLIERES, POURCIEUX) · 83130" : le détail des communes n'est donné que si le code postal n'est pas couvert en entier
+function tourneeZoneText(t){
+  var zs = tourneeZones(t), byCp = {};
+  zs.forEach(function(z){ (byCp[z.cp] = byCp[z.cp] || []).push(z.commune); });
+  return Object.keys(byCp).sort().map(function(cp){
+    var all = byCp[cp].length >= communesOfCp(cp).length;
+    return all ? cp : cp+' ('+byCp[cp].slice().sort().join(', ')+')';
+  }).join(' · ');
+}
 
 async function loadTournees(){
   state.tournees = [];
@@ -2790,7 +2835,7 @@ function showTourneesList(){
 
 function clearTourneeForm(){
   tourneeEditId = null;
-  tourneeFormCps = [];
+  tourneeFormZones = []; tourneeZoneCp = '';
   document.getElementById('tf-dept').value = '';
   document.getElementById('tf-numero').value = '';
   Array.prototype.forEach.call(document.querySelectorAll('input[name="tf-type"]'), function(r){ r.checked = false; });
@@ -2800,8 +2845,8 @@ function clearTourneeForm(){
   JOURS_SEMAINE.forEach(function(j){ document.getElementById('tf-jour-'+j[0]).checked = false; });
   document.getElementById('tf-cpsearch').value = '';
   document.getElementById('tf-cpfilter').value = '';
-  document.getElementById('tf-cpresults').innerHTML = '';
-  renderTfCpList();
+  document.getElementById('tf-zdept').value = '';
+  renderZoneCpList(); renderZoneCommunes(); renderTfZoneList();
 }
 
 function fillTourneeForm(t){
@@ -2812,9 +2857,14 @@ function fillTourneeForm(t){
   JOURS_SEMAINE.forEach(function(j){ document.getElementById('tf-jour-'+j[0]).checked = !!t[j[0]]; });
   document.getElementById('tf-heuredebut').value = t.heureDebut;
   document.getElementById('tf-heurefin').value = t.heureFin;
-  tourneeFormCps = (t.codesPostaux||[]).slice();
+  // ancien format (codes postaux entiers) : chaque code postal ressort avec toutes ses communes cochées
+  tourneeFormZones = tourneeZones(t).map(function(z){ return { cp: z.cp, commune: z.commune }; });
+  tourneeZoneCp = '';
+  document.getElementById('tf-cpsearch').value = '';
+  document.getElementById('tf-cpfilter').value = '';
   updateTourneeCodeAndHoraires();
-  renderTfCpList();
+  syncZoneDeptFromCode();
+  renderZoneCpList(); renderZoneCommunes(); renderTfZoneList();
 }
 
 document.getElementById('btnCreateTournee').addEventListener('click', function(){
@@ -2825,60 +2875,104 @@ document.getElementById('btnCancelTournee').addEventListener('click', function()
   showTourneesList();
 });
 
-// ---------- recherche et sélection des codes postaux (réutilise la base CP existante, aucune nouvelle base) ----------
-function renderCpSearchResults(){
+// ---------- sélection hiérarchique : département → code postal → communes ----------
+function zoneHas(cp, commune){
+  var k = canonCommune(commune);
+  return tourneeFormZones.some(function(z){ return z.cp===cp && canonCommune(z.commune)===k; });
+}
+function zoneCountForCp(cp){ return tourneeFormZones.filter(function(z){ return z.cp===cp; }).length; }
+
+function buildZoneDeptSelect(){
+  var sel = document.getElementById('tf-zdept');
+  sel.innerHTML = '<option value="">— Choisir un département —</option>'+
+    Object.keys(DEPT_TO_CPS).sort().map(function(d){ return '<option value="'+d+'">'+escapeHtml(deptLabel(d))+'</option>'; }).join('');
+}
+buildZoneDeptSelect();
+
+// le département du code de la tournée est proposé par défaut (mais n'interdit pas d'autres départements)
+function syncZoneDeptFromCode(){
+  var d = document.getElementById('tf-dept').value.trim();
+  if(DEPT_TO_CPS[d]){
+    document.getElementById('tf-zdept').value = d;
+    tourneeZoneCp = '';
+    renderZoneCpList(); renderZoneCommunes();
+  }
+}
+document.getElementById('tf-dept').addEventListener('input', syncZoneDeptFromCode);
+
+function renderZoneCpList(){
+  var dept = document.getElementById('tf-zdept').value;
   var q = document.getElementById('tf-cpsearch').value.trim();
   var el = document.getElementById('tf-cpresults');
-  if(!q){ el.innerHTML = ''; return; }
-  var matches = Object.keys(CP_TO_VILLES).filter(function(cp){ return cp.indexOf(q)===0; }).sort().slice(0,60);
-  if(!matches.length){ el.innerHTML = '<div class="hint">Aucun résultat</div>'; return; }
-  el.innerHTML = matches.map(function(cp){
-    var already = tourneeFormCps.indexOf(cp)>=0;
-    var villes = (CP_TO_VILLES[cp]||[]).join(', ');
-    return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-weight:400;'+(already?'opacity:0.5;':'')+'">'+
-      '<input type="checkbox" class="cp-search-check" data-cp="'+cp+'" '+(already?'disabled checked':'')+' style="width:17px;height:17px;flex-shrink:0;margin-top:2px;">'+
-      '<span>'+cp+' — '+escapeHtml(villes)+(already?' (déjà ajouté)':'')+'</span></label>';
+  if(!dept){ el.innerHTML = '<div class="hint">Choisis d\'abord un département.</div>'; return; }
+  var cps = (DEPT_TO_CPS[dept]||[]).filter(function(cp){ return !q || cp.indexOf(q)===0; });
+  if(!cps.length){ el.innerHTML = '<div class="hint">Aucun code postal</div>'; return; }
+  el.innerHTML = cps.map(function(cp){
+    var n = communesOfCp(cp).length, sel = zoneCountForCp(cp);
+    return '<div class="base-row tf-cp-row" data-cp="'+cp+'" style="cursor:pointer;'+(cp===tourneeZoneCp?'background:#e8f3ee;':'')+'">'+
+      '<span><strong>'+cp+'</strong> — '+n+' commune'+(n>1?'s':'')+'</span>'+
+      '<span style="color:var(--accent);font-size:12.5px;">'+(sel ? sel+'/'+n+' ajoutée'+(sel>1?'s':'') : '')+'</span></div>';
   }).join('');
-}
-document.getElementById('tf-cpsearch').addEventListener('input', renderCpSearchResults);
-
-document.getElementById('tf-cpselectall').addEventListener('click', function(){
-  Array.prototype.forEach.call(document.querySelectorAll('.cp-search-check:not(:disabled)'), function(c){ c.checked = true; });
-});
-document.getElementById('tf-cpdeselectall').addEventListener('click', function(){
-  Array.prototype.forEach.call(document.querySelectorAll('.cp-search-check:not(:disabled)'), function(c){ c.checked = false; });
-});
-document.getElementById('tf-cpaddselection').addEventListener('click', function(){
-  var checked = Array.prototype.slice.call(document.querySelectorAll('.cp-search-check:checked:not(:disabled)'));
-  checked.forEach(function(c){
-    var cp = c.getAttribute('data-cp');
-    if(tourneeFormCps.indexOf(cp)<0) tourneeFormCps.push(cp);
-  });
-  renderTfCpList();
-  renderCpSearchResults();
-  if(checked.length) banner(checked.length+' code(s) postal(aux) ajouté(s) à la tournée');
-});
-
-function renderTfCpList(){
-  var el = document.getElementById('tf-cplist');
-  var q = document.getElementById('tf-cpfilter').value.trim();
-  var list = tourneeFormCps.slice().sort();
-  if(q) list = list.filter(function(cp){ return cp.indexOf(q)>=0; });
-  document.getElementById('tf-cpcount').textContent = tourneeFormCps.length;
-  if(!list.length){ el.innerHTML = '<div class="empty">Aucun code postal ajouté</div>'; return; }
-  el.innerHTML = list.map(function(cp){
-    return '<div class="base-row"><span>'+cp+' — '+escapeHtml((CP_TO_VILLES[cp]||[]).join(', '))+'</span><button data-cp="'+cp+'" class="tf-cp-remove">Retirer</button></div>';
-  }).join('');
-  Array.prototype.forEach.call(el.querySelectorAll('.tf-cp-remove'), function(btn){
-    btn.addEventListener('click', function(){
-      var cp = btn.getAttribute('data-cp');
-      tourneeFormCps = tourneeFormCps.filter(function(x){ return x!==cp; });
-      renderTfCpList();
-      renderCpSearchResults();
+  Array.prototype.forEach.call(el.querySelectorAll('.tf-cp-row'), function(row){
+    row.addEventListener('click', function(){
+      tourneeZoneCp = row.getAttribute('data-cp');
+      renderZoneCpList(); renderZoneCommunes();
     });
   });
 }
-document.getElementById('tf-cpfilter').addEventListener('input', renderTfCpList);
+document.getElementById('tf-zdept').addEventListener('change', function(){ tourneeZoneCp = ''; renderZoneCpList(); renderZoneCommunes(); });
+document.getElementById('tf-cpsearch').addEventListener('input', renderZoneCpList);
+
+function renderZoneCommunes(){
+  var el = document.getElementById('tf-communes'), act = document.getElementById('tf-communes-actions');
+  if(!tourneeZoneCp){ el.innerHTML = ''; act.style.display = 'none'; return; }
+  var cp = tourneeZoneCp;
+  act.style.display = 'block';
+  el.innerHTML = '<div class="hint" style="font-weight:600;margin:4px 0 6px;">3. Communes du code postal '+cp+'</div>'+
+    communesOfCp(cp).map(function(cm){
+      var already = zoneHas(cp, cm);
+      return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-weight:400;'+(already?'opacity:0.5;':'')+'">'+
+        '<input type="checkbox" class="zone-commune-check" data-commune="'+escapeHtml(cm)+'" '+(already?'disabled checked':'')+' style="width:17px;height:17px;flex-shrink:0;margin-top:2px;">'+
+        '<span>'+cp+' — '+escapeHtml(cm)+(already?' (déjà ajoutée)':'')+'</span></label>';
+    }).join('');
+}
+document.getElementById('tf-cpselectall').addEventListener('click', function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.zone-commune-check:not(:disabled)'), function(x){ x.checked = true; });
+});
+document.getElementById('tf-cpdeselectall').addEventListener('click', function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.zone-commune-check:not(:disabled)'), function(x){ x.checked = false; });
+});
+document.getElementById('tf-cpaddselection').addEventListener('click', function(){
+  var checked = Array.prototype.slice.call(document.querySelectorAll('.zone-commune-check:checked:not(:disabled)'));
+  var added = 0;
+  checked.forEach(function(x){
+    var commune = x.getAttribute('data-commune');
+    if(!zoneHas(tourneeZoneCp, commune)){ tourneeFormZones.push({ cp: tourneeZoneCp, commune: commune }); added++; }
+  });
+  renderTfZoneList(); renderZoneCpList(); renderZoneCommunes();
+  if(added) banner(added+' commune(s) ajoutée(s) à la tournée');
+});
+
+function renderTfZoneList(){
+  var el = document.getElementById('tf-cplist');
+  var raw = document.getElementById('tf-cpfilter').value.trim();
+  var q = canonCommune(raw);
+  var list = tourneeFormZones.slice().sort(function(a,b){ return a.cp.localeCompare(b.cp) || a.commune.localeCompare(b.commune,'fr'); });
+  if(raw) list = list.filter(function(z){ return z.cp.indexOf(raw)>=0 || canonCommune(z.commune).indexOf(q)>=0; });
+  document.getElementById('tf-cpcount').textContent = tourneeFormZones.length;
+  if(!list.length){ el.innerHTML = '<div class="empty">Aucune commune ajoutée</div>'; return; }
+  el.innerHTML = list.map(function(z){
+    return '<div class="base-row"><span>'+z.cp+' — '+escapeHtml(z.commune)+'</span><button class="tf-zone-remove" data-cp="'+z.cp+'" data-commune="'+escapeHtml(z.commune)+'">Retirer</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('.tf-zone-remove'), function(btn){
+    btn.addEventListener('click', function(){
+      var cp = btn.getAttribute('data-cp'), k = canonCommune(btn.getAttribute('data-commune'));
+      tourneeFormZones = tourneeFormZones.filter(function(z){ return !(z.cp===cp && canonCommune(z.commune)===k); });
+      renderTfZoneList(); renderZoneCpList(); renderZoneCommunes();
+    });
+  });
+}
+document.getElementById('tf-cpfilter').addEventListener('input', renderTfZoneList);
 
 // ---------- enregistrement (avec récapitulatif de confirmation) ----------
 document.getElementById('btnSaveTournee').addEventListener('click', async function(){
@@ -2908,7 +3002,7 @@ document.getElementById('btnSaveTournee').addEventListener('click', async functi
     'Type : '+TOURNEE_TYPES[type].label+'\n'+
     'Horaire : '+heureDebut+' → '+heureFin+'\n'+
     'Jours : '+joursLabel+'\n'+
-    'Codes postaux : '+tourneeFormCps.length+'\n\n'+
+    'Communes desservies : '+tourneeFormZones.length+' ('+zonesDistinctCps(tourneeFormZones).length+' code(s) postal(aux))\n\n'+
     'Confirmer la création de cette tournée ?';
   if(!confirm(recap)) return;
 
@@ -2916,7 +3010,8 @@ document.getElementById('btnSaveTournee').addEventListener('click', async functi
   var tournee = {
     id: code, departement: dept, numero: numero, type: type,
     heureDebut: heureDebut, heureFin: heureFin,
-    codesPostaux: tourneeFormCps.slice(),
+    communes: tourneeFormZones.map(function(z){ return { cp: z.cp, commune: z.commune }; }),
+    codesPostaux: zonesDistinctCps(tourneeFormZones),   // dérivé des communes (lu par d'anciennes versions)
     statut: (existing && existing.statut) || 'active',
     createdAt: (existing && existing.createdAt) || new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -2973,7 +3068,9 @@ function renderTourneesTable(){
   var items = state.tournees.slice();
   if(q){
     items = items.filter(function(t){
-      return t.id.toLowerCase().indexOf(q)>=0 || t.departement.indexOf(q)>=0 || t.numero.indexOf(q)>=0 || (t.codesPostaux||[]).some(function(cp){ return cp.indexOf(q)>=0; });
+      var qc = canonCommune(q);
+      return t.id.toLowerCase().indexOf(q)>=0 || t.departement.indexOf(q)>=0 || t.numero.indexOf(q)>=0 || (t.codesPostaux||[]).some(function(cp){ return cp.indexOf(q)>=0; }) ||
+        tourneeZones(t).some(function(z){ return canonCommune(z.commune).indexOf(qc)>=0; });
     });
   }
   if(fDept) items = items.filter(function(t){ return t.departement===fDept; });
@@ -2988,7 +3085,8 @@ function renderTourneesTable(){
     return '<div class="hist-item" data-code="'+t.id+'">'+
       '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">'+t.id+'</span>'+statutBadge+'</div>'+
       '<div class="sub">Dépt '+t.departement+' · N°'+t.numero+' · '+TOURNEE_TYPES[t.type].label+' · '+t.heureDebut+'-'+t.heureFin+'</div>'+
-      '<div class="sub">Jours : '+(joursActifs||'—')+' · '+(t.codesPostaux||[]).length+' code(s) postal(aux)</div>'+
+      '<div class="sub">Jours : '+(joursActifs||'—')+' · '+escapeHtml(tourneeZoneSummary(t))+'</div>'+
+      '<div class="sub" style="color:var(--ink-soft);">Zone : '+escapeHtml((function(s){ return s.length>190 ? s.slice(0,190)+'…' : s; })(tourneeZoneText(t)))+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="duplicate">Dupliquer</button>'+
@@ -6102,7 +6200,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0047';
+var APP_VERSION = '2026.0048';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
