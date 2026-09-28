@@ -22,12 +22,14 @@
   header.top{padding:14px 4px 10px;}
   header.top h1{font-size:19px;font-weight:600;margin:0;}
   header.top p{font-size:13px;color:var(--ink-soft);margin:4px 0 0;}
-  nav.tabs{display:flex;gap:6px;position:sticky;top:0;background:var(--bg);padding:8px 0 10px;z-index:5;}
+  nav.tabs{display:flex;flex-wrap:wrap;gap:6px;position:sticky;top:0;background:var(--bg);padding:8px 0 10px;z-index:5;}
   nav.tabs button{
-    flex:1;padding:10px 4px;border-radius:10px;border:1px solid var(--line);
+    flex:1 1 calc(33.33% - 6px);padding:10px 4px;border-radius:10px;border:1px solid var(--line);
     background:var(--card);font-size:13px;font-weight:500;color:var(--ink-soft);cursor:pointer;
   }
   nav.tabs button.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .tour-chip{padding:8px 12px;border-radius:999px;border:1px solid var(--line-strong);background:var(--card);font-size:13px;cursor:pointer;color:var(--ink);font-family:inherit;}
+  .tour-chip.active{background:var(--ink);color:#fff;border-color:var(--ink);}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
   .card h2{font-size:15px;margin:0 0 12px;font-weight:600;}
   .field{margin-bottom:12px;}
@@ -147,6 +149,7 @@
     <button class="tab-btn active" data-tab="alivrer">Commandes à Livrer</button>
     <button class="tab-btn" data-tab="emporte">Commandes Emporté</button>
     <button class="tab-btn" data-tab="rdv">Prise de RDV</button>
+    <button class="tab-btn" data-tab="tournees">Tournées</button>
     <button class="tab-btn" data-tab="collecte">Collecte marchandise</button>
   </nav>
 
@@ -162,6 +165,21 @@
       <h2>✅ À valider par l'exploitant <span id="rdvValidateCount" style="font-weight:400;color:var(--ink-soft);"></span></h2>
       <p class="hint" style="margin:0 0 12px;">Rendez-vous pris (ou livraison impérative) : ta validation autorise le BL à entrer dans une tournée.</p>
       <div id="rdvValidateList"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: TOURNÉES (BL disponibles pour tournée) ===== -->
+  <section id="tab-tournees" style="display:none;">
+    <div class="card">
+      <h2>🚛 BL disponibles pour tournée <span id="tourAvailCount" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Un BL n'est disponible que s'il est complet, avec RDV pris (sauf livraison impérative), validé par l'exploitant, non affecté, et compatible avec au moins une tournée. La compatibilité seule ne suffit jamais. L'affectation se fait pour l'instant depuis la fiche du BL.</p>
+      <div class="field"><input type="text" id="tourSearch" placeholder="Rechercher : n° BL, destinataire, ville, code postal..."></div>
+      <div id="tourFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="tour-chip active" data-filter="eligibles">BL éligibles</button>
+        <button class="tour-chip" data-filter="a_traiter">BL à traiter</button>
+        <button class="tour-chip" data-filter="tous">Tous les BL</button>
+      </div>
+      <div id="tourAvailList"></div>
     </div>
   </section>
 
@@ -324,7 +342,7 @@ var collectesColRef = null;
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0013';
+var APP_VERSION = '2026.0014';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -349,6 +367,7 @@ function isEarlyStatut(s){ return !BL_STATUTS[s] || s==='incomplet' || s==='comp
 // statut qui découle du contrôle : incomplet dès qu'il manque une information, sinon complet
 // (les statuts plus avancés — RDV, validation, tournée — sont conservés tant que le BL reste complet)
 function statutAfterControl(b){
+  if(b.statut==='annule' || b.statut==='livre') return b.statut;      // un BL annulé ou livré ne change pas de statut à l'enregistrement
   if(!controlerBL(b).complet) return 'incomplet';
   return isEarlyStatut(b.statut) ? 'complet' : b.statut;
 }
@@ -369,7 +388,9 @@ var BL_STATUTS = {
   rdv_valide: { label: 'RDV validé', color: '#2563eb', icon: '📅' },
   a_valider_exploitant: { label: 'À valider exploitant', color: '#2563eb', icon: '🔎' },
   valide_pour_tournee: { label: 'Validé pour tournée', color: '#1e8e3e', icon: '✅' },
-  affecte_tournee: { label: 'Affecté à une tournée', color: '#1e8e3e', icon: '🚛' }
+  affecte_tournee: { label: 'Affecté à une tournée', color: '#1e8e3e', icon: '🚛' },
+  livre: { label: 'BL livré', color: '#7a7a72', icon: '📦' },
+  annule: { label: 'BL annulé', color: '#7a7a72', icon: '⛔' }
 };
 
 // contrôle si un BL possède toutes les informations nécessaires — jamais d'affectation automatique
@@ -709,7 +730,7 @@ function renderBLManagePanel(numero, boxId){
     var cc = controlerBL(bb);
     await saveBonPatch(numero, { statut: statutAfterControl(bb) });
     banner('BL '+numero+' mis à jour — '+(cc.complet?'complet':'incomplet'));
-    renderLivList(); renderEmporteList(); renderRdvQueue();
+    refreshAllBonLists();
     renderBLManagePanel(numero, 'bl-panel-'+numero);
   });
 }
@@ -778,8 +799,17 @@ function renderBLActions(numero){
   } else if(b.statut==='affecte_tournee'){
     html += '<div class="hint" style="font-weight:600;color:var(--accent);">🚛 Affecté à la tournée '+escapeHtml(b.tourneeId||'')+'</div>';
     html += '<div class="btn-row"><button class="btn ghost bl-act" data-act="desaffecter" data-numero="'+numero+'" style="width:100%;">Retirer de la tournée</button></div>';
+  } else if(b.statut==='annule'){
+    var an0 = b.annulation || {};
+    html += '<div class="hint" style="font-weight:600;color:#7a7a72;">⛔ BL annulé'+(an0.motif?' — '+escapeHtml(an0.motif):'')+(an0.par?' <span style="font-weight:400;">(par '+escapeHtml(an0.par)+')</span>':'')+'</div>';
+    html += '<div class="btn-row"><button class="btn ghost bl-act" data-act="reactiver" data-numero="'+numero+'" style="width:100%;">↩ Réactiver le BL</button></div>';
+  } else if(b.statut==='livre'){
+    html += '<div class="hint" style="font-weight:600;color:#7a7a72;">📦 BL livré</div>';
   } else {
     html += '<div class="hint">Complète les informations manquantes ci-dessus pour avancer.</div>';
+  }
+  if(['annule','livre','affecte_tournee'].indexOf(b.statut) < 0){
+    html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost bl-act" data-act="annuler" data-numero="'+numero+'" style="width:100%;color:#c0392b;">⛔ Annuler le BL</button></div>';
   }
 
   el.innerHTML = html;
@@ -813,8 +843,20 @@ function renderBLActions(numero){
         if(!confirm('Retirer ce BL de sa tournée ? Il repassera en "Validé pour tournée".')) return;
         await saveBonPatch(num, { statut: 'valide_pour_tournee', tourneeId: '' });
       }
+      else if(act==='annuler'){
+        var motif = prompt('Motif de l\'annulation du BL '+num+' (obligatoire) :');
+        if(motif===null) return;
+        motif = motif.trim();
+        if(!motif){ banner('Un motif est obligatoire pour annuler un BL'); return; }
+        await saveBonPatch(num, { statut: 'annule', annulation: { motif: motif, par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+      }
+      else if(act==='reactiver'){
+        if(!confirm('Réactiver le BL '+num+' ? Il devra être de nouveau validé par l\'exploitant avant d\'entrer dans une tournée.')) return;
+        var bReact = state.bons.find(function(x){ return x.numero===num; });
+        await saveBonPatch(num, { statut: (controlerBL(bReact).complet ? 'complet' : 'incomplet'), validationExploitant: { valide: false, par: '', le: '' }, reactivation: { par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+      }
       // la liste est réaffichée (badges de statut à jour) puis le panneau du BL est rouvert sur son nouvel état
-      renderLivList(); renderEmporteList(); renderRdvQueue();
+      refreshAllBonLists();
       if(document.getElementById('bl-panel-'+num)) renderBLManagePanel(num, 'bl-panel-'+num);
       banner('BL '+num+' mis à jour');
     });
@@ -833,7 +875,7 @@ document.getElementById('emporteSearch').addEventListener('input', renderEmporte
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
     var name = btn.getAttribute('data-tab');
-    ['alivrer','emporte','rdv','collecte'].forEach(function(t){
+    ['alivrer','emporte','rdv','tournees','collecte'].forEach(function(t){
       document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
     });
     Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(b){
@@ -842,6 +884,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn
     if(name==='emporte') renderEmporteList();
     if(name==='alivrer') renderLivList();
     if(name==='rdv') renderRdvQueue();
+    if(name==='tournees') renderTourneesDispo();
     if(name==='collecte'){ renderCollecteList(); renderPartenairesList(); renderCollecteSourceFields(); renderCollecteDestFields(); }
   });
 });
@@ -1158,6 +1201,7 @@ async function startForAgency(code){
   renderLivList();
   renderEmporteList();
   renderRdvQueue();
+  renderTourneesDispo();
   renderCollecteSourceFields();
   renderCollecteDestFields();
   renderPartenairesList();
@@ -1238,7 +1282,7 @@ function rdvInfoHtml(b){
 }
 
 function refreshAllBonLists(){
-  renderLivList(); renderEmporteList(); renderRdvQueue();
+  renderLivList(); renderEmporteList(); renderRdvQueue(); renderTourneesDispo();
 }
 
 function renderRdvQueue(openNumero){
@@ -1376,6 +1420,143 @@ function openBonFiche(numero){
   var btn = document.querySelector((tab==='emporte' ? '#emporteList' : '#livList')+' .bl-manage-btn[data-numero="'+numero+'"]');
   if(btn){ btn.click(); btn.scrollIntoView({ behavior:'smooth', block:'center' }); }
 }
+
+// ================= Éligibilité des BL aux tournées + vue « BL disponibles pour tournée » =================
+// Quatre notions indépendantes, calculées à partir des données (jamais déduites du seul champ statut) :
+//   complet · validé par l'exploitant · compatible avec une tournée · affecté à une tournée
+function isValideExploitant(b){
+  var v = b.validationExploitant || {};
+  return !!v.valide || b.statut==='valide_pour_tournee' || b.statut==='affecte_tournee';
+}
+function isAffecte(b){ return !!b.tourneeId || b.statut==='affecte_tournee'; }
+var LIBELLES_MANQUE = {
+  destinataire: 'Destinataire manquant', adresse: 'Adresse manquante', cp: 'Code postal manquant', ville: 'Ville manquante',
+  telephone: 'Téléphone manquant', marchandise: 'Marchandise (poids/colis) non renseignée', date: 'Date de livraison manquante'
+};
+
+// Un BL est éligible s'il est complet, avec RDV pris (sauf impératif), validé, non affecté, ni livré ni annulé,
+// ET si une tournée est compatible. Les raisons de blocage sont toujours explicites ; on s'arrête à la première étape bloquante.
+function eligibiliteBL(b){
+  var ctrl = controlerBL(b), an = analyseCompatibilite(b);
+  var r = { eligible: false, etape: '', bloquants: [], avertissements: [], prochaine: '', compat: an,
+    niveaux: { complet: ctrl.complet, valide: isValideExploitant(b), compatible: an.compatibles.length, affecte: isAffecte(b) } };
+  var adr = b.contremarqueAdresse || {}, c = b.contraintes || {};
+
+  // avertissements : jamais bloquants
+  if(!(c.etage || c.ascenseur || c.accesDifficile || c.contactSurPlace)) r.avertissements.push('Contraintes d\'accès non renseignées (étage, ascenseur, accès)');
+  var cs = communeStatus(adr.cp, adr.ville);
+  if(cs.etat==='vide' || cs.etat==='non_reconnue') r.avertissements.push('Commune '+(cs.etat==='vide' ? 'non renseignée' : '« '+adr.ville+' » non reconnue')+' pour '+adr.cp+' : à corriger sur le BL');
+  if(an.avertissement) r.avertissements.push(an.avertissement);
+  if(b.estImperative && b.dateImperative && b.rdv && b.rdv.date && b.rdv.date !== b.dateImperative) r.avertissements.push('Le RDV ('+fmtDate(b.rdv.date)+') n\'est pas à la date impérative ('+fmtDate(b.dateImperative)+')');
+
+  function stop(etape, reasons, prochaine){ r.etape = etape; r.bloquants = reasons; r.prochaine = prochaine || ''; return r; }
+  if(b.statut==='annule') return stop('annule', ['BL annulé'+(b.annulation && b.annulation.motif ? ' — '+b.annulation.motif : '')]);
+  if(b.statut==='livre') return stop('livre', ['BL déjà livré']);
+  if(r.niveaux.affecte) return stop('affecte', ['Déjà affecté à la tournée '+(b.tourneeId || '?')]);
+  if(b.type==='emporte') return stop('emporte', ['Retrait au dépôt (Emporté) : pas de tournée de livraison']);
+  var manques = ctrl.checks.filter(function(k){ return !k.ok; }).map(function(k){ return LIBELLES_MANQUE[k.key] || k.label; });
+  if(b.estImperative && !b.dateImperative) manques.push('Date impérative non renseignée');
+  if(manques.length) return stop('incomplet', ['BL incomplet'].concat(manques), 'Compléter le BL depuis sa fiche');
+  if(!b.estImperative && !(b.rdv && b.rdv.date)) return stop('rdv', ['RDV non réalisé'+(b.statut==='rdv_en_cours' ? ' (contact client en cours)' : ' (à prendre)')], 'Onglet Prise de RDV');
+  if(!r.niveaux.valide) return stop('validation', [b.statut==='a_valider_exploitant' ? 'En attente de validation exploitant' : 'Non validé par l\'exploitant'], 'Valider dans l\'onglet Prise de RDV');
+  if(!an.compatibles.length){
+    var reasons = ['Aucune tournée compatible — '+an.diagnostic];
+    if(b.estImperative) reasons.push('Date impérative impossible à respecter'+(b.dateImperative ? ' ('+fmtDate(b.dateImperative)+')' : ''));
+    return stop('a_traiter', reasons, 'À traiter : corriger le BL, ajuster une tournée ou en parler au client');
+  }
+  r.eligible = true; r.etape = 'eligible';
+  return r;
+}
+
+var tourFilter = 'eligibles';
+
+function bonClient(b){
+  var seen = {}, out = [];
+  (b.commandes || []).forEach(function(cm){ var n = String(cm.client || '').trim(); if(n && !seen[n]){ seen[n] = 1; out.push(n); } });
+  return out.join(' / ') || '—';
+}
+function statutRdvLabel(b, e){
+  var r = b.rdv || {};
+  if(r.date) return 'RDV pris : '+fmtDateLong(r.date)+(r.creneauDebut ? ' ('+r.creneauDebut+(r.creneauFin ? '–'+r.creneauFin : '')+')' : '');
+  if(b.statut==='annule' || b.statut==='livre') return '—';
+  if(b.estImperative) return 'Sans objet (livraison impérative)';
+  if(!e.niveaux.complet) return '—';
+  return b.statut==='rdv_en_cours' ? 'Contact en cours' : 'À prendre';
+}
+
+function renderTourneesDispo(){
+  var q = (document.getElementById('tourSearch').value || '').trim().toLowerCase();
+  var rows = state.bons.map(function(b){ return { b: b, e: eligibiliteBL(b) }; });
+  var nElig = rows.filter(function(x){ return x.e.eligible; }).length;
+  var nTraiter = rows.filter(function(x){ return x.e.etape==='a_traiter'; }).length;
+
+  var tabBtn = document.querySelector('.tab-btn[data-tab="tournees"]');
+  if(tabBtn) tabBtn.textContent = 'Tournées'+(nElig ? ' ('+nElig+')' : '');
+  Array.prototype.forEach.call(document.querySelectorAll('.tour-chip'), function(ch){
+    var f = ch.getAttribute('data-filter');
+    ch.classList.toggle('active', f===tourFilter);
+    ch.textContent = (f==='eligibles' ? 'BL éligibles ('+nElig+')' : (f==='a_traiter' ? 'BL à traiter ('+nTraiter+')' : 'Tous les BL ('+rows.length+')'));
+  });
+
+  var shown = rows.filter(function(x){
+    if(tourFilter==='eligibles' && !x.e.eligible) return false;
+    if(tourFilter==='a_traiter' && x.e.etape!=='a_traiter') return false;
+    return !q || bonMatchesQuery(x.b, q);
+  });
+  var ordered = sortBonsForExploitation(shown.map(function(x){ return x.b; }));
+  var byNum = {}; shown.forEach(function(x){ byNum[x.b.numero] = x.e; });
+
+  var el = document.getElementById('tourAvailList');
+  if(!ordered.length){
+    el.innerHTML = '<div class="empty">'+(tourFilter==='eligibles' ? 'Aucun BL éligible pour le moment' : (tourFilter==='a_traiter' ? 'Aucun BL à traiter' : 'Aucun BL'))+'</div>';
+    return;
+  }
+  el.innerHTML = ordered.map(function(b){
+    var e = byNum[b.numero], adr = b.contremarqueAdresse || {}, n = b.numero;
+    var st = BL_STATUTS[b.statut] || BL_STATUTS.incomplet;
+    var badge = e.eligible ? '<span style="color:#1e8e3e;font-weight:700;font-size:12.5px;">🟢 Éligible</span>'
+      : (e.etape==='a_traiter' ? '<span style="color:#c0392b;font-weight:700;font-size:12.5px;">🔴 À traiter</span>'
+                               : '<span style="color:#c0392b;font-weight:700;font-size:12.5px;">🔴 Pas encore disponible</span>');
+    var h = '<div class="hist-item">'+
+      '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(n)+'</span>'+badge+'</div>'+
+      '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(b.contremarque || '—')+' <span style="font-weight:400;color:var(--ink-soft);">· Client : '+escapeHtml(bonClient(b))+'</span></div>'+
+      '<div class="sub">'+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' ') || 'Adresse non renseignée')+'</div>';
+    if(b.estImperative) h += '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — '+(b.dateImperative ? fmtDateLong(b.dateImperative) : 'date à fixer')+'</div>';
+    var dates = [];
+    if(b.dateSouhaitee) dates.push('Souhaitée : '+fmtDateLong(b.dateSouhaitee));
+    var cren = (b.rdv && b.rdv.creneauDebut) ? b.rdv.creneauDebut+(b.rdv.creneauFin ? '–'+b.rdv.creneauFin : '') : (b.creneauSouhaite || '');
+    if(cren) dates.push('Créneau : '+escapeHtml(cren));
+    if(dates.length) h += '<div class="sub">'+dates.join(' · ')+'</div>';
+    var v = b.validationExploitant || {};
+    h += '<div class="sub">Statut BL : <strong style="color:'+st.color+';">'+st.icon+' '+st.label+'</strong> · RDV : '+escapeHtml(statutRdvLabel(b, e))+'</div>';
+    h += '<div class="sub">Validation exploitant : '+(e.niveaux.valide ? '✅'+(v.par ? ' par '+escapeHtml(v.par) : '') : '⏳ non validé')+'</div>';
+    h += '<div class="sub">'+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis'+(b.volume ? ' · Volume : '+escapeHtml(b.volume) : '')+'</div>';
+    var nv = e.niveaux;
+    h += '<div class="sub" style="color:var(--ink-soft);">Complet '+(nv.complet?'✓':'✗')+' · Validé '+(nv.valide?'✓':'✗')+' · Compatible '+(nv.compatible ? '('+nv.compatible+')' : '—')+' · Affecté '+(nv.affecte?'✓':'—')+'</div>';
+
+    var comp = e.compat.compatibles;
+    if(comp.length){
+      h += '<div class="sub" style="color:var(--ink);font-weight:600;margin-top:4px;">'+(comp.length===1 ? 'Tournée compatible : ' : comp.length+' TOURNÉES COMPATIBLES : ')+
+        comp.map(function(t){ return escapeHtml(t.id)+' ('+(TOURNEE_TYPE_LABELS[t.type]||t.type)+' '+t.heureDebut+'–'+t.heureFin+')'; }).join(' · ')+'</div>';
+    } else if((b.contremarqueAdresse||{}).cp && e.etape!=='a_traiter'){       // à l'étape « à traiter », la raison est déjà dans les blocages
+      h += '<div class="sub" style="color:#c0392b;">🔴 Aucune tournée compatible — '+escapeHtml(e.compat.diagnostic)+'</div>';
+    }
+    e.bloquants.forEach(function(rs, i){
+      h += '<div class="sub" style="color:#c0392b;'+(i===0?'font-weight:700;margin-top:4px;':'')+'">🔴 '+escapeHtml(rs)+'</div>';
+    });
+    if(e.prochaine) h += '<div class="sub" style="color:var(--ink-soft);">→ '+escapeHtml(e.prochaine)+'</div>';
+    e.avertissements.forEach(function(w){ h += '<div class="sub" style="color:#e8792e;">⚠ '+escapeHtml(w)+'</div>'; });
+    h += '<div class="btn-row"><button class="btn ghost tour-open" data-numero="'+escapeHtml(n)+'" style="width:100%;">⚙️ Fiche du BL</button></div></div>';
+    return h;
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('.tour-open'), function(btn){
+    btn.addEventListener('click', function(){ openBonFiche(btn.getAttribute('data-numero')); });
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll('.tour-chip'), function(ch){
+  ch.addEventListener('click', function(){ tourFilter = ch.getAttribute('data-filter'); renderTourneesDispo(); });
+});
+document.getElementById('tourSearch').addEventListener('input', renderTourneesDispo);
 
 // ================= Collecte marchandise (source externe/TMS/partenaire → livraison directe, retour dépôt, ou regroupement) =================
 async function loadBaseForCollecte(){
@@ -1670,6 +1851,7 @@ document.getElementById('btnSaveCollecte').addEventListener('click', async funct
   renderLivList();
   renderEmporteList();
   renderRdvQueue();
+  renderTourneesDispo();
 });
 
 // numéro de BL réutilisant le même compteur/format que Gestion Dépôt
