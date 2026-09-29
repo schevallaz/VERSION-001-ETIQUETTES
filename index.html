@@ -178,7 +178,7 @@
 <div class="app">
   <header class="top">
     <h1 id="appTitle">Gestion dépôt STLS <span id="appVersion" style="font-size:13px;font-weight:500;color:var(--ink-soft);vertical-align:middle;">Version 2026.0001</span></h1>
-    <p>Réception marchandise → étiquette QR → PDF 100 × 150 mm pour la GK420D</p>
+    <p id="semaineCourante"></p>
   </header>
 
   <nav class="tabs">
@@ -2352,6 +2352,26 @@ function getForm(){
     emplacement: document.getElementById('f-emplacement').value.trim()
   };
 }
+
+// numéro de semaine ISO (semaine commençant le lundi) + lundi de cette semaine
+function infosSemaineCourante(){
+  var d = new Date();
+  var jour = (d.getDay()+6)%7; // lundi=0 … dimanche=6
+  var lundi = new Date(d.getFullYear(), d.getMonth(), d.getDate()-jour);
+  var jeudi = new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate()+3);
+  var debutAnnee = new Date(jeudi.getFullYear(), 0, 1);
+  var semaine = Math.ceil(((jeudi - debutAnnee)/86400000 + 1)/7);
+  return { semaine: semaine, lundi: lundi };
+}
+function afficherSemaineCourante(){
+  var el = document.getElementById('semaineCourante');
+  if(!el) return;
+  var info = infosSemaineCourante();
+  var p = function(n){ return String(n).padStart(2,'0'); };
+  var d = info.lundi;
+  el.textContent = 'Semaine '+info.semaine+' — à partir du lundi '+p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear();
+}
+afficherSemaineCourante();
 
 function fmtDate(iso){
   if(!iso) return '—';
@@ -6355,7 +6375,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0051';
+var APP_VERSION = '2026.0052';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
