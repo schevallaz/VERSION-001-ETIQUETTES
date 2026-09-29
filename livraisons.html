@@ -2024,6 +2024,7 @@ function renderTourneesPlanifiees(){
         var tels = [adr.tel1, adr.tel2].filter(Boolean).map(function(t){ return '<a href="'+telHref(t)+'" style="color:var(--accent);font-weight:600;text-decoration:none;">📞 '+escapeHtml(t)+'</a>'; }).join(' &nbsp; ');
         var presta = []; if(b.montage) presta.push('Montage'); if(b.reprise) presta.push('Reprise');
         var nA = escapeHtml(b.numero);
+        var envoye = (inst.envois||[]).length>0;
         return '<div style="border-top:1px solid var(--line);padding:8px 0;">'+
           '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(cren)+' · BL '+nA+' — '+escapeHtml(b.contremarque||'—')+(b.estImperative ? ' <span style="color:#c0392b;">· IMPÉRATIF</span>' : '')+(livre ? ' <span style="color:#1e8e3e;">· 📦 Livré</span>' : '')+'</div>'+
           '<div class="sub">'+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' '))+(tels ? ' · '+tels : '')+' · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
@@ -2032,7 +2033,9 @@ function renderTourneesPlanifiees(){
           '<div class="btn-row"><button class="btn ghost plan-pdf" data-numero="'+nA+'">📄 BL</button>'+
             '<button class="btn ghost plan-open" data-numero="'+nA+'">⚙️ Fiche</button>'+
             (modif ? '<button class="btn ghost plan-remove" data-numero="'+nA+'">↩ Retirer</button>' : '')+
-            (enCours && !livre ? '<button class="btn primary pl-livre" data-numero="'+nA+'">📦 Livré</button><button class="btn ghost pl-nonlivre" data-numero="'+nA+'">Non livré</button>' : '')+'</div></div>';
+            (enCours && !livre ? '<button class="btn primary pl-livre" data-numero="'+nA+'">📦 Livré</button><button class="btn ghost pl-nonlivre" data-numero="'+nA+'">Non livré</button>' : '')+'</div>'+
+          (envoye ? '<div class="btn-row"><button class="btn ghost preuve-toggle" data-numero="'+nA+'" data-instance="'+escapeHtml(inst.id)+'">🔍 Preuves et suivi</button></div><div id="preuves-'+nA+'" style="display:none;margin-top:6px;"></div>' : '')+
+        '</div>';
       }).join('');
       if(!bons.length) h += '<div class="sub" style="color:var(--ink-soft);">Aucun BL dans cette tournée.</div>';
 
@@ -2074,6 +2077,10 @@ function renderTourneesPlanifiees(){
     renderTourneesPlanifiees();
   });
   // contrôle, validation, dérogation
+  on('.preuve-toggle', function(btn){
+    var numero = btn.getAttribute('data-numero'), instanceId = btn.getAttribute('data-instance');
+    ouvrirPreuves(numero, instanceId, document.getElementById('preuves-'+numero));
+  });
   on('.pl-ctl', function(btn){ var id = btn.getAttribute('data-id'); planCtlOpen[id] = !planCtlOpen[id]; renderTourneesPlanifiees(); });
   on('.pl-prep', async function(btn){
     var inst = byId(btn.getAttribute('data-id'));
@@ -2383,6 +2390,119 @@ async function majOuverturesLivreur(){
 
 
 document.getElementById('planScope').addEventListener('change', renderTourneesPlanifiees);
+
+// ================= Retour des preuves du livreur dans le TMS =================
+var EVT_LABELS = {
+  arrivee: '📍 Arrivée sur site (enlèvement)', photo_enlevement: "📷 Photo à l'enlèvement",
+  prise_en_charge: '📦 Marchandise prise en charge', arrivee_client: '📍 Arrivée chez le client',
+  photo_livraison: '📷 Photo de la marchandise livrée', signature_client: '✍️ Signature du client',
+  signature_livreur: '✍️ Signature du livreur', reserves: '🟠 Réserves', photo_reserve: '📷 Photo de la réserve',
+  livraison_validee: '✅ Livraison validée', echec_confirme: '🔴 Échec de livraison confirmé',
+  photo_justificatif_echec: '📷 Photo justificative (échec)', lien_ouvert: '📱 Lien ouvert par le livreur',
+  acquittement_modification: '✔ Modification de tournée acquittée'
+};
+var preuvesOuvert = {}, preuvesCache = {};
+
+// preuves d'un BL : cherchées dans le jeton actif de sa tournée, et dans tout jeton déjà envoyé (historique)
+async function chargerPreuvesBL(numero, instanceId){
+  var inst = state.instances.find(function(i){ return i.id===instanceId; });
+  if(!inst || !fsReady()) return [];
+  var tokens = (inst.envois||[]).map(function(e){ return e.token; });
+  if(inst.lienActif && tokens.indexOf(inst.lienActif)<0) tokens.push(inst.lienActif);
+  var events = [];
+  for(var i=0;i<tokens.length;i++){
+    try{
+      var snap = await db.collection('stls_livreur').doc(tokens[i]).collection('evenements').where('bl','==',numero).get();
+      snap.forEach(function(d){ events.push(d.data()); });
+    }catch(e){ console.error('Firestore chargerPreuvesBL error', e); }
+  }
+  events.sort(function(a,b){ return (a.dateHeureAppareil||'').localeCompare(b.dateHeureAppareil||''); });
+  return events;
+}
+function fmtDateHeureFr(iso){
+  var d = new Date(iso); if(isNaN(d.getTime())) return '';
+  var p = function(n){ return String(n).padStart(2,'0'); };
+  return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function preuveHtml(ev){
+  var gps = ev.gpsIndisponible ? '<span style="color:var(--ink-soft);">GPS indisponible</span>' :
+    (ev.latitude!=null ? '<a href="https://www.google.com/maps?q='+ev.latitude+','+ev.longitude+'" target="_blank" rel="noopener" style="color:var(--accent);">📍 '+ev.latitude.toFixed(5)+', '+ev.longitude.toFixed(5)+(ev.precision?' (±'+Math.round(ev.precision)+'m)':'')+'</a>' : '');
+  var extra = '';
+  if(ev.type==='echec_confirme') extra = '<div class="sub">Motif : '+escapeHtml(ev.motif||'')+(ev.commentaire?' — '+escapeHtml(ev.commentaire):'')+(ev.clientContacte?' · Client contacté':' · Client non contacté')+'</div>';
+  if(ev.type==='reserves') extra = ev.aReserves ? '<div class="sub">'+escapeHtml(ev.description||'')+'</div>' : '<div class="sub">Aucune réserve</div>';
+  if(ev.type==='signature_client' && ev.signataire) extra = '<div class="sub">Signataire : '+escapeHtml(ev.signataire)+'</div>';
+  var media = '';
+  if(ev.photoPath) media = '<button class="btn ghost preuve-media" data-path="'+escapeHtml(ev.photoPath)+'" style="width:auto;">Voir la photo</button>';
+  if(ev.signaturePath) media = '<button class="btn ghost preuve-media" data-path="'+escapeHtml(ev.signaturePath)+'" style="width:auto;">Voir la signature</button>';
+  return '<div style="border-top:1px solid var(--line);padding:6px 0;">'+
+    '<div class="sub" style="font-weight:600;">'+(EVT_LABELS[ev.type]||ev.type)+'</div>'+
+    '<div class="sub">'+escapeHtml(fmtDateHeureFr(ev.dateHeureAppareil))+(gps?' · '+gps:'')+'</div>'+extra+
+    (media ? '<div class="btn-row" style="margin-top:4px;">'+media+'</div>' : '')+
+  '</div>';
+}
+
+function preuvesPanelHtml(numero){
+  var events = preuvesCache[numero];
+  if(!events) return '<div class="sub" style="color:var(--ink-soft);">Chargement…</div>';
+  if(!events.length) return '<div class="sub" style="color:var(--ink-soft);">Aucune preuve enregistrée pour l\'instant.</div>';
+  var b = state.bons.find(function(x){ return x.numero===numero; });
+  var html = '';
+  var validation = events.filter(function(e){ return e.type==='livraison_validee'; }).slice(-1)[0];
+  var echec = events.filter(function(e){ return e.type==='echec_confirme'; }).slice(-1)[0];
+  if(validation && b && b.statut!=='livre'){
+    html += '<div class="sub" style="background:#e6f5ea;border:1px solid #1e8e3e;border-radius:8px;padding:8px 10px;color:#1e8e3e;font-weight:600;">'+
+      '✅ Le livreur a validé cette livraison le '+escapeHtml(fmtDateHeureFr(validation.dateHeureAppareil))+
+      '<div class="btn-row" style="margin-top:6px;"><button class="btn primary preuve-sync-livre" data-numero="'+escapeHtml(numero)+'" style="width:100%;">Synchroniser — marquer Livré</button></div></div>';
+  }
+  if(echec && b && b.statut==='livre'){
+    html += '<div class="sub" style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 10px;color:#c0392b;font-weight:600;">'+
+      '🔴 Le livreur signale un échec le '+escapeHtml(fmtDateHeureFr(echec.dateHeureAppareil))+' — '+escapeHtml(echec.motif||'')+
+      '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost preuve-sync-echec" data-numero="'+escapeHtml(numero)+'" style="width:100%;">Traiter comme non livré</button></div></div>';
+  }
+  html += events.map(preuveHtml).join('');
+  return html;
+}
+async function ouvrirPreuves(numero, instanceId, container){
+  if(preuvesOuvert[numero]){ preuvesOuvert[numero] = false; container.style.display = 'none'; return; }
+  preuvesOuvert[numero] = true;
+  container.style.display = 'block';
+  container.innerHTML = preuvesPanelHtml(numero);
+  wirePreuvesPanel(container);
+  if(!preuvesCache[numero]){
+    preuvesCache[numero] = await chargerPreuvesBL(numero, instanceId);
+    if(preuvesOuvert[numero]){ container.innerHTML = preuvesPanelHtml(numero); wirePreuvesPanel(container); }
+  }
+}
+function wirePreuvesPanel(container){
+  Array.prototype.forEach.call(container.querySelectorAll('.preuve-media'), function(btn){
+    btn.addEventListener('click', async function(){
+      if(!fsReady()){ banner('Connexion indisponible'); return; }
+      try{ var url = await firebase.storage().ref(btn.getAttribute('data-path')).getDownloadURL(); window.open(url, '_blank'); }
+      catch(e){ banner("Impossible d'ouvrir ce fichier : "+(e.message||e)); }
+    });
+  });
+  Array.prototype.forEach.call(container.querySelectorAll('.preuve-sync-livre'), function(btn){
+    btn.addEventListener('click', async function(){
+      var n = btn.getAttribute('data-numero');
+      var b = state.bons.find(function(x){ return x.numero===n; });
+      var par = lsGet('access-identity') || '', now = new Date().toISOString();
+      await saveBonPatch(n, { statut:'livre', livraison:{ par:par, le:now, source:'livreur' }, historiqueAffectations:(b.historiqueAffectations||[]).concat([{ action:'livraison', instanceId:(b.affectation||{}).instanceId||'', par:par, le:now, source:'livreur' }]) });
+      banner('BL '+n+' marqué livré'); refreshAllBonLists();
+    });
+  });
+  Array.prototype.forEach.call(container.querySelectorAll('.preuve-sync-echec'), function(btn){
+    btn.addEventListener('click', async function(){
+      var n = btn.getAttribute('data-numero');
+      var evs = preuvesCache[n] || [];
+      var echec = evs.filter(function(e){ return e.type==='echec_confirme'; }).slice(-1)[0];
+      var motif = prompt('BL '+n+' — le livreur signale un échec ('+((echec&&echec.motif)||'')+'). Confirmer et retirer de la tournée ? Motif (obligatoire) :', (echec&&echec.motif)||'');
+      if(motif===null) return;
+      motif = motif.trim();
+      if(!motif){ banner('Un motif est obligatoire'); return; }
+      if(await retirerBLDeTournee(n, 'Échec signalé par le livreur : '+motif, { force:true })){ banner('BL '+n+' retiré de la tournée (échec)'); refreshAllBonLists(); }
+    });
+  });
+}
 
 // ================= Collecte marchandise (source externe/TMS/partenaire → livraison directe, retour dépôt, ou regroupement) =================
 async function loadBaseForCollecte(){
