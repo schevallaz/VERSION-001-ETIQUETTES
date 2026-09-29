@@ -393,7 +393,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0018';
+var APP_VERSION = '2026.0019';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -2391,7 +2391,193 @@ async function majOuverturesLivreur(){
 
 document.getElementById('planScope').addEventListener('change', renderTourneesPlanifiees);
 
+// ================= POD — preuve de livraison PDF =================
+// récupère une preuve (photo/signature) depuis Storage et la convertit pour l'intégrer au PDF
+async function fetchImageAsDataUrl(path){
+  var url = await firebase.storage().ref(path).getDownloadURL();
+  var resp = await fetch(url);
+  var blob = await resp.blob();
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(){ resolve(reader.result); };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+function imgFormat(path){ return /\.png$/i.test(path) ? 'PNG' : 'JPEG'; }
+
+async function generatePodPdf(numero, events){
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({ unit:'mm', format:'a4' });
+  var marginX = 15, y = 20, pageW = 210, contentW = pageW - 2*marginX;
+  var b = state.bons.find(function(x){ return x.numero===numero; });
+  if(!b){ banner('BL introuvable'); return; }
+
+  var footerLines = legalFooterLines(doc, siegeForBL(b), contentW);
+  var LINE_H = 3.4;
+  var footerTopY = footerLines.length ? (291 - (footerLines.length-1)*LINE_H - 5) : 292;
+  var contentBottom = footerTopY - 3;
+
+  function checkPage(needed){
+    if(y + needed > contentBottom){ doc.addPage(); y = 20; return true; }
+    return false;
+  }
+  function wrap(text, x, yy, maxW, lineH){
+    doc.splitTextToSize(String(text), maxW).forEach(function(l){ doc.text(l, x, yy); yy += lineH; });
+    return yy;
+  }
+
+  var adr = b.contremarqueAdresse || {};
+  var validation = events.filter(function(e){ return e.type==='livraison_validee'; }).slice(-1)[0];
+  var echec = events.filter(function(e){ return e.type==='echec_confirme'; }).slice(-1)[0];
+  var estEchec = !!echec && !validation;
+
+  // ----- en-tête -----
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('PREUVE DE LIVRAISON', marginX, y);
+  doc.setFontSize(12);
+  doc.text('BL '+b.numero, pageW-marginX, y, { align:'right' });
+  y += 6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.setTextColor(estEchec?192:30, estEchec?57:142, estEchec?43:87);
+  doc.text(estEchec ? 'ÉCHEC DE LIVRAISON' : 'LIVRAISON VALIDÉE', marginX, y);
+  doc.setTextColor(0,0,0);
+  y += 4;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.3); doc.line(marginX, y, pageW-marginX, y);
+  y += 8;
+
+  // ----- destinataire + événement final -----
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Destinataire', marginX, y); y += 6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  y = wrap(b.contremarque||'—', marginX, y, contentW, 5);
+  if(adr.adresse1) y = wrap(adr.adresse1, marginX, y, contentW, 5);
+  if(adr.cp||adr.ville) y = wrap([adr.cp,adr.ville].filter(Boolean).join(' '), marginX, y, contentW, 5);
+  y += 4;
+
+  var finale = validation || echec;
+  if(finale){
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text(estEchec ? 'Échec confirmé' : 'Livraison validée', marginX, y); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    y = wrap('Le '+fmtDateHeureFr(finale.dateHeureAppareil), marginX, y, contentW, 5);
+    y = wrap(gpsLigneFr(finale), marginX, y, contentW, 5);
+    if(estEchec){
+      y = wrap('Motif : '+(echec.motif||''), marginX, y, contentW, 5);
+      if(echec.commentaire) y = wrap('Commentaire : '+echec.commentaire, marginX, y, contentW, 5);
+      y = wrap('Client contacté : '+(echec.clientContacte?'oui':'non'), marginX, y, contentW, 5);
+    }
+    y += 4;
+  }
+
+  // ----- signatures -----
+  var sigClient = events.filter(function(e){ return e.type==='signature_client'; }).slice(-1)[0];
+  var sigLivreur = events.filter(function(e){ return e.type==='signature_livreur'; }).slice(-1)[0];
+  if(sigClient || sigLivreur){
+    checkPage(60);
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('Signatures', marginX, y); y += 6;
+    var colW = (contentW-8)/2, xL = marginX, xR = marginX+colW+8, yTop = y;
+    async function poseSignature(ev, x, titre){
+      doc.setFont('helvetica','normal'); doc.setFontSize(9);
+      doc.text(titre, x, yTop);
+      doc.rect(x, yTop+3, colW, 35);
+      if(ev && ev.signaturePath){
+        try{
+          var data = await fetchImageAsDataUrl(ev.signaturePath);
+          doc.addImage(data, imgFormat(ev.signaturePath), x+2, yTop+5, colW-4, 31, undefined, 'FAST');
+        }catch(e){ console.error('signature POD error', e); doc.text('(image indisponible)', x+4, yTop+20); }
+        doc.setFontSize(8);
+        var sousTexte = fmtDateHeureFr(ev.dateHeureAppareil)+(ev.signataire?' — '+ev.signataire:'');
+        doc.text(sousTexte, x, yTop+41);
+      } else {
+        doc.setFontSize(8); doc.text('Non recueillie', x+4, yTop+20);
+      }
+    }
+    await poseSignature(sigClient, xL, 'Client'+(sigClient&&sigClient.signataire?' — '+sigClient.signataire:''));
+    await poseSignature(sigLivreur, xR, 'Livreur');
+    y = yTop + 46;
+  }
+
+  // ----- réserves -----
+  var reserve = events.filter(function(e){ return e.type==='reserves'; }).slice(-1)[0];
+  if(reserve && reserve.aReserves){
+    checkPage(20);
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(232,121,46);
+    doc.text('Réserve émise', marginX, y); doc.setTextColor(0,0,0); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    y = wrap(reserve.description||'', marginX, y, contentW, 5); y += 4;
+  }
+
+  // ----- photos (grille) -----
+  var photoTypes = [['photo_enlevement',"Photos à l'enlèvement"], ['photo_livraison','Photos de la marchandise livrée'], ['photo_reserve','Photos de la réserve'], ['photo_justificatif_echec','Photos justificatives']];
+  for(var pt=0; pt<photoTypes.length; pt++){
+    var type = photoTypes[pt][0], titre = photoTypes[pt][1];
+    var photos = events.filter(function(e){ return e.type===type && e.photoPath; });
+    if(!photos.length) continue;
+    checkPage(15);
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text(titre+' ('+photos.length+')', marginX, y); y += 6;
+    var perRow = 3, gap = 4, imgW = (contentW - gap*(perRow-1))/perRow, imgH = imgW*0.75;
+    for(var i=0; i<photos.length; i++){
+      var col = i % perRow;
+      if(col===0) checkPage(imgH+10);
+      var x = marginX + col*(imgW+gap);
+      doc.rect(x, y, imgW, imgH);
+      try{
+        var data2 = await fetchImageAsDataUrl(photos[i].photoPath);
+        doc.addImage(data2, imgFormat(photos[i].photoPath), x+1, y+1, imgW-2, imgH-2, undefined, 'FAST');
+      }catch(e){ console.error('photo POD error', e); doc.setFontSize(7); doc.text('indisponible', x+2, y+imgH/2); }
+      doc.setFont('helvetica','normal'); doc.setFontSize(7);
+      doc.text(gpsLigneFr(photos[i], true), x, y+imgH+3);
+      if(col===perRow-1 || i===photos.length-1) y += imgH+8;
+    }
+    y += 2;
+  }
+
+  // ----- historique complet (texte, en fin de document) -----
+  checkPage(15);
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Historique complet', marginX, y); y += 6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  events.forEach(function(ev){
+    checkPage(5);
+    var ligne = fmtDateHeureFr(ev.dateHeureAppareil)+' — '+(EVT_LABELS_PDF[ev.type]||ev.type)+' — '+gpsLigneFr(ev, true);
+    y = wrap(ligne, marginX, y, contentW, 4.2);
+  });
+
+  // ----- pied de page légal, sur chaque page -----
+  if(footerLines.length){
+    var nbPages = doc.getNumberOfPages();
+    for(var pg=1; pg<=nbPages; pg++){
+      doc.setPage(pg);
+      doc.setDrawColor(150,150,150); doc.setLineWidth(0.2);
+      doc.line(marginX, footerTopY, pageW-marginX, footerTopY);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(90,90,90);
+      footerLines.forEach(function(l, i){ doc.text(l, pageW/2, footerTopY+4+i*LINE_H, { align:'center' }); });
+      doc.setTextColor(0,0,0); doc.setDrawColor(0,0,0);
+    }
+  }
+
+  downloadPdf(doc, 'POD_'+b.numero+'.pdf');
+}
+function gpsLigneFr(ev, court){
+  if(!ev) return '';
+  if(ev.gpsIndisponible || ev.latitude==null) return 'GPS indisponible';
+  var p = (ev.precision!=null) ? ' (±'+Math.round(ev.precision)+'m)' : '';
+  return (court?'':'Position : ')+ev.latitude.toFixed(5)+', '+ev.longitude.toFixed(5)+p;
+}
+
 // ================= Retour des preuves du livreur dans le TMS =================
+var EVT_LABELS_PDF = {
+  arrivee: 'Arrivée sur site (enlèvement)', photo_enlevement: "Photo à l'enlèvement",
+  prise_en_charge: 'Marchandise prise en charge', arrivee_client: 'Arrivée chez le client',
+  photo_livraison: 'Photo de la marchandise livrée', signature_client: 'Signature du client',
+  signature_livreur: 'Signature du livreur', reserves: 'Réserves', photo_reserve: 'Photo de la réserve',
+  livraison_validee: 'Livraison validée', echec_confirme: 'Échec de livraison confirmé',
+  photo_justificatif_echec: 'Photo justificative (échec)', lien_ouvert: 'Lien ouvert par le livreur',
+  acquittement_modification: 'Modification de tournée acquittée'
+};
 var EVT_LABELS = {
   arrivee: '📍 Arrivée sur site (enlèvement)', photo_enlevement: "📷 Photo à l'enlèvement",
   prise_en_charge: '📦 Marchandise prise en charge', arrivee_client: '📍 Arrivée chez le client',
@@ -2459,6 +2645,9 @@ function preuvesPanelHtml(numero){
       '🔴 Le livreur signale un échec le '+escapeHtml(fmtDateHeureFr(echec.dateHeureAppareil))+' — '+escapeHtml(echec.motif||'')+
       '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost preuve-sync-echec" data-numero="'+escapeHtml(numero)+'" style="width:100%;">Traiter comme non livré</button></div></div>';
   }
+  if(validation || echec){
+    html += '<div class="btn-row" style="margin-top:6px;"><button class="btn primary preuve-pod" data-numero="'+escapeHtml(numero)+'" style="width:100%;">📋 Preuve de livraison (PDF)</button></div>';
+  }
   html += events.map(preuveHtml).join('');
   return html;
 }
@@ -2488,6 +2677,15 @@ function wirePreuvesPanel(container){
       var par = lsGet('access-identity') || '', now = new Date().toISOString();
       await saveBonPatch(n, { statut:'livre', livraison:{ par:par, le:now, source:'livreur' }, historiqueAffectations:(b.historiqueAffectations||[]).concat([{ action:'livraison', instanceId:(b.affectation||{}).instanceId||'', par:par, le:now, source:'livreur' }]) });
       banner('BL '+n+' marqué livré'); refreshAllBonLists();
+    });
+  });
+  Array.prototype.forEach.call(container.querySelectorAll('.preuve-pod'), function(btn){
+    btn.addEventListener('click', async function(){
+      var n = btn.getAttribute('data-numero');
+      btn.disabled = true; var txt0 = btn.textContent; btn.textContent = 'Génération…';
+      try{ await generatePodPdf(n, preuvesCache[n]||[]); }
+      catch(e){ console.error('generatePodPdf error', e); banner('Erreur lors de la génération : '+(e.message||e)); }
+      btn.disabled = false; btn.textContent = txt0;
     });
   });
   Array.prototype.forEach.call(container.querySelectorAll('.preuve-sync-echec'), function(btn){
