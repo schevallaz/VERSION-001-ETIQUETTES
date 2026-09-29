@@ -279,6 +279,8 @@ function demarrerVeille(){
 }
 
 // ================= Étape 2 : exécution du BL (arrivée, photos, prise en charge, livraison, signatures, validation, échec) =================
+var signatureEcran = {}; // 'numero_qui' -> true quand l'écran dédié de signature est ouvert
+var signatureNom = {};   // 'numero' -> nom du signataire déjà validé, avant la signature elle-même
 var echecOuvert = {};
 var echecBrouillon = {}; // motif/commentaire/contacté en cours de saisie, conservés le temps que la photo justificative s'ajoute
 var MOTIFS_ECHEC = ['Client absent','Client injoignable','Adresse introuvable','Accès impossible','Accès bloqué','Marchandise refusée','Marchandise endommagée','Client demande un report','Problème véhicule','Problème de sécurité',"Temps d'attente trop important",'Autre'];
@@ -369,7 +371,9 @@ async function tenterSyncPending(){
   var list = listePending();
   for(var i=0;i<list.length;i++){
     var ok = await envoyerEvenement(list[i]);
-    if(ok) retirerPending(list[i].id); else break; // on garde l'ordre chronologique, on s'arrête à la première qui échoue encore
+    if(ok) retirerPending(list[i].id);
+    // un échec n'empêche plus les suivants d'être tentés : chacun a ses propres causes possibles
+    // (un seul élément durablement bloqué ne doit jamais retenir tous ceux qui viennent après)
   }
   syncEnCours = false;
   majBadgeSync();
@@ -470,10 +474,10 @@ function panneauHtml(b){
     html += '<div class="lbl" style="color:var(--orange);">Prends au moins une photo — la signature s\'ouvrira ensuite</div>';
   } else if(etape==='a_signer_client'){
     html += '<div class="etape-fait">📷 '+countEv(numero,'photo_livraison')+' photo(s) de livraison</div>';
-    html += signaturePanelHtml(numero, 'client', 'SIGNATURE DU CLIENT', true);
+    html += etapeSignatureHtml(numero, 'client');
   } else if(etape==='a_signer_livreur'){
     html += '<div class="etape-fait">✍️ Signature client enregistrée</div>';
-    html += signaturePanelHtml(numero, 'livreur', 'SIGNATURE DU LIVREUR', false);
+    html += etapeSignatureHtml(numero, 'livreur');
   } else if(etape==='reserves_recap'){
     html += '<div class="etape-fait">✍️ Signature livreur enregistrée</div>';
     html += reservesEtRecapHtml(numero);
@@ -497,12 +501,26 @@ function photosSectionHtml(numero, type, titre){
     '<button class="btn ghost" data-act="prendre_photo" data-bl="'+numero+'" data-type="'+type+'">'+esc(titre)+'</button></div>';
 }
 
-function signaturePanelHtml(numero, qui, titre, demanderNom){
-  return '<div class="bloc-signature"><div class="lbl">'+esc(titre)+'</div>'+
-    (demanderNom ? '<input type="text" id="signataire-'+numero+'" placeholder="Nom du signataire" class="champ">' : '')+
+// Client : saisie du nom, validée séparément, puis écran dédié à la signature.
+// Chauffeur : un simple bouton « Signer » ouvre le même écran dédié. Dans les deux cas,
+// la signature se recueille seule à l'écran, avec un petit bouton OK pour la valider.
+function etapeSignatureHtml(numero, qui){
+  var cle = numero+'_'+qui;
+  if(!signatureEcran[cle]){
+    if(qui==='client'){
+      return '<div class="bloc-signature"><div class="lbl">SIGNATURE DU CLIENT</div>'+
+        '<input type="text" id="signataire-'+numero+'" placeholder="Nom du signataire" class="champ" value="'+esc(signatureNom[numero]||'')+'">'+
+        '<button class="btn act" data-act="valider_nom" data-bl="'+numero+'">Valider le nom</button></div>';
+    }
+    return '<div class="bloc-signature"><div class="lbl">SIGNATURE DU LIVREUR</div>'+
+      '<button class="btn act" data-act="ouvrir_signature" data-bl="'+numero+'" data-qui="livreur">✍️ Signer</button></div>';
+  }
+  return '<div class="bloc-signature">'+
+    '<div class="lbl">'+(qui==='client' ? 'SIGNATURE DE '+esc((signatureNom[numero]||'').toUpperCase()) : 'SIGNATURE DU LIVREUR')+'</div>'+
     '<canvas id="sig-'+numero+'-'+qui+'" class="sigcanvas" width="620" height="220"></canvas>'+
-    '<div class="btn-row"><button class="btn ghost" data-act="effacer_signature" data-bl="'+numero+'" data-qui="'+qui+'">Effacer</button>'+
-    '<button class="btn act" data-act="valider_signature" data-bl="'+numero+'" data-qui="'+qui+'">VALIDER LA SIGNATURE</button></div></div>';
+    '<div class="btn-row"><button class="btn ghost" data-act="retour_signature" data-bl="'+numero+'" data-qui="'+qui+'" style="flex:0 0 auto;">← Retour</button>'+
+    '<button class="btn ghost" data-act="effacer_signature" data-bl="'+numero+'" data-qui="'+qui+'">Effacer</button>'+
+    '<button class="btn act" data-act="valider_signature" data-bl="'+numero+'" data-qui="'+qui+'" style="flex:0 0 auto;padding:10px 22px;">OK</button></div></div>';
 }
 
 function reservesEtRecapHtml(numero){
@@ -567,6 +585,21 @@ document.getElementById('app').addEventListener('click', async function(ev){
     var type = btn.getAttribute('data-type');
     document.querySelector('.photo-input[data-bl="'+numero+'"][data-type="'+type+'"]').click();
   }
+  else if(act==='valider_nom'){
+    var nomVal = document.getElementById('signataire-'+numero).value.trim();
+    if(!nomVal){ alert('Indique le nom du signataire'); return; }
+    signatureNom[numero] = nomVal;
+    signatureEcran[numero+'_client'] = true;
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='ouvrir_signature'){
+    signatureEcran[numero+'_'+btn.getAttribute('data-qui')] = true;
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='retour_signature'){
+    signatureEcran[numero+'_'+btn.getAttribute('data-qui')] = false;
+    render(); reouvrirDetail(numero);
+  }
   else if(act==='effacer_signature'){
     var c = document.getElementById('sig-'+numero+'-'+btn.getAttribute('data-qui'));
     if(c) effacerCanvas(c);
@@ -575,16 +608,14 @@ document.getElementById('app').addEventListener('click', async function(ev){
     var qui = btn.getAttribute('data-qui');
     var canvas = document.getElementById('sig-'+numero+'-'+qui);
     if(!canvas || canvas._vide){ alert('Signature vide — fais signer avant de valider.'); return; }
+    btn.disabled = true;
     if(qui==='client'){
-      var nomEl = document.getElementById('signataire-'+numero);
-      var nom = nomEl ? nomEl.value.trim() : '';
-      if(!nom){ alert('Indique le nom du signataire'); return; }
-      btn.disabled = true;
-      await enregistrerEvenement(numero, 'signature_client', { signataire: nom }, null, canvas.toDataURL('image/png'));
+      await enregistrerEvenement(numero, 'signature_client', { signataire: signatureNom[numero]||'' }, null, canvas.toDataURL('image/png'));
+      delete signatureNom[numero];
     } else {
-      btn.disabled = true;
       await enregistrerEvenement(numero, 'signature_livreur', {}, null, canvas.toDataURL('image/png'));
     }
+    signatureEcran[numero+'_'+qui] = false;
     render(); reouvrirDetail(numero);
   }
   else if(act==='reserves'){
