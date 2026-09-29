@@ -51,12 +51,29 @@
   .msg{ text-align:center; padding:48px 12px; }
   .msg h1{ font-size:22px; margin:0 0 8px; }
   .maj{ font-size:12px; color:var(--soft); margin-top:6px; }
+  .sync-badge{ display:none; background:#fff3e6; border:1px solid var(--orange); color:#8a4200; border-radius:10px; padding:8px 10px; font-size:13px; font-weight:600; margin:10px 0; }
+  .btn.act{ background:var(--accent); border-color:var(--accent); }
+  .btn.danger{ background:var(--red); border-color:var(--red); color:#fff; }
+  .btn-row{ display:flex; gap:8px; margin-top:8px; }
+  .btn-row .btn{ flex:1; }
+  .btn-row-sep{ height:6px; }
+  .etape-fait{ color:var(--green); font-weight:700; font-size:13.5px; margin:8px 0 4px; }
+  .etape-ok{ background:#e6f5ea; color:var(--green); border-radius:10px; padding:10px; font-weight:800; text-align:center; }
+  .etape-echec{ background:#fdecea; color:var(--red); border-radius:10px; padding:10px; font-weight:800; text-align:center; }
+  .lbl{ font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--soft); font-weight:700; margin:10px 0 6px; }
+  .champ{ width:100%; padding:10px; border:1px solid var(--line); border-radius:10px; font-size:15px; font-family:inherit; margin-bottom:8px; }
+  .bloc-photos, .bloc-signature, .bloc-reserves, .bloc-echec, .recap{ margin-top:10px; }
+  .vignettes{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .sigcanvas{ width:100%; height:180px; border:1px solid var(--line); border-radius:10px; background:#fcfcfa; touch-action:none; display:block; margin-bottom:8px; }
+  .recap{ background:#faf9f4; border:1px solid var(--line); border-radius:10px; padding:10px; font-size:14px; }
+  .recap > div{ padding:2px 0; }
 </style>
 </head>
 <body>
 <div id="app"><div class="msg"><h1>Chargement…</h1></div></div>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-storage-compat.js"></script>
 <script>
 // ================= Application livreur (PWA) — étape 1 : accès sécurisé à la tournée et affichage des BL =================
 var firebaseConfig = {
@@ -208,6 +225,7 @@ function blHtml(b){
   d += '<h4>Client</h4><div>'+esc(b.client||'—')+'</div>';
   var cmd = (b.commandes||[]).filter(function(c){ return c.labelNumber; });
   if(cmd.length) d += '<h4>À enlever au dépôt</h4><div>'+cmd.map(function(c){ return esc(c.labelNumber)+' · '+esc(c.colis||0)+' colis'+(c.emplacement ? ' · 📍 '+esc(c.emplacement) : ''); }).join('<br>')+'</div>';
+  d += '<h4>Suivi de la livraison</h4>'+panneauHtml(b);
   return '<div class="bl" data-n="'+esc(b.numero)+'">'+
     '<div class="bl-h"><span class="num">BL '+esc(b.numero)+'</span><span class="etat etat-'+etat+'">'+ETAT_LABEL[etat]+'</span></div>'+
     '<div class="bl-resume">'+(b.estImperative ? '<div style="color:var(--red);font-weight:800;font-size:13px;">🔴 IMPÉRATIF'+(b.dateImperative ? ' — '+esc(fmtDate(b.dateImperative)) : '')+'</div>' : '')+'<div class="dest">'+esc(b.ordre)+'. '+esc(b.destinataire||'—')+'</div>'+
@@ -223,6 +241,7 @@ function render(){
     '<div class="sous">'+esc(fmtDateLong(t.date))+(t.referentiel && t.referentiel.heureDebut ? ' · '+esc(t.referentiel.heureDebut)+'–'+esc(t.referentiel.heureFin) : '')+'</div>'+
     '<div class="sous">Livreur : <strong>'+esc(t.livreurNom||'—')+'</strong>'+(t.vehicule ? ' · '+esc(t.vehicule) : '')+'</div>';
   if(S.hors) h += '<div class="bandeau warn">Hors connexion — données du '+esc(S.majLe ? fmtDate(S.majLe)+' '+new Date(S.majLe).toTimeString().slice(0,5) : '?')+'. Elles se mettront à jour au retour du réseau.</div>';
+  h += '<div class="sync-badge" id="syncBadge"></div>';
   if(t.statut==='annulee') h += '<div class="bandeau err">Cette tournée a été annulée par l\'exploitation.</div>';
   if(modifs.length){
     h += '<div class="bandeau warn">⚠ Ta tournée a été modifiée<br>'+modifs.map(function(m){ return '• '+esc(LIB_MODIF[m.type]||m.type)+(m.bl ? ' : '+esc(m.bl) : ''); }).join('<br>')+
@@ -239,6 +258,7 @@ function render(){
   });
   var ack = document.getElementById('btnAck');
   if(ack) ack.addEventListener('click', acquitter);
+  majBadgeSync();
 }
 
 // ---------- veille : lien désactivé, tournée modifiée, retour du réseau ----------
@@ -256,6 +276,397 @@ function demarrerVeille(){
     }, function(){});
   }catch(e){}
   window.addEventListener('online', function(){ if(S.hors) charger(); });
+}
+
+// ================= Étape 2 : exécution du BL (arrivée, photos, prise en charge, livraison, signatures, validation, échec) =================
+var echecOuvert = {};
+var echecBrouillon = {}; // motif/commentaire/contacté en cours de saisie, conservés le temps que la photo justificative s'ajoute
+var MOTIFS_ECHEC = ['Client absent','Client injoignable','Adresse introuvable','Accès impossible','Accès bloqué','Marchandise refusée','Marchandise endommagée','Client demande un report','Problème véhicule','Problème de sécurité',"Temps d'attente trop important",'Autre'];
+
+function idGen(prefix){ return prefix+'_'+deviceId()+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); }
+function bonEvents(numero){ return S.events.filter(function(e){ return e.bl===numero; }); }
+function hasEv(numero, type){ return bonEvents(numero).some(function(e){ return e.type===type; }); }
+function countEv(numero, type){ return bonEvents(numero).filter(function(e){ return e.type===type; }).length; }
+function derniereObs(numero, type){ var evs = bonEvents(numero).filter(function(e){ return e.type===type; }); return evs.length ? evs[evs.length-1] : null; }
+
+// la position est toujours relevée à l'instant précis de l'action (maximumAge:0) — jamais la dernière position connue.
+// une position indisponible n'empêche jamais l'action : on enregistre "GPS indisponible" et on continue.
+function relevePosition(){
+  return new Promise(function(resolve){
+    if(!navigator.geolocation){ resolve({ indisponible:true, motif:'non supporté' }); return; }
+    var fini = false;
+    var timer = setTimeout(function(){ if(!fini){ fini=true; resolve({ indisponible:true, motif:'délai dépassé' }); } }, 12000);
+    navigator.geolocation.getCurrentPosition(function(pos){
+      if(fini) return; fini=true; clearTimeout(timer);
+      resolve({ indisponible:false, latitude:pos.coords.latitude, longitude:pos.coords.longitude, precision:pos.coords.accuracy });
+    }, function(err){
+      if(fini) return; fini=true; clearTimeout(timer);
+      resolve({ indisponible:true, motif: err.message||'refusé' });
+    }, { enableHighAccuracy:true, timeout:11000, maximumAge:0 });
+  });
+}
+function gpsLigne(pos){
+  if(!pos) return '';
+  if(pos.gpsIndisponible || pos.indisponible) return '📍 GPS indisponible';
+  var p = (pos.precision!=null) ? ' (±'+Math.round(pos.precision)+'m)' : '';
+  return '📍 '+pos.latitude.toFixed(5)+', '+pos.longitude.toFixed(5)+p;
+}
+
+function compresserImage(file, maxDim, qualite){
+  return new Promise(function(resolve){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var scale = Math.min(1, maxDim/Math.max(img.width, img.height));
+        var w = Math.round(img.width*scale)||1, h = Math.round(img.height*scale)||1;
+        var canvas = document.createElement('canvas'); canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg', qualite));
+      };
+      img.onerror = function(){ resolve(null); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ resolve(null); };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------- file d'attente hors connexion : chaque entrée est un événement complet, avec sa photo/signature en base64 ----------
+function clePending(){ return 'stls_livreur_pending_'+token; }
+function listePending(){ try{ return JSON.parse(ls(clePending())||'[]'); }catch(e){ return []; } }
+function sauverPending(list){ ls(clePending(), JSON.stringify(list)); }
+function ajouterPending(entry){ var l=listePending(); l.push(entry); sauverPending(l); }
+function retirerPending(id){ sauverPending(listePending().filter(function(x){ return x.id!==id; })); }
+function nbPending(){ return listePending().length; }
+
+async function envoyerEvenement(entry){
+  try{
+    var data = Object.assign({}, entry.data);
+    if(entry.photoBase64){
+      var blob = await (await fetch(entry.photoBase64)).blob();
+      var path = 'stls_livreur/'+token+'/preuves/'+entry.id+'.jpg';
+      await firebase.storage().ref(path).put(blob, { contentType:'image/jpeg' });
+      data.photoPath = path;
+    }
+    if(entry.signatureBase64){
+      var blob2 = await (await fetch(entry.signatureBase64)).blob();
+      var path2 = 'stls_livreur/'+token+'/signatures/'+entry.id+'.png';
+      await firebase.storage().ref(path2).put(blob2, { contentType:'image/png' });
+      data.signaturePath = path2;
+    }
+    await db.collection('stls_livreur').doc(token).collection('evenements').doc(entry.id)
+      .set(Object.assign({ id:entry.id, deviceId:deviceId(), dateHeureAppareil:entry.dateHeureAppareil }, data));
+    return true;
+  }catch(e){ console.error('envoyerEvenement error', e); return false; }
+}
+
+var syncEnCours = false;
+async function tenterSyncPending(){
+  if(syncEnCours) return;
+  syncEnCours = true;
+  majBadgeSync();
+  var list = listePending();
+  for(var i=0;i<list.length;i++){
+    var ok = await envoyerEvenement(list[i]);
+    if(ok) retirerPending(list[i].id); else break; // on garde l'ordre chronologique, on s'arrête à la première qui échoue encore
+  }
+  syncEnCours = false;
+  majBadgeSync();
+}
+window.addEventListener('online', tenterSyncPending);
+setInterval(tenterSyncPending, 25000);
+
+function majBadgeSync(){
+  var el = document.getElementById('syncBadge');
+  if(!el) return;
+  var n = nbPending();
+  if(syncEnCours){ el.textContent = '🟠 Synchronisation en cours…'; el.style.display = 'block'; }
+  else if(n){ el.textContent = '🟠 En attente de synchronisation ('+n+')'; el.style.display = 'block'; }
+  else { el.style.display = 'none'; }
+}
+
+// enregistre un événement : GPS relevé à l'instant, envoi immédiat si en ligne, sinon mis en file — jamais perdu, jamais bloquant
+async function enregistrerEvenement(bl, type, extra, photoBase64, signatureBase64){
+  var id = idGen(type);
+  var pos = await relevePosition();
+  var data = Object.assign({ type:type, bl:bl }, extra||{}, {
+    latitude: pos.indisponible ? null : pos.latitude,
+    longitude: pos.indisponible ? null : pos.longitude,
+    precision: pos.indisponible ? null : pos.precision,
+    gpsIndisponible: !!pos.indisponible
+  });
+  var dateHeureAppareil = new Date().toISOString();
+  var entry = { id:id, data:data, dateHeureAppareil:dateHeureAppareil, photoBase64:photoBase64||null, signatureBase64:signatureBase64||null };
+  var enLigne = navigator.onLine !== false;
+  var ok = enLigne ? await envoyerEvenement(entry) : false;
+  S.events.push(Object.assign({ id:id, deviceId:deviceId(), dateHeureAppareil:dateHeureAppareil, _enAttente:!ok }, data));
+  if(!ok) ajouterPending(entry);
+  sauverCache();
+  majBadgeSync();
+  return { id:id, gps:data };
+}
+
+// ---------- signature tactile ----------
+function initSignaturePad(canvas){
+  var ctx = canvas.getContext('2d');
+  ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.strokeStyle = '#1c1c1a';
+  var drawing = false, last = null;
+  canvas._vide = true;
+  function pos(e){
+    var r = canvas.getBoundingClientRect();
+    var t = e.touches && e.touches.length ? e.touches[0] : e;
+    return { x:(t.clientX-r.left)*(canvas.width/r.width), y:(t.clientY-r.top)*(canvas.height/r.height) };
+  }
+  function start(e){ e.preventDefault(); drawing = true; canvas._vide = false; last = pos(e); }
+  function move(e){ if(!drawing) return; e.preventDefault(); var p = pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last = p; }
+  function end(){ drawing = false; }
+  canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, { passive:false }); canvas.addEventListener('touchmove', move, { passive:false }); canvas.addEventListener('touchend', end);
+}
+function effacerCanvas(canvas){ canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height); canvas._vide = true; }
+
+// ---------- étape courante d'un BL, déduite des événements déjà enregistrés ----------
+// nom de l'étape = ce qu'elle affiche (jamais ce qui vient d'être fait). Elle ne progresse que sur les jalons
+// (arrivée, prise en charge, signatures...), jamais sur le seul fait d'avoir pris une photo : on peut en
+// prendre plusieurs sans quitter l'étape en cours. Les photos de livraison sont l'exception volontaire :
+// au moins une est exigée avant de pouvoir passer à la signature du client.
+function etapeBL(numero){
+  if(hasEv(numero,'livraison_validee')) return 'validee';
+  if(hasEv(numero,'echec_confirme')) return 'echec';
+  if(hasEv(numero,'signature_livreur')) return 'reserves_recap';          // les deux signatures sont faites
+  if(hasEv(numero,'signature_client')) return 'a_signer_livreur';        // reste à signer : le livreur
+  if(hasEv(numero,'photo_livraison')) return 'a_signer_client';          // reste à signer : le client
+  if(hasEv(numero,'arrivee_client')) return 'chez_le_client';
+  if(hasEv(numero,'prise_en_charge')) return 'en_route';
+  if(hasEv(numero,'arrivee')) return 'enlevement';
+  return 'depart';
+}
+
+// ---------- panneau d'action : une fonction par étape, rejouée après chaque action pour rester à jour ----------
+function panneauHtml(b){
+  var numero = b.numero, etape = etapeBL(numero);
+  if(etape==='validee'){
+    var ev = derniereObs(numero,'livraison_validee');
+    return '<div class="etape-ok">✅ Livraison validée'+(ev?' — '+gpsLigne(ev):'')+'</div>';
+  }
+  if(etape==='echec'){
+    var eve = derniereObs(numero,'echec_confirme');
+    return '<div class="etape-echec">🔴 Échec de livraison'+(eve&&eve.motif?' — '+esc(eve.motif):'')+'</div>';
+  }
+  var html = '<div id="pan-'+numero+'">';
+  if(etape==='depart'){
+    html += '<button class="btn act" data-act="arrivee" data-bl="'+numero+'">📍 JE SUIS ARRIVÉ</button>';
+  } else if(etape==='enlevement'){
+    html += '<div class="etape-fait">📍 Arrivée enregistrée</div>';
+    html += photosSectionHtml(numero, 'photo_enlevement', '📷 PHOTOS À L\'ENLÈVEMENT');
+    html += '<button class="btn act" data-act="prise_en_charge" data-bl="'+numero+'">📦 MARCHANDISE PRISE EN CHARGE</button>';
+  } else if(etape==='en_route'){
+    html += '<div class="etape-fait">📦 Marchandise prise en charge · '+countEv(numero,'photo_enlevement')+' photo(s)</div>';
+    html += '<button class="btn act" data-act="arrivee_client" data-bl="'+numero+'">📍 ARRIVÉE CHEZ LE CLIENT</button>';
+  } else if(etape==='chez_le_client'){
+    html += '<div class="etape-fait">📍 Arrivé chez le client</div>';
+    html += photosSectionHtml(numero, 'photo_livraison', '📷 PHOTOS DE LA MARCHANDISE LIVRÉE');
+    html += '<div class="lbl" style="color:var(--orange);">Prends au moins une photo — la signature s\'ouvrira ensuite</div>';
+  } else if(etape==='a_signer_client'){
+    html += '<div class="etape-fait">📷 '+countEv(numero,'photo_livraison')+' photo(s) de livraison</div>';
+    html += signaturePanelHtml(numero, 'client', 'SIGNATURE DU CLIENT', true);
+  } else if(etape==='a_signer_livreur'){
+    html += '<div class="etape-fait">✍️ Signature client enregistrée</div>';
+    html += signaturePanelHtml(numero, 'livreur', 'SIGNATURE DU LIVREUR', false);
+  } else if(etape==='reserves_recap'){
+    html += '<div class="etape-fait">✍️ Signature livreur enregistrée</div>';
+    html += reservesEtRecapHtml(numero);
+  }
+  if(['depart'].indexOf(etape)<0){
+    html += '<div class="btn-row-sep"></div><button class="btn ghost" data-act="ouvrir_echec" data-bl="'+numero+'">❌ LIVRAISON IMPOSSIBLE</button>';
+  } else {
+    html += '<button class="btn ghost" data-act="ouvrir_echec" data-bl="'+numero+'" style="margin-top:8px;">❌ LIVRAISON IMPOSSIBLE</button>';
+  }
+  html += '<div id="echec-'+numero+'" style="display:'+(echecOuvert[numero]?'block':'none')+';">'+(echecOuvert[numero]?echecFormHtml(numero):'')+'</div>';
+  html += '</div>';
+  return html;
+}
+
+function photosSectionHtml(numero, type, titre){
+  var n = countEv(numero, type);
+  var photos = bonEvents(numero).filter(function(e){ return e.type===type; });
+  var vignettes = photos.map(function(p){ return '<span class="chip">📷 '+esc(gpsLigne(p))+(p._enAttente?' · 🟠 en attente':'')+'</span>'; }).join('');
+  return '<div class="bloc-photos"><div class="lbl">'+esc(titre)+' ('+n+')</div>'+(vignettes?'<div class="vignettes">'+vignettes+'</div>':'')+
+    '<input type="file" accept="image/*" capture="environment" class="photo-input" data-bl="'+numero+'" data-type="'+type+'" style="display:none;">'+
+    '<button class="btn ghost" data-act="prendre_photo" data-bl="'+numero+'" data-type="'+type+'">'+esc(titre)+'</button></div>';
+}
+
+function signaturePanelHtml(numero, qui, titre, demanderNom){
+  return '<div class="bloc-signature"><div class="lbl">'+esc(titre)+'</div>'+
+    (demanderNom ? '<input type="text" id="signataire-'+numero+'" placeholder="Nom du signataire" class="champ">' : '')+
+    '<canvas id="sig-'+numero+'-'+qui+'" class="sigcanvas" width="620" height="220"></canvas>'+
+    '<div class="btn-row"><button class="btn ghost" data-act="effacer_signature" data-bl="'+numero+'" data-qui="'+qui+'">Effacer</button>'+
+    '<button class="btn act" data-act="valider_signature" data-bl="'+numero+'" data-qui="'+qui+'">VALIDER LA SIGNATURE</button></div></div>';
+}
+
+function reservesEtRecapHtml(numero){
+  var res = derniereObs(numero, 'reserves');
+  if(!res){
+    return '<div class="bloc-reserves"><div class="lbl">AVEZ-VOUS DES RÉSERVES ?</div>'+
+      '<div class="btn-row"><button class="btn ghost" data-act="reserves" data-bl="'+numero+'" data-val="non">NON</button>'+
+      '<button class="btn ghost" data-act="reserves" data-bl="'+numero+'" data-val="oui">OUI</button></div></div>';
+  }
+  var html = '';
+  if(res.aReserves){
+    html += '<div class="bloc-reserves"><div class="lbl">Réserve : '+esc(res.description||'')+'</div>'+
+      photosSectionHtml(numero, 'photo_reserve', '📷 PHOTO DE LA RÉSERVE')+'</div>';
+  } else {
+    html += '<div class="etape-fait">☑ Pas de réserve</div>';
+  }
+  html += '<div class="recap"><div class="lbl">RÉCAPITULATIF</div>'+
+    '<div>☑ Marchandise livrée</div><div>☑ Photos prises ('+countEv(numero,'photo_livraison')+')</div>'+
+    '<div>☑ Signature client</div><div>☑ Signature livreur</div>'+
+    (res.aReserves ? '<div>🟠 Réserve enregistrée</div>' : '<div>☑ Aucune réserve</div>')+'</div>'+
+    '<button class="btn act" data-act="valider_livraison" data-bl="'+numero+'" style="margin-top:10px;">✅ VALIDER LA LIVRAISON</button>';
+  return html;
+}
+
+function echecFormHtml(numero){
+  var br = echecBrouillon[numero] || {};
+  return '<div class="bloc-echec"><div class="lbl">Motif de l\'échec</div>'+
+    '<select id="motif-'+numero+'" class="champ">'+MOTIFS_ECHEC.map(function(m){ return '<option value="'+esc(m)+'"'+(br.motif===m?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select>'+
+    '<textarea id="commentaire-'+numero+'" class="champ" placeholder="Commentaire (obligatoire si Autre)" style="min-height:60px;">'+esc(br.commentaire||'')+'</textarea>'+
+    '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:8px 0;"><input type="checkbox" id="contacte-'+numero+'" '+(br.contacte?'checked':'')+'> Client contacté ?</label>'+
+    photosSectionHtml(numero, 'photo_justificatif_echec', '📷 PHOTO JUSTIFICATIVE')+
+    '<button class="btn danger" data-act="confirmer_echec" data-bl="'+numero+'" style="margin-top:8px;">CONFIRMER L\'ÉCHEC DE LIVRAISON</button>'+
+    '<button class="btn ghost" data-act="annuler_echec" data-bl="'+numero+'">Annuler</button></div>';
+}
+
+// ---------- wiring : délégation d'événements sur toute la zone BL ouverte ----------
+document.getElementById('app').addEventListener('click', async function(ev){
+  var btn = ev.target.closest('[data-act]');
+  if(!btn) return;
+  var act = btn.getAttribute('data-act'), numero = btn.getAttribute('data-bl');
+  if(!act) return;
+
+  if(act==='arrivee'){
+    btn.disabled = true; btn.textContent = 'Relevé GPS en cours…';
+    await enregistrerEvenement(numero, 'arrivee', {});
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='prise_en_charge'){
+    btn.disabled = true;
+    await enregistrerEvenement(numero, 'prise_en_charge', {});
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='arrivee_client'){
+    btn.disabled = true;
+    await enregistrerEvenement(numero, 'arrivee_client', {});
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='continuer_signature'){
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='prendre_photo'){
+    var type = btn.getAttribute('data-type');
+    document.querySelector('.photo-input[data-bl="'+numero+'"][data-type="'+type+'"]').click();
+  }
+  else if(act==='effacer_signature'){
+    var c = document.getElementById('sig-'+numero+'-'+btn.getAttribute('data-qui'));
+    if(c) effacerCanvas(c);
+  }
+  else if(act==='valider_signature'){
+    var qui = btn.getAttribute('data-qui');
+    var canvas = document.getElementById('sig-'+numero+'-'+qui);
+    if(!canvas || canvas._vide){ alert('Signature vide — fais signer avant de valider.'); return; }
+    if(qui==='client'){
+      var nomEl = document.getElementById('signataire-'+numero);
+      var nom = nomEl ? nomEl.value.trim() : '';
+      if(!nom){ alert('Indique le nom du signataire'); return; }
+      btn.disabled = true;
+      await enregistrerEvenement(numero, 'signature_client', { signataire: nom }, null, canvas.toDataURL('image/png'));
+    } else {
+      btn.disabled = true;
+      await enregistrerEvenement(numero, 'signature_livreur', {}, null, canvas.toDataURL('image/png'));
+    }
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='reserves'){
+    var val = btn.getAttribute('data-val');
+    if(val==='non'){
+      await enregistrerEvenement(numero, 'reserves', { aReserves:false });
+      render(); reouvrirDetail(numero);
+    } else {
+      var desc = prompt('Décris la réserve :');
+      if(desc===null) return;
+      desc = desc.trim();
+      if(!desc){ alert('Une description est obligatoire pour une réserve'); return; }
+      await enregistrerEvenement(numero, 'reserves', { aReserves:true, description:desc });
+      render(); reouvrirDetail(numero);
+    }
+  }
+  else if(act==='valider_livraison'){
+    btn.disabled = true; btn.textContent = 'Validation…';
+    await enregistrerEvenement(numero, 'livraison_validee', {});
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='ouvrir_echec'){
+    echecOuvert[numero] = true;
+    var zone = document.getElementById('echec-'+numero);
+    zone.innerHTML = echecFormHtml(numero);
+    zone.style.display = 'block';
+  }
+  else if(act==='annuler_echec'){
+    echecOuvert[numero] = false;
+    delete echecBrouillon[numero];
+    document.getElementById('echec-'+numero).style.display = 'none';
+  }
+  else if(act==='confirmer_echec'){
+    var motif = document.getElementById('motif-'+numero).value;
+    var commentaire = document.getElementById('commentaire-'+numero).value.trim();
+    if(motif==='Autre' && !commentaire){ alert('Un commentaire est obligatoire pour le motif "Autre"'); return; }
+    var contacte = document.getElementById('contacte-'+numero).checked;
+    btn.disabled = true; btn.textContent = 'Confirmation…';
+    echecOuvert[numero] = false;
+    delete echecBrouillon[numero];
+    await enregistrerEvenement(numero, 'echec_confirme', { motif:motif, commentaire:commentaire, clientContacte:contacte });
+    render(); reouvrirDetail(numero);
+  }
+});
+
+// prise de photo : compression puis événement (avec file d'attente hors connexion automatique)
+document.getElementById('app').addEventListener('change', async function(ev){
+  var input = ev.target;
+  if(!input.classList || !input.classList.contains('photo-input')) return;
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var numero = input.getAttribute('data-bl'), type = input.getAttribute('data-type');
+  if(echecOuvert[numero]){
+    var mEl=document.getElementById('motif-'+numero), cEl=document.getElementById('commentaire-'+numero), xEl=document.getElementById('contacte-'+numero);
+    echecBrouillon[numero] = { motif: mEl?mEl.value:'', commentaire: cEl?cEl.value:'', contacte: xEl?xEl.checked:false };
+  }
+  input.disabled = true;
+  var base64 = await compresserImage(file, 1280, 0.7);
+  if(!base64){ input.disabled = false; alert('Photo illisible, réessaie'); return; }
+  await enregistrerEvenement(numero, type, {});
+  // remplace le dernier événement de ce type par sa version avec photo (le précédent appel a créé un id neuf : on refait proprement)
+  var derniers = S.events.filter(function(e){ return e.bl===numero && e.type===type; });
+  var dernier = derniers[derniers.length-1];
+  S.events = S.events.filter(function(e){ return e.id!==dernier.id; });
+  await enregistrerEvenementPhoto(numero, type, dernier, base64);
+  input.value = '';
+  render(); reouvrirDetail(numero);
+});
+async function enregistrerEvenementPhoto(numero, type, evGps, photoBase64){
+  var id = evGps.id; // conserve le même horodatage/GPS déjà relevé
+  var data = { type:type, bl:numero, latitude:evGps.latitude, longitude:evGps.longitude, precision:evGps.precision, gpsIndisponible:evGps.gpsIndisponible };
+  var entry = { id:id, data:data, dateHeureAppareil:evGps.dateHeureAppareil, photoBase64:photoBase64, signatureBase64:null };
+  var ok = navigator.onLine!==false ? await envoyerEvenement(entry) : false;
+  S.events.push(Object.assign({ id:id, deviceId:deviceId(), dateHeureAppareil:evGps.dateHeureAppareil, _enAttente:!ok }, data));
+  if(!ok) ajouterPending(entry);
+  sauverCache(); majBadgeSync();
+}
+
+// ré-ouvre le détail du BL après un rendu complet (le rendu recrée le DOM, qui se referme sinon)
+function reouvrirDetail(numero){
+  var el = document.querySelector('.bl[data-n="'+numero+'"]');
+  if(el){ el.classList.add('ouvert'); Array.prototype.forEach.call(el.querySelectorAll('.sigcanvas'), function(c){ initSignaturePad(c); }); el.scrollIntoView({ behavior:'smooth', block:'start' }); }
 }
 
 async function demarrer(){
