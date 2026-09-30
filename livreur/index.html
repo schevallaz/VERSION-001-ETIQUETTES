@@ -132,7 +132,7 @@ function sauverCache(){ ls(cleCache(), JSON.stringify({ lien: S.lien, tournee: S
 function lireCache(){ try{ var c = JSON.parse(ls(cleCache())||'null'); return c && c.tournee ? c : null; }catch(e){ return null; } }
 
 // ---------- état d'un BL, déduit des événements ----------
-var EVT_ETAT = { arrivee: 'en_cours', prise_en_charge: 'en_cours', arrivee_client: 'en_cours', livraison_validee: 'livre', echec_confirme: 'echec' };
+var EVT_ETAT = { arrivee: 'en_cours', prise_en_charge: 'en_cours', arrivee_client: 'en_cours', livraison_validee: 'livre', echec_confirme: 'echec', reprise_livraison: 'en_cours' };
 var ETAT_LABEL = { a_faire: 'À FAIRE', en_cours: 'EN COURS', livre: 'LIVRÉ', echec: 'ÉCHEC DE LIVRAISON' };
 function etatBL(num){
   var evs = S.events.filter(function(e){ return e.bl===num && EVT_ETAT[e.type]; })
@@ -290,6 +290,14 @@ function bonEvents(numero){ return S.events.filter(function(e){ return e.bl===nu
 function hasEv(numero, type){ return bonEvents(numero).some(function(e){ return e.type===type; }); }
 function countEv(numero, type){ return bonEvents(numero).filter(function(e){ return e.type===type; }).length; }
 function derniereObs(numero, type){ var evs = bonEvents(numero).filter(function(e){ return e.type===type; }); return evs.length ? evs[evs.length-1] : null; }
+// un échec n'est définitif que tant qu'aucune reprise plus récente n'a été enregistrée — permet au livreur
+// de reprendre une livraison en échec si la situation se débloque pendant qu'il est encore sur place
+function echecActif(numero){
+  var echec = derniereObs(numero, 'echec_confirme');
+  if(!echec) return false;
+  var reprise = derniereObs(numero, 'reprise_livraison');
+  return !reprise || reprise.dateHeureAppareil <= echec.dateHeureAppareil;
+}
 
 // la position est toujours relevée à l'instant précis de l'action (maximumAge:0) — jamais la dernière position connue.
 // une position indisponible n'empêche jamais l'action : on enregistre "GPS indisponible" et on continue.
@@ -437,7 +445,7 @@ function effacerCanvas(canvas){ canvas.getContext('2d').clearRect(0,0,canvas.wid
 // au moins une est exigée avant de pouvoir passer à la signature du client.
 function etapeBL(numero){
   if(hasEv(numero,'livraison_validee')) return 'validee';
-  if(hasEv(numero,'echec_confirme')) return 'echec';
+  if(echecActif(numero)) return 'echec';
   if(hasEv(numero,'signature_livreur')) return 'reserves_recap';          // les deux signatures sont faites
   if(hasEv(numero,'signature_client')) return 'a_signer_livreur';        // reste à signer : le livreur
   if(hasEv(numero,'photo_livraison')) return 'a_signer_client';          // reste à signer : le client
@@ -456,7 +464,8 @@ function panneauHtml(b){
   }
   if(etape==='echec'){
     var eve = derniereObs(numero,'echec_confirme');
-    return '<div class="etape-echec">🔴 Échec de livraison'+(eve&&eve.motif?' — '+esc(eve.motif):'')+'</div>';
+    return '<div class="etape-echec">🔴 Échec de livraison'+(eve&&eve.motif?' — '+esc(eve.motif):'')+'</div>'+
+      '<div class="btn-row"><button class="btn act" data-act="reactiver_livraison" data-bl="'+numero+'" style="width:100%;">↩ Réactiver la livraison</button></div>';
   }
   var html = '<div id="pan-'+numero+'">';
   if(etape==='depart'){
@@ -518,9 +527,9 @@ function etapeSignatureHtml(numero, qui){
   return '<div class="bloc-signature">'+
     '<div class="lbl">'+(qui==='client' ? 'SIGNATURE DE '+esc((signatureNom[numero]||'').toUpperCase()) : 'SIGNATURE DU LIVREUR')+'</div>'+
     '<canvas id="sig-'+numero+'-'+qui+'" class="sigcanvas" width="620" height="220"></canvas>'+
-    '<div class="btn-row"><button class="btn ghost" data-act="retour_signature" data-bl="'+numero+'" data-qui="'+qui+'" style="flex:0 0 auto;">← Retour</button>'+
-    '<button class="btn ghost" data-act="effacer_signature" data-bl="'+numero+'" data-qui="'+qui+'">Effacer</button>'+
-    '<button class="btn act" data-act="valider_signature" data-bl="'+numero+'" data-qui="'+qui+'" style="flex:0 0 auto;padding:10px 22px;">OK</button></div></div>';
+    '<div class="btn-row"><button class="btn ghost" data-act="retour_signature" data-bl="'+numero+'" data-qui="'+qui+'" style="padding:8px 4px;font-size:12.5px;">← Retour</button>'+
+    '<button class="btn ghost" data-act="effacer_signature" data-bl="'+numero+'" data-qui="'+qui+'" style="padding:8px 4px;font-size:12.5px;">Effacer</button></div>'+
+    '<div class="btn-row"><button class="btn act" data-act="valider_signature" data-bl="'+numero+'" data-qui="'+qui+'" style="width:100%;">OK</button></div></div>';
 }
 
 function reservesEtRecapHtml(numero){
@@ -657,6 +666,12 @@ document.getElementById('app').addEventListener('click', async function(ev){
     echecOuvert[numero] = false;
     delete echecBrouillon[numero];
     await enregistrerEvenement(numero, 'echec_confirme', { motif:motif, commentaire:commentaire, clientContacte:contacte });
+    render(); reouvrirDetail(numero);
+  }
+  else if(act==='reactiver_livraison'){
+    if(!confirm('Réactiver cette livraison et reprendre le processus ?')) return;
+    btn.disabled = true; btn.textContent = 'Réactivation…';
+    await enregistrerEvenement(numero, 'reprise_livraison', {});
     render(); reouvrirDetail(numero);
   }
 });
