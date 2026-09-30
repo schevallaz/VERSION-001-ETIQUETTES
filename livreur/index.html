@@ -233,9 +233,44 @@ function blHtml(b){
     '<div class="ligne">'+esc(b.creneau ? '🕒 '+b.creneau+' · ' : '')+esc(b.colis||0)+' colis · '+esc(b.poids||0)+' kg</div></div>'+
     '<div class="detail">'+d+'</div></div>';
 }
+function cleEcran(){ return 'stls_livreur_ecran_'+token; }
 function render(){
+  var t = S.tournee, lieux = t.enlevements || [];
+  if(!tourneeDemarree()){
+    if(!lieux.length){ ls(cleDemarree(), '1'); ls(cleEcran(), 'livraisons'); renderEcranLivraisons(); return; }
+    document.getElementById('app').innerHTML = ecranDemarrageHtml(t); wirerEcranDemarrage(); return;
+  }
+  var ecran = ecranActuel==='auto' ? (ls(cleEcran())||'livraisons') : ecranActuel;
+  if(ecran==='enlevements'){ document.getElementById('app').innerHTML = ecranEnlevementsHtml(); wirerEcranEnlevements(); return; }
+  renderEcranLivraisons();
+}
+function ecranDemarrageHtml(t){
+  return '<div class="brand">STLS · Ma tournée</div>'+
+    '<div class="titre">TOURNÉE '+esc(t.tourneeId)+'</div>'+
+    '<div class="sous">'+esc(fmtDateLong(t.date))+(t.referentiel && t.referentiel.heureDebut ? ' · '+esc(t.referentiel.heureDebut)+'–'+esc(t.referentiel.heureFin) : '')+'</div>'+
+    '<div class="sous">Livreur : <strong>'+esc(t.livreurNom||'—')+'</strong></div>'+
+    '<div class="card"><div class="btn-row"><button class="btn act" id="btnDemarrerTournee" style="width:100%;">🚚 DÉMARRER MA TOURNÉE</button></div></div>';
+}
+function wirerEcranDemarrage(){
+  var btn = document.getElementById('btnDemarrerTournee');
+  if(btn) btn.addEventListener('click', async function(){
+    btn.disabled = true; btn.textContent = 'Démarrage…';
+    await enregistrerEvenement('', 'tournee_demarree_livreur', {});
+    ls(cleDemarree(), '1');
+    var lieux = S.tournee.enlevements || [];
+    ecranActuel = lieux.length ? 'enlevements' : 'livraisons';
+    ls(cleEcran(), ecranActuel);
+    render();
+  });
+}
+function wirerEcranEnlevements(){
+  var btn = document.getElementById('btnVoirLivraisons');
+  if(btn) btn.addEventListener('click', function(){ ecranActuel = 'livraisons'; ls(cleEcran(), 'livraisons'); render(); });
+}
+function renderEcranLivraisons(){
   var t = S.tournee, c = compteurs(), n = S.bls.length;
   var modifs = modifsNonVues();
+  var lieux = S.tournee.enlevements || [];
   var h = '<div class="brand">STLS · Ma tournée</div>'+
     '<div class="titre">TOURNÉE '+esc(t.tourneeId)+'</div>'+
     '<div class="sous">'+esc(fmtDateLong(t.date))+(t.referentiel && t.referentiel.heureDebut ? ' · '+esc(t.referentiel.heureDebut)+'–'+esc(t.referentiel.heureFin) : '')+'</div>'+
@@ -251,8 +286,11 @@ function render(){
     '<div>🟢 '+c.livre+' réalisée'+(c.livre>1?'s':'')+'</div><div>🟠 '+c.en_cours+' en cours</div>'+
     '<div>🔴 '+c.echec+' en échec</div><div>⚪ '+c.a_faire+' restante'+(c.a_faire>1?'s':'')+'</div></div>'+
     '<div class="maj">Mis à jour à '+esc(S.majLe ? new Date(S.majLe).toTimeString().slice(0,5) : '')+'</div></div>';
+  if(lieux.length) h += '<div class="btn-row"><button class="btn ghost" id="btnVoirEnlevements" style="width:100%;">📦 Enlèvements ('+lieux.filter(function(l){return etatLieu(l.lieuKey)!=='a_faire';}).length+'/'+lieux.length+')</button></div>';
   h += S.bls.map(blHtml).join('') || '<div class="card">Aucun BL dans cette tournée.</div>';
   document.getElementById('app').innerHTML = h;
+  var btnEnl = document.getElementById('btnVoirEnlevements');
+  if(btnEnl) btnEnl.addEventListener('click', function(){ ecranActuel = 'enlevements'; ls(cleEcran(), 'enlevements'); render(); });
   Array.prototype.forEach.call(document.querySelectorAll('.bl-resume'), function(el){
     el.addEventListener('click', function(){ el.parentNode.classList.toggle('ouvert'); });
   });
@@ -569,7 +607,7 @@ function echecFormHtml(numero){
 document.getElementById('app').addEventListener('click', async function(ev){
   var btn = ev.target.closest('[data-act]');
   if(!btn) return;
-  var act = btn.getAttribute('data-act'), numero = btn.getAttribute('data-bl');
+  var act = btn.getAttribute('data-act'), numero = btn.getAttribute('data-bl'), lieuKey = btn.getAttribute('data-lieu');
   if(!act) return;
 
   if(act==='arrivee'){
@@ -674,6 +712,64 @@ document.getElementById('app').addEventListener('click', async function(ev){
     await enregistrerEvenement(numero, 'reprise_livraison', {});
     render(); reouvrirDetail(numero);
   }
+  else if(act==='enlevement_effectue'){
+    btn.disabled = true; btn.textContent = 'Enregistrement…';
+    await enregistrerEvenementLieu(lieuKey, 'enlevement_effectue', {});
+    render();
+  }
+  else if(act==='ouvrir_avarie'){ lieuFormOuvert[lieuKey+'_avarie'] = true; render(); }
+  else if(act==='ouvrir_manquants'){ lieuFormOuvert[lieuKey+'_manquants'] = true; if(!lieuFormBrouillon[lieuKey+'_manquants']) lieuFormBrouillon[lieuKey+'_manquants'] = {}; render(); }
+  else if(act==='ouvrir_impossible_enlevement'){ lieuFormOuvert[lieuKey+'_impossible'] = true; render(); }
+  else if(act==='annuler_form_enl'){
+    var typeForm = btn.getAttribute('data-type');
+    lieuFormOuvert[lieuKey+'_'+typeForm] = false;
+    delete lieuFormBrouillon[lieuKey+'_'+typeForm];
+    render();
+  }
+  else if(act==='manquants_bloque'){
+    var br = lieuFormBrouillon[lieuKey+'_manquants'] || (lieuFormBrouillon[lieuKey+'_manquants'] = {});
+    var prevuEl = document.getElementById('prevu-'+lieuKey), remisEl = document.getElementById('remis-'+lieuKey), comEl = document.getElementById('commentaire-manquants-'+lieuKey);
+    br.prevu = prevuEl ? prevuEl.value : br.prevu;
+    br.remis = remisEl ? remisEl.value : br.remis;
+    br.commentaire = comEl ? comEl.value : br.commentaire;
+    br.bloque = (btn.getAttribute('data-val')==='oui');
+    render();
+  }
+  else if(act==='confirmer_impossible_enlevement'){
+    var lieu1 = (S.tournee.enlevements||[]).find(function(l){ return l.lieuKey===lieuKey; });
+    var motifEnl = document.getElementById('motif-enl-'+lieuKey).value;
+    var commEnl = document.getElementById('commentaire-enl-'+lieuKey).value.trim();
+    if(motifEnl==='Autre' && !commEnl){ alert('Un commentaire est obligatoire pour le motif "Autre"'); return; }
+    var blsAff1 = Array.prototype.slice.call(document.querySelectorAll('.impossible-'+lieuKey+'-bl:checked')).map(function(x){ return x.value; });
+    btn.disabled = true; btn.textContent = 'Confirmation…';
+    lieuFormOuvert[lieuKey+'_impossible'] = false;
+    await enregistrerEvenementLieu(lieuKey, 'enlevement_impossible', { motif: motifEnl, commentaire: commEnl, blsAffectes: blsAff1 });
+    render();
+  }
+  else if(act==='confirmer_avarie'){
+    var comAv = document.getElementById('commentaire-avarie-'+lieuKey).value.trim();
+    if(!comAv){ alert('Décris l\'état de la marchandise'); return; }
+    btn.disabled = true; btn.textContent = 'Enregistrement…';
+    lieuFormOuvert[lieuKey+'_avarie'] = false;
+    delete lieuFormBrouillon[lieuKey+'_avarie'];
+    await enregistrerEvenementLieu(lieuKey, 'marchandise_abimee', { commentaire: comAv });
+    render();
+  }
+  else if(act==='confirmer_manquants'){
+    var prevuV = parseInt(document.getElementById('prevu-'+lieuKey).value, 10) || 0;
+    var remisV = document.getElementById('remis-'+lieuKey).value;
+    if(remisV===''){ alert('Indique le nombre de colis réellement remis'); return; }
+    remisV = parseInt(remisV, 10) || 0;
+    var comM = document.getElementById('commentaire-manquants-'+lieuKey).value.trim();
+    var br2 = lieuFormBrouillon[lieuKey+'_manquants'] || {};
+    if(br2.bloque!==true && br2.bloque!==false){ alert('Indique si les colis manquants empêchent une livraison (OUI/NON)'); return; }
+    var blsAff2 = br2.bloque ? Array.prototype.slice.call(document.querySelectorAll('.manquants-'+lieuKey+'-bl:checked')).map(function(x){ return x.value; }) : [];
+    btn.disabled = true; btn.textContent = 'Enregistrement…';
+    lieuFormOuvert[lieuKey+'_manquants'] = false;
+    delete lieuFormBrouillon[lieuKey+'_manquants'];
+    await enregistrerEvenementLieu(lieuKey, 'colis_manquants', { prevu: prevuV, remis: remisV, commentaire: comM, bloque: !!br2.bloque, blsAffectes: blsAff2 });
+    render();
+  }
 });
 
 // prise de photo : compression puis événement (avec file d'attente hors connexion automatique)
@@ -686,6 +782,10 @@ document.getElementById('app').addEventListener('change', async function(ev){
   if(echecOuvert[numero]){
     var mEl=document.getElementById('motif-'+numero), cEl=document.getElementById('commentaire-'+numero), xEl=document.getElementById('contacte-'+numero);
     echecBrouillon[numero] = { motif: mEl?mEl.value:'', commentaire: cEl?cEl.value:'', contacte: xEl?xEl.checked:false };
+  }
+  if(lieuFormOuvert[numero+'_avarie']){
+    var caEl = document.getElementById('commentaire-avarie-'+numero);
+    lieuFormBrouillon[numero+'_avarie'] = { commentaire: caEl?caEl.value:'' };
   }
   input.disabled = true;
   var base64 = await compresserImage(file, 1280, 0.7);
@@ -713,6 +813,122 @@ async function enregistrerEvenementPhoto(numero, type, evGps, photoBase64){
 function reouvrirDetail(numero){
   var el = document.querySelector('.bl[data-n="'+numero+'"]');
   if(el){ el.classList.add('ouvert'); Array.prototype.forEach.call(el.querySelectorAll('.sigcanvas'), function(c){ initSignaturePad(c); }); el.scrollIntoView({ behavior:'smooth', block:'start' }); }
+}
+
+// ================= Enlèvements : écran dédié au démarrage de la tournée =================
+var MOTIFS_ENLEVEMENT_IMPOSSIBLE = ['Marchandise absente','Marchandise non préparée','Marchandise indisponible','Site fermé','Mauvaise adresse','Nombre de colis différent','Colis manquant','Marchandise abîmée','Refus de remise','Autre'];
+var lieuFormOuvert = {};   // 'lieuKey_type' -> true : formulaire ouvert (survit aux re-rendus déclenchés par une photo)
+var lieuFormBrouillon = {}; // 'lieuKey_type' -> valeurs en cours de saisie
+var ecranActuel = 'auto';  // 'enlevements' | 'livraisons' — 'auto' choisit selon l'avancement au premier rendu
+
+function cleDemarree(){ return 'stls_livreur_demarree_'+token; }
+function tourneeDemarree(){ return ls(cleDemarree())==='1'; }
+function lieuEvents(lieuKey){ return S.events.filter(function(e){ return e.bl===lieuKey; }); }
+function lieuHasEv(lieuKey, type){ return lieuEvents(lieuKey).some(function(e){ return e.type===type; }); }
+function derniereObsLieu(lieuKey, type){ var evs = lieuEvents(lieuKey).filter(function(e){ return e.type===type; }); return evs.length ? evs[evs.length-1] : null; }
+function lieuAnomalies(lieuKey){ return lieuEvents(lieuKey).filter(function(e){ return e.type==='marchandise_abimee' || e.type==='colis_manquants'; }); }
+function etatLieu(lieuKey){
+  if(lieuHasEv(lieuKey,'enlevement_effectue')) return lieuAnomalies(lieuKey).length ? 'anomalie' : 'effectue';
+  if(lieuHasEv(lieuKey,'enlevement_impossible')) return 'impossible';
+  return 'a_faire';
+}
+function tousEnlevementsTraites(){
+  return (S.tournee.enlevements||[]).every(function(l){ return etatLieu(l.lieuKey)!=='a_faire'; });
+}
+
+async function enregistrerEvenementLieu(lieuKey, type, extra, photoBase64){
+  return enregistrerEvenement(lieuKey, type, extra, photoBase64, null);
+}
+
+function selectionBlsHtml(lieu, idPrefix){
+  // une case par BL, jamais par ligne de commande — un même BL peut avoir plusieurs lignes issues du même lieu
+  return lieu.bls.map(function(blNum){
+    var lignesBl = lieu.lignes.filter(function(l){ return l.bl===blNum; });
+    var colisBl = lignesBl.reduce(function(s,l){ return s+l.colis; }, 0);
+    var dest = lignesBl[0] ? lignesBl[0].destinataire : '';
+    return '<label style="display:flex;align-items:flex-start;gap:8px;margin:4px 0;font-weight:400;">'+
+      '<input type="checkbox" class="'+idPrefix+'-bl" value="'+esc(blNum)+'" style="width:17px;height:17px;flex-shrink:0;margin-top:2px;">'+
+      '<span>BL '+esc(blNum)+(dest?' — '+esc(dest):'')+' ('+esc(colisBl)+' colis)</span></label>';
+  }).join('');
+}
+
+function ecranEnlevementsHtml(){
+  var lieux = S.tournee.enlevements || [];
+  var h = '<div class="brand">STLS · Ma tournée</div>'+
+    '<div class="titre">ENLÈVEMENTS À EFFECTUER</div>'+
+    '<div class="sous">'+lieux.length+' lieu'+(lieux.length>1?'x':'')+' à passer avant de livrer</div>';
+  if(!lieux.length){
+    h += '<div class="card">Aucun enlèvement nécessaire pour cette tournée.</div>';
+  } else {
+    h += lieux.map(lieuCardHtml).join('');
+  }
+  h += '<div class="btn-row"><button class="btn act" id="btnVoirLivraisons" style="width:100%;">→ Voir mes livraisons</button></div>';
+  return h;
+}
+
+function lieuCardHtml(lieu){
+  var etat = etatLieu(lieu.lieuKey);
+  var badges = { a_faire:['⚪','À faire','var(--soft)'], effectue:['🟢','Enlèvement effectué','var(--green)'], anomalie:['🟠','Anomalie','var(--orange)'], impossible:['🔴','Impossible','var(--red)'] };
+  var bd = badges[etat];
+  var adr = lieu.adresse ? [lieu.adresse.adresse1, [lieu.adresse.cp, lieu.adresse.ville].filter(Boolean).join(' ')].filter(Boolean).join(' — ') : '';
+  var h = '<div class="card"><div class="bl-h" style="padding:0 0 6px;"><strong>'+esc(lieu.nom)+'</strong><span class="etat" style="background:transparent;color:'+bd[2]+';">'+bd[0]+' '+bd[1]+'</span></div>';
+  if(adr) h += '<div class="ligne">'+esc(adr)+'</div>';
+  h += '<div class="lbl" style="margin-top:8px;">'+lieu.totalColis+' colis à récupérer</div>';
+  h += lieu.lignes.map(function(l){ return '<div class="ligne">'+esc(l.labelNumber||('BL '+l.bl))+' — '+esc(l.colis)+' colis'+(l.destinataire?' · pour '+esc(l.destinataire):'')+'</div>'; }).join('');
+  lieuAnomalies(lieu.lieuKey).forEach(function(a){
+    if(a.type==='marchandise_abimee') h += '<div class="ligne" style="color:var(--orange);">🟠 Avarie signalée : '+esc(a.commentaire||'')+'</div>';
+    if(a.type==='colis_manquants') h += '<div class="ligne" style="color:var(--orange);">🟠 Colis manquants : '+a.remis+'/'+a.prevu+(a.commentaire?' — '+esc(a.commentaire):'')+'</div>';
+  });
+  if(etat==='impossible'){
+    var im = derniereObsLieu(lieu.lieuKey,'enlevement_impossible');
+    h += '<div class="imperatif" style="margin-top:8px;">Motif : '+esc(im.motif||'')+(im.commentaire?' — '+esc(im.commentaire):'')+'</div>';
+  } else {
+    if(lieuFormOuvert[lieu.lieuKey+'_impossible']) h += formImpossibleEnlevementHtml(lieu);
+    else if(lieuFormOuvert[lieu.lieuKey+'_avarie']) h += formAvarieHtml(lieu);
+    else if(lieuFormOuvert[lieu.lieuKey+'_manquants']) h += formManquantsHtml(lieu);
+    else {
+      h += '<div class="btn-row"><button class="btn act" data-act="enlevement_effectue" data-lieu="'+lieu.lieuKey+'" style="width:100%;">✅ ENLÈVEMENT EFFECTUÉ</button></div>'+
+        '<div class="btn-row-petits"><button class="btn ghost btn-petit" data-act="ouvrir_avarie" data-lieu="'+lieu.lieuKey+'">📦 Avarie</button>'+
+        '<button class="btn ghost btn-petit" data-act="ouvrir_manquants" data-lieu="'+lieu.lieuKey+'">🔢 Manquants</button></div>'+
+        '<div class="btn-row"><button class="btn ghost" data-act="ouvrir_impossible_enlevement" data-lieu="'+lieu.lieuKey+'" style="width:100%;color:var(--red);">❌ ENLÈVEMENT IMPOSSIBLE</button></div>';
+    }
+  }
+  h += '</div>';
+  return h;
+}
+
+function formImpossibleEnlevementHtml(lieu){
+  var br = lieuFormBrouillon[lieu.lieuKey+'_impossible'] || {};
+  return '<div class="bloc-echec" style="margin-top:8px;"><div class="lbl">Motif de l\'enlèvement impossible</div>'+
+    '<select id="motif-enl-'+lieu.lieuKey+'" class="champ">'+MOTIFS_ENLEVEMENT_IMPOSSIBLE.map(function(m){ return '<option value="'+esc(m)+'"'+(br.motif===m?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select>'+
+    '<textarea id="commentaire-enl-'+lieu.lieuKey+'" class="champ" placeholder="Commentaire (obligatoire si Autre)" style="min-height:56px;">'+esc(br.commentaire||'')+'</textarea>'+
+    (lieu.lignes.length ? '<div class="lbl">Cet enlèvement empêche-t-il une livraison de cette tournée ?</div>'+selectionBlsHtml(lieu, 'impossible-'+lieu.lieuKey) : '')+
+    '<div class="btn-row"><button class="btn danger" data-act="confirmer_impossible_enlevement" data-lieu="'+lieu.lieuKey+'" style="width:100%;">CONFIRMER L\'IMPOSSIBILITÉ</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" data-act="annuler_form_enl" data-lieu="'+lieu.lieuKey+'" data-type="impossible" style="width:100%;">Annuler</button></div></div>';
+}
+function formAvarieHtml(lieu){
+  var br = lieuFormBrouillon[lieu.lieuKey+'_avarie'] || {};
+  var n = countEv(lieu.lieuKey, 'photo_avarie_enlevement');
+  return '<div class="bloc-echec" style="margin-top:8px;"><div class="lbl">Marchandise abîmée — description</div>'+
+    '<textarea id="commentaire-avarie-'+lieu.lieuKey+'" class="champ" placeholder="Décris précisément l\'état de la marchandise" style="min-height:70px;">'+esc(br.commentaire||'')+'</textarea>'+
+    photosSectionHtml(lieu.lieuKey, 'photo_avarie_enlevement', '📷 Photo de l\'avarie ('+n+')')+
+    '<div class="btn-row"><button class="btn act" data-act="confirmer_avarie" data-lieu="'+lieu.lieuKey+'" style="width:100%;">ENREGISTRER L\'AVARIE</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" data-act="annuler_form_enl" data-lieu="'+lieu.lieuKey+'" data-type="avarie" style="width:100%;">Annuler</button></div></div>';
+}
+function formManquantsHtml(lieu){
+  var br = lieuFormBrouillon[lieu.lieuKey+'_manquants'] || {};
+  var prevu = br.prevu!=null ? br.prevu : lieu.totalColis;
+  return '<div class="bloc-echec" style="margin-top:8px;"><div class="lbl">Colis manquants</div>'+
+    '<div class="row2" style="display:flex;gap:8px;">'+
+    '<div style="flex:1;"><div class="lbl" style="margin:4px 0;">Prévu</div><input type="number" min="0" id="prevu-'+lieu.lieuKey+'" class="champ" value="'+esc(prevu)+'"></div>'+
+    '<div style="flex:1;"><div class="lbl" style="margin:4px 0;">Remis</div><input type="number" min="0" id="remis-'+lieu.lieuKey+'" class="champ" value="'+esc(br.remis!=null?br.remis:'')+'"></div></div>'+
+    '<textarea id="commentaire-manquants-'+lieu.lieuKey+'" class="champ" placeholder="Commentaire (facultatif)" style="min-height:50px;">'+esc(br.commentaire||'')+'</textarea>'+
+    '<div class="lbl">Les colis manquants empêchent-ils une livraison de cette tournée ?</div>'+
+    '<div class="btn-row"><button class="btn ghost btn-petit" data-act="manquants_bloque" data-lieu="'+lieu.lieuKey+'" data-val="non" style="'+(br.bloque===false?'background:var(--accent);color:#fff;':'')+'">NON</button>'+
+    '<button class="btn ghost btn-petit" data-act="manquants_bloque" data-lieu="'+lieu.lieuKey+'" data-val="oui" style="'+(br.bloque===true?'background:var(--accent);color:#fff;':'')+'">OUI</button></div>'+
+    (br.bloque===true ? selectionBlsHtml(lieu, 'manquants-'+lieu.lieuKey) : '')+
+    '<div class="btn-row"><button class="btn act" data-act="confirmer_manquants" data-lieu="'+lieu.lieuKey+'" style="width:100%;">ENREGISTRER</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" data-act="annuler_form_enl" data-lieu="'+lieu.lieuKey+'" data-type="manquants" style="width:100%;">Annuler</button></div></div>';
 }
 
 async function demarrer(){
