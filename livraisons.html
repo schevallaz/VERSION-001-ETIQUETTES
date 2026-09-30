@@ -2246,6 +2246,36 @@ function calculerExpiration(date, mode){
 }
 
 // contenu minimal transmis au livreur (données opérationnelles uniquement)
+// ================= Enlèvements : regroupement par lieu, calculé côté TMS =================
+// Un lieu = le dépôt STLS (cas courant) ou une collecte externe (fournisseur/client/partenaire).
+// Jamais ressaisi : on réutilise les commandes déjà présentes sur les BL de la tournée.
+function calculerEnlevements(bons){
+  var groupes = {}, agenceNom = state.agencyName || ('Dépôt '+(state.currentAgencyCode||''));
+  bons.forEach(function(b){
+    (b.commandes||[]).forEach(function(cmd){
+      var m = /^\(collecte (\S+)\)$/.exec(cmd.emplacement||'');
+      var lieuKey;
+      if(m) lieuKey = 'collecte_'+m[1];
+      else if(b.type==='collecte' && b.origineCollecte) lieuKey = 'collecte_'+b.origineCollecte;
+      else lieuKey = 'depot';
+      if(!groupes[lieuKey]) groupes[lieuKey] = { lieuKey: lieuKey, nom: '', adresse: null, lignes: [], blsSet: {} };
+      groupes[lieuKey].lignes.push({ bl: b.numero, destinataire: b.contremarque||'', labelNumber: cmd.labelNumber||'', colis: cmd.colis||0, poids: cmd.poids||0 });
+      groupes[lieuKey].blsSet[b.numero] = true;
+    });
+  });
+  return Object.keys(groupes).map(function(k){
+    var g = groupes[k];
+    if(k==='depot'){ g.nom = agenceNom; g.adresse = null; }
+    else {
+      var numero = k.replace('collecte_','');
+      var col = (state.collectes||[]).find(function(c){ return c.numero===numero; });
+      g.nom = col ? (col.sourceNom || ('Collecte '+numero)) : ('Collecte '+numero);
+      g.adresse = col ? col.sourceAdresse : null;
+    }
+    return { lieuKey: g.lieuKey, nom: g.nom, adresse: g.adresse, lignes: g.lignes, bls: Object.keys(g.blsSet), totalColis: g.lignes.reduce(function(s,l){ return s+l.colis; }, 0) };
+  }).sort(function(a,b){ return a.lieuKey==='depot' ? -1 : (b.lieuKey==='depot' ? 1 : a.nom.localeCompare(b.nom)); });
+}
+
 function snapshotLivreur(inst, version, modifications){
   var bons = bonsDeInstance(inst).slice().sort(function(a,b){
     var da = hhmmToMin((a.rdv||{}).creneauDebut), db2 = hhmmToMin((b.rdv||{}).creneauDebut);
@@ -2255,7 +2285,8 @@ function snapshotLivreur(inst, version, modifications){
   var l = inst.livreur || {}, ref = inst.referentiel || {};
   return {
     tournee: { tourneeId: inst.tourneeId, date: inst.date, referentiel: { type: ref.type||'', heureDebut: ref.heureDebut||'', heureFin: ref.heureFin||'' },
-      statut: inst.statut, livreurNom: l.nom||'', vehicule: inst.vehicule||'', nbBL: bons.length, version: version, publieLe: new Date().toISOString(), modifications: modifications||[] },
+      statut: inst.statut, livreurNom: l.nom||'', vehicule: inst.vehicule||'', nbBL: bons.length, version: version, publieLe: new Date().toISOString(), modifications: modifications||[],
+      enlevements: calculerEnlevements(bons) },
     bls: bons.map(function(b, i){
       var adr = b.contremarqueAdresse || {}, r = b.rdv || {}, c = b.contraintes || {};
       return { numero: b.numero, ordre: i+1, client: bonClient(b), destinataire: b.contremarque||'',
@@ -2587,6 +2618,37 @@ var EVT_LABELS = {
   photo_justificatif_echec: '📷 Photo justificative (échec)', lien_ouvert: '📱 Lien ouvert par le livreur',
   acquittement_modification: '✔ Modification de tournée acquittée', reprise_livraison: '↩ Livraison réactivée par le livreur'
 };
+
+// ---------- retour des anomalies d'enlèvement dans le TMS : confirmation de l'exploitant avant tout retrait ----------
+var ENLEVEMENT_LABELS = { enlevement_effectue: 'Enlèvement effectué', enlevement_impossible: 'Enlèvement impossible',
+  marchandise_abimee: 'Marchandise abîmée à l\'enlèvement', photo_avarie_enlevement: 'Photo de l\'avarie',
+  colis_manquants: 'Colis manquants à l\'enlèvement', tournee_demarree_livreur: 'Tournée démarrée par le livreur' };
+EVT_LABELS.enlevement_effectue = '📦 Enlèvement effectué'; EVT_LABELS.enlevement_impossible = '🔴 Enlèvement impossible';
+EVT_LABELS.marchandise_abimee = '🟠 Marchandise abîmée signalée'; EVT_LABELS.photo_avarie_enlevement = '📷 Photo de l\'avarie';
+EVT_LABELS.colis_manquants = '🟠 Colis manquants signalés'; EVT_LABELS.tournee_demarree_livreur = '▶ Tournée démarrée par le livreur';
+EVT_LABELS_PDF.enlevement_effectue = 'Enlèvement effectué'; EVT_LABELS_PDF.enlevement_impossible = 'Enlèvement impossible';
+EVT_LABELS_PDF.marchandise_abimee = 'Marchandise abîmée signalée à l\'enlèvement'; EVT_LABELS_PDF.photo_avarie_enlevement = 'Photo de l\'avarie (enlèvement)';
+EVT_LABELS_PDF.colis_manquants = 'Colis manquants signalés à l\'enlèvement'; EVT_LABELS_PDF.tournee_demarree_livreur = 'Tournée démarrée par le livreur';
+
+// alerte d'enlèvement en attente de décision pour ce BL précis (bloquant une livraison) : jamais retiré
+// automatiquement — la traçabilité exige la confirmation explicite d'un responsable, comme convenu
+function alerteEnlevementBloquant(numero, events){
+  var candidats = events.filter(function(e){
+    if(e.type==='enlevement_impossible') return (e.blsAffectes||[]).indexOf(numero)>=0;
+    if(e.type==='colis_manquants') return !!e.bloque && (e.blsAffectes||[]).indexOf(numero)>=0;
+    return false;
+  });
+  return candidats.length ? candidats[candidats.length-1] : null;
+}
+function alerteEnlevementHtml(numero, events, dejaRetire){
+  var alerte = alerteEnlevementBloquant(numero, events);
+  if(!alerte || dejaRetire) return '';
+  var motif = alerte.type==='colis_manquants' ? 'Colis manquants à l\'enlèvement ('+alerte.remis+'/'+alerte.prevu+')'+(alerte.commentaire?' — '+alerte.commentaire:'') : (alerte.motif||'')+(alerte.commentaire?' — '+alerte.commentaire:'');
+  return '<div class="sub" style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 10px;color:#c0392b;font-weight:600;">'+
+    '🔴 Le livreur signale un problème d\'enlèvement bloquant cette livraison<br><span style="font-weight:400;">'+escapeHtml(motif)+'</span>'+
+    '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost enlevement-retirer" data-numero="'+escapeHtml(numero)+'" data-motif="'+escapeHtml(motif)+'" style="width:100%;">Retirer cette livraison de la tournée</button></div></div>';
+}
+
 var preuvesOuvert = {}, preuvesCache = {};
 
 // preuves d'un BL : cherchées dans le jeton actif de sa tournée, et dans tout jeton déjà envoyé (historique)
@@ -2595,11 +2657,16 @@ async function chargerPreuvesBL(numero, instanceId){
   if(!inst || !fsReady()) return [];
   var tokens = (inst.envois||[]).map(function(e){ return e.token; });
   if(inst.lienActif && tokens.indexOf(inst.lienActif)<0) tokens.push(inst.lienActif);
-  var events = [];
+  var events = [], vus = {};
   for(var i=0;i<tokens.length;i++){
     try{
-      var snap = await db.collection('stls_livreur').doc(tokens[i]).collection('evenements').where('bl','==',numero).get();
-      snap.forEach(function(d){ events.push(d.data()); });
+      var colRef = db.collection('stls_livreur').doc(tokens[i]).collection('evenements');
+      // les événements de livraison sont rattachés au BL ; les anomalies d'enlèvement touchent un lieu et
+      // peuvent concerner plusieurs BL à la fois — elles sont retrouvées via blsAffectes, pas via bl
+      var snap1 = await colRef.where('bl','==',numero).get();
+      var snap2 = await colRef.where('blsAffectes','array-contains',numero).get();
+      snap1.forEach(function(d){ if(!vus[d.id]){ vus[d.id]=1; events.push(d.data()); } });
+      snap2.forEach(function(d){ if(!vus[d.id]){ vus[d.id]=1; events.push(d.data()); } });
     }catch(e){ console.error('Firestore chargerPreuvesBL error', e); }
   }
   events.sort(function(a,b){ return (a.dateHeureAppareil||'').localeCompare(b.dateHeureAppareil||''); });
@@ -2645,6 +2712,7 @@ function preuvesPanelHtml(numero){
       '🔴 Le livreur signale un échec le '+escapeHtml(fmtDateHeureFr(echec.dateHeureAppareil))+' — '+escapeHtml(echec.motif||'')+
       '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost preuve-sync-echec" data-numero="'+escapeHtml(numero)+'" style="width:100%;">Traiter comme non livré</button></div></div>';
   }
+  html += alerteEnlevementHtml(numero, events, !b || b.statut!=='affecte_tournee');
   if(validation || echec){
     html += '<div class="btn-row" style="margin-top:6px;"><button class="btn primary preuve-pod" data-numero="'+escapeHtml(numero)+'" style="width:100%;">📋 Preuve de livraison (PDF)</button></div>';
   }
@@ -2698,6 +2766,13 @@ function wirePreuvesPanel(container){
       motif = motif.trim();
       if(!motif){ banner('Un motif est obligatoire'); return; }
       if(await retirerBLDeTournee(n, 'Échec signalé par le livreur : '+motif, { force:true })){ banner('BL '+n+' retiré de la tournée (échec)'); refreshAllBonLists(); }
+    });
+  });
+  Array.prototype.forEach.call(container.querySelectorAll('.enlevement-retirer'), function(btn){
+    btn.addEventListener('click', async function(){
+      var n = btn.getAttribute('data-numero'), motifBase = btn.getAttribute('data-motif');
+      if(!confirm('BL '+n+' — retirer cette livraison de la tournée suite à un problème d\'enlèvement ?\n\n'+motifBase)) return;
+      if(await retirerBLDeTournee(n, 'Enlèvement bloquant signalé par le livreur : '+motifBase, { force:true })){ banner('BL '+n+' retiré de la tournée (enlèvement)'); refreshAllBonLists(); }
     });
   });
 }
