@@ -145,6 +145,7 @@
     <button class="tab-btn active" data-tab="calc">Calculateur</button>
     <button class="tab-btn" data-tab="params">Paramètres</button>
     <button class="tab-btn" data-tab="zones">Zones kilométriques</button>
+    <button class="tab-btn" data-tab="fiche">Fiche de préparation</button>
   </nav>
 
   <!-- ===== TAB: CALCULATEUR ===== -->
@@ -247,6 +248,11 @@
       <div id="listPaliers" style="margin-bottom:8px;"></div>
       <div class="btn-row"><button class="btn ghost" id="btnAddPalier" style="width:100%;">+ Ajouter un palier</button></div>
 
+      <h2 style="font-size:14.5px;">Prestations complémentaires</h2>
+      <p class="hint" style="margin:0 0 10px;">Forfait HT ajouté au devis pour chaque option cochée sur la fiche de préparation.</p>
+      <div id="listComplements" style="margin-bottom:8px;"></div>
+      <div class="btn-row"><button class="btn ghost" id="btnAddComplement" style="width:100%;">+ Ajouter une prestation complémentaire</button></div>
+
       <h2 style="font-size:14.5px;">Au-delà des zones définies</h2>
       <div class="field">
         <label for="p-tarifKmSupplementaire">Tarif €HT par km supplémentaire au-delà de la dernière zone</label>
@@ -292,6 +298,90 @@
         <button class="btn ghost" id="btnCancelZoneEdit" style="width:100%;">Annuler la modification</button>
       </div>
       <div id="zoneMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+  </section>
+
+  <!-- ===== TAB: FICHE DE PRÉPARATION ===== -->
+  <section id="tab-fiche" style="display:none;">
+    <div class="card" id="ficheListCard">
+      <h2>📋 Fiches de préparation</h2>
+      <p class="hint" style="margin:0 0 12px;">Collecte les informations d'une prestation et calcule un devis estimatif à partir de la fiche tarifaire — sans créer une grille à part.</p>
+      <div class="btn-row"><button class="btn accent" id="btnNouvelleFiche" style="width:100%;">+ Nouvelle fiche</button></div>
+      <div id="listFiches" style="margin-top:12px;"></div>
+    </div>
+
+    <div id="ficheFormCard" style="display:none;">
+      <div class="card">
+        <div class="btn-row" style="margin-top:0;"><button class="btn ghost" id="btnRetourListeFiches" style="width:100%;">← Retour à la liste</button></div>
+        <h2 id="ficheFormTitle" style="margin-top:12px;">Nouvelle fiche</h2>
+        <div class="field"><label for="f-client-nom">Client / magasin / contremarque</label><input type="text" id="f-client-nom" placeholder="Nom"></div>
+        <div class="row2">
+          <div class="field"><label for="f-client-tel">Téléphone</label><input type="tel" id="f-client-tel"></div>
+          <div class="field"><label for="f-client-email">Email</label><input type="email" id="f-client-email"></div>
+        </div>
+        <div class="field"><label for="f-adr1">Adresse de livraison</label><input type="text" id="f-adr1" placeholder="N° et rue"></div>
+        <div class="row2">
+          <div class="field"><label for="f-cp">Code postal</label><input type="text" id="f-cp"></div>
+          <div class="field"><label for="f-ville">Ville</label><input type="text" id="f-ville"></div>
+        </div>
+        <div class="field"><label for="f-distance">Distance estimée (km)</label><input type="number" id="f-distance" min="0" placeholder="Pour déterminer la zone tarifaire"></div>
+      </div>
+
+      <div class="card">
+        <h2>Marchandise</h2>
+        <p class="hint" style="margin:0 0 10px;">Une ligne par référence. Le volume de la ligne se calcule automatiquement (L × l × h × quantité).</p>
+        <div id="listColis"></div>
+        <div class="btn-row"><button class="btn ghost" id="btnAddColis" style="width:100%;">+ Ajouter une ligne de colis</button></div>
+        <div id="colisTotaux" style="margin-top:12px;font-size:13.5px;line-height:1.7;"></div>
+      </div>
+
+      <div class="card">
+        <h2>Conditions d'accès</h2>
+        <div class="row2">
+          <div class="field"><label for="f-typeBatiment">Type de bâtiment</label>
+            <select id="f-typeBatiment"><option value="maison">Maison</option><option value="appartement">Appartement</option><option value="commerce">Commerce</option><option value="entreprise">Entreprise</option><option value="chantier">Chantier</option></select>
+          </div>
+          <div class="field"><label for="f-etage">Étage de livraison</label><input type="number" id="f-etage" min="0" value="0"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label for="f-ascenseur">Ascenseur</label>
+            <select id="f-ascenseur"><option value="non">Non</option><option value="oui">Oui</option></select>
+          </div>
+          <div class="field"><label for="f-dimAscenseur">Dimensions ascenseur (facultatif)</label><input type="text" id="f-dimAscenseur" placeholder="L × l × h cm"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label for="f-largeurPassage">Largeur de passage mini (cm)</label><input type="number" id="f-largeurPassage" min="0"></div>
+          <div class="field"><label for="f-distancePortage">Distance véhicule → livraison (m)</label><input type="number" id="f-distancePortage" min="0"></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 12px;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="f-courInterieure" style="width:17px;height:17px;">Cour intérieure</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="f-accesPrive" style="width:17px;height:17px;">Accès privé</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="f-rueEtroite" style="width:17px;height:17px;">Rue étroite</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="f-ruePente" style="width:17px;height:17px;">Rue en pente</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="f-stationnementOk" style="width:17px;height:17px;" checked>Stationnement possible</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="f-autorisationNecessaire" style="width:17px;height:17px;">Autorisation nécessaire</label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="f-accesPL" style="width:17px;height:17px;">Accès utilitaire/PL possible</label>
+        </div>
+        <div class="field"><label for="f-infosAcces">Informations complémentaires sur l'accès</label><textarea id="f-infosAcces" style="width:100%;min-height:60px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:14px;"></textarea></div>
+      </div>
+
+      <div class="card">
+        <h2>Moyens de manutention disponibles sur place</h2>
+        <div id="listMoyens"></div>
+      </div>
+
+      <div class="card">
+        <h2>Prestation souhaitée</h2>
+        <div id="choixPrestation"></div>
+        <h2 style="font-size:14.5px;margin-top:16px;">Prestations complémentaires</h2>
+        <div id="choixComplements"></div>
+      </div>
+
+      <div class="card">
+        <div class="btn-row" style="margin-top:0;"><button class="btn accent" id="btnCalculerFiche" style="width:100%;">CALCULER LE DEVIS</button></div>
+        <div id="ficheDevisResult" style="margin-top:14px;"></div>
+        <div class="btn-row" id="ficheSaveRow" style="display:none;"><button class="btn primary" id="btnEnregistrerFiche" style="width:100%;">Enregistrer la fiche (brouillon)</button></div>
+      </div>
     </div>
   </section>
 
@@ -355,8 +445,9 @@ function banner(msg){
 
 var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
+var fichesColRef = null;
 
-var APP_VERSION = '2026.0008';
+var APP_VERSION = '2026.0009';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -383,6 +474,7 @@ var DEFAULT_PARAMS = {
   coeffColisLong: 1.2,
   coeffSansAscenseur: 1.3,
   paliersPersonnel: [ { poidsMax: 30, personnes: 1 }, { poidsMax: 80, personnes: 2 }, { poidsMax: null, personnes: 3 } ],
+  complements: [ { id:'cp_deballage', nom:'Déballage', prixHT:15 }, { id:'cp_reprise_embal', nom:'Reprise des emballages', prixHT:10 }, { id:'cp_montage', nom:'Montage simple', prixHT:25 }, { id:'cp_mise_place', nom:'Mise en place', prixHT:10 }, { id:'cp_evacuation', nom:'Évacuation ancien matériel', prixHT:20 } ],
   tarifKmSupplementaire: 0.5
 };
 var DEFAULT_ZONES = [
@@ -479,6 +571,340 @@ function determinerVehicule(poidsTotal, volumeTotal, longueurMaxCm, vehicules){
   return { vehicule: compatibles[0], motif:'' };
 }
 
+
+// ================= Fiche de préparation de prestation =================
+var MOYENS_MATERIELS_LISTE = [
+  { id:'transpalette', label:'Transpalette' }, { id:'diable', label:'Diable' }, { id:'chariot', label:'Chariot' },
+  { id:'monteCharge', label:'Monte-charge' }, { id:'monteMeuble', label:'Monte-meuble' }, { id:'quai', label:'Quai' },
+  { id:'hayon', label:'Hayon' }, { id:'grue', label:'Grue' }, { id:'autre', label:'Autre' }
+];
+var state_fiches = [];
+var ficheColis = [];
+var ficheColisSeq = 0;
+var ficheMoyens = {};
+var ficheEditNumero = null;
+var ficheDevisCalcule = null;
+
+function newColisLigne(){ ficheColisSeq++; return { _id:'c'+ficheColisSeq, reference:'', designation:'', quantite:1, longueur:0, largeur:0, hauteur:0, poids:0 }; }
+function volumeLigneM3(l){ return (l.longueur||0)/100 * (l.largeur||0)/100 * (l.hauteur||0)/100 * (l.quantite||1); }
+
+function renderColisTable(){
+  var el = document.getElementById('listColis');
+  if(!ficheColis.length){ el.innerHTML = '<div class="empty">Aucune ligne de colis</div>'; }
+  else {
+    el.innerHTML = ficheColis.map(function(l, i){
+      return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;">'+
+        '<div class="hint" style="margin:0 0 6px;font-weight:600;">Colis '+(i+1)+'</div>'+
+        '<div class="row2">'+
+        '<div class="field"><input type="text" data-cf="reference" data-ci="'+i+'" placeholder="Référence" value="'+escapeHtml(l.reference)+'"></div>'+
+        '<div class="field"><input type="text" data-cf="designation" data-ci="'+i+'" placeholder="Désignation" value="'+escapeHtml(l.designation)+'"></div></div>'+
+        '<div class="row2">'+
+        '<div class="field"><input type="number" data-cf="quantite" data-ci="'+i+'" min="1" placeholder="Quantité" value="'+l.quantite+'"></div>'+
+        '<div class="field"><input type="number" data-cf="poids" data-ci="'+i+'" min="0" step="0.1" placeholder="Poids unitaire (kg)" value="'+(l.poids||'')+'"></div></div>'+
+        '<div class="row2" style="grid-template-columns:1fr 1fr 1fr;">'+
+        '<div class="field"><input type="number" data-cf="longueur" data-ci="'+i+'" min="0" placeholder="L (cm)" value="'+(l.longueur||'')+'"></div>'+
+        '<div class="field"><input type="number" data-cf="largeur" data-ci="'+i+'" min="0" placeholder="l (cm)" value="'+(l.largeur||'')+'"></div>'+
+        '<div class="field"><input type="number" data-cf="hauteur" data-ci="'+i+'" min="0" placeholder="h (cm)" value="'+(l.hauteur||'')+'"></div></div>'+
+        '<div class="hint" style="margin:0 0 6px;">Volume de la ligne : '+volumeLigneM3(l).toFixed(3)+' m³ ('+(l.quantite||1)+' × '+((l.longueur||0)/100).toFixed(2)+' × '+((l.largeur||0)/100).toFixed(2)+' × '+((l.hauteur||0)/100).toFixed(2)+' m)</div>'+
+        '<button data-del-colis="'+i+'" style="color:var(--danger);">Supprimer cette ligne</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('[data-cf]'), function(inp){
+      inp.addEventListener('input', function(){
+        var i = parseInt(inp.getAttribute('data-ci'),10), f = inp.getAttribute('data-cf');
+        ficheColis[i][f] = (f==='reference'||f==='designation') ? inp.value : (parseFloat(inp.value)||0);
+        computeColisTotaux();
+        // ne redessine pas toute la table à chaque frappe (perte de focus) : met juste à jour le volume affiché de la ligne
+        var card = inp.closest('div[style*="border"]');
+        var hintEl = card.querySelector('.hint');
+        if(hintEl) hintEl.textContent = 'Volume de la ligne : '+volumeLigneM3(ficheColis[i]).toFixed(3)+' m³ ('+(ficheColis[i].quantite||1)+' × '+((ficheColis[i].longueur||0)/100).toFixed(2)+' × '+((ficheColis[i].largeur||0)/100).toFixed(2)+' × '+((ficheColis[i].hauteur||0)/100).toFixed(2)+' m)';
+      });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('[data-del-colis]'), function(btn){
+      btn.addEventListener('click', function(){ ficheColis.splice(parseInt(btn.getAttribute('data-del-colis'),10),1); renderColisTable(); });
+    });
+  }
+  computeColisTotaux();
+}
+document.getElementById('btnAddColis').addEventListener('click', function(){ ficheColis.push(newColisLigne()); renderColisTable(); });
+
+// calcule les totaux ET l'analyse colis par colis (jamais sur les seuls totaux — règle centrale de la spec)
+function computeColisTotaux(){
+  var nbColis = ficheColis.reduce(function(s,l){ return s+(l.quantite||0); }, 0);
+  var poidsTotal = ficheColis.reduce(function(s,l){ return s+(l.poids||0)*(l.quantite||1); }, 0);
+  var volumeTotal = ficheColis.reduce(function(s,l){ return s+volumeLigneM3(l); }, 0);
+  var poidsLourd = ficheColis.reduce(function(m,l){ return Math.max(m, l.poids||0); }, 0);
+  var longueurMax = ficheColis.reduce(function(m,l){ return Math.max(m, l.longueur||0); }, 0);
+  var colisEncombrant = ficheColis.slice().sort(function(a,b){ return volumeLigneM3(b)/(b.quantite||1) - volumeLigneM3(a)/(a.quantite||1); })[0];
+  var totaux = { nbColis:nbColis, poidsTotal:poidsTotal, volumeTotal:volumeTotal, poidsLourd:poidsLourd, longueurMax:longueurMax, colisEncombrant:colisEncombrant };
+  document.getElementById('colisTotaux').innerHTML =
+    '<strong>'+nbColis+'</strong> colis · <strong>'+poidsTotal.toFixed(1)+' kg</strong> au total · <strong>'+volumeTotal.toFixed(3)+' m³</strong> au total<br>'+
+    'Colis le plus lourd : <strong>'+poidsLourd.toFixed(1)+' kg</strong> · Colis le plus long : <strong>'+longueurMax.toFixed(0)+' cm</strong>'+
+    (colisEncombrant ? ' · Colis le plus encombrant : <strong>'+(colisEncombrant.longueur||0)+' × '+(colisEncombrant.largeur||0)+' × '+(colisEncombrant.hauteur||0)+' cm</strong>' : '');
+  return totaux;
+}
+
+// ---------- moyens de manutention disponibles ----------
+function renderMoyensForm(){
+  document.getElementById('listMoyens').innerHTML = MOYENS_MATERIELS_LISTE.map(function(m){
+    var v = ficheMoyens[m.id] || {};
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">'+
+      '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;min-width:160px;"><input type="checkbox" data-moy="'+m.id+'" '+(v.disponible?'checked':'')+' style="width:17px;height:17px;">'+m.label+'</label>'+
+      '<input type="text" data-moy-cap="'+m.id+'" placeholder="Capacité / dimensions (facultatif)" value="'+escapeHtml(v.capacite||'')+'" style="flex:1;min-width:160px;padding:7px 9px;border:1px solid var(--line-strong);border-radius:8px;font-size:13.5px;">'+
+      '</div>';
+  }).join('');
+  Array.prototype.forEach.call(document.querySelectorAll('[data-moy]'), function(cb){
+    cb.addEventListener('change', function(){ (ficheMoyens[cb.getAttribute('data-moy')] = ficheMoyens[cb.getAttribute('data-moy')]||{}).disponible = cb.checked; });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-moy-cap]'), function(inp){
+    inp.addEventListener('input', function(){ (ficheMoyens[inp.getAttribute('data-moy-cap')] = ficheMoyens[inp.getAttribute('data-moy-cap')]||{}).capacite = inp.value; });
+  });
+}
+
+// ---------- prestation (LV1/LV2/LV3) et compléments (table paramétrable) ----------
+function renderChoixPrestation(){
+  document.getElementById('choixPrestation').innerHTML = ['LV1','LV2','LV3'].map(function(niv, i){
+    return '<label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-weight:400;"><input type="radio" name="f-prestation" value="'+niv+'" '+(i===0?'checked':'')+' style="width:18px;height:18px;">'+niv+' — '+(i+1)+' livreur'+(i>0?'s':'')+'</label>';
+  }).join('');
+}
+function renderChoixComplements(){
+  var arr = state.params.complements || [];
+  document.getElementById('choixComplements').innerHTML = arr.length ? arr.map(function(c){
+    return '<label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-weight:400;"><span><input type="checkbox" data-complement="'+escapeHtml(c.id)+'" style="width:17px;height:17px;margin-right:8px;">'+escapeHtml(c.nom)+'</span><span class="hint">'+fmtEuro(c.prixHT)+' HT</span></label>';
+  }).join('') : '<div class="hint">Aucune prestation complémentaire configurée (Paramètres).</div>';
+}
+
+// ---------- alertes avant validation (§13 de la spec) ----------
+function calculerAlertes(totaux, acces, vh, personnesNecessaires){
+  var alertes = [];
+  if(vh.vehicule===null) alertes.push('DIMENSIONS SUPÉRIEURES AUX CAPACITÉS DU VÉHICULE — '+vh.motif);
+  if(personnesNecessaires>1) alertes.push('COLIS LE PLUS LOURD : '+totaux.poidsLourd.toFixed(0)+' KG — '+personnesNecessaires+' PERSONNES NÉCESSAIRES');
+  if(acces.etage>0 && acces.ascenseur==='non') alertes.push('ACCÈS AU '+acces.etage+'e ÉTAGE SANS ASCENSEUR');
+  if(acces.distancePortage>30) alertes.push('DISTANCE DE PORTAGE IMPORTANTE ('+acces.distancePortage+' m)');
+  if(!acces.stationnementOk) alertes.push('STATIONNEMENT NON GARANTI');
+  if(acces.autorisationNecessaire) alertes.push('PRESTATION NÉCESSITANT UNE VALIDATION STLS (autorisation nécessaire)');
+  if(!totaux.nbColis || !totaux.poidsTotal) alertes.push('INFORMATIONS INCOMPLÈTES — renseigne au moins une ligne de colis avec un poids');
+  return alertes;
+}
+
+function lireAcces(){
+  return {
+    typeBatiment: document.getElementById('f-typeBatiment').value,
+    etage: parseInt(document.getElementById('f-etage').value,10)||0,
+    ascenseur: document.getElementById('f-ascenseur').value,
+    dimAscenseur: document.getElementById('f-dimAscenseur').value.trim(),
+    largeurPassage: parseFloat(document.getElementById('f-largeurPassage').value)||0,
+    distancePortage: parseFloat(document.getElementById('f-distancePortage').value)||0,
+    courInterieure: document.getElementById('f-courInterieure').checked,
+    accesPrive: document.getElementById('f-accesPrive').checked,
+    rueEtroite: document.getElementById('f-rueEtroite').checked,
+    ruePente: document.getElementById('f-ruePente').checked,
+    stationnementOk: document.getElementById('f-stationnementOk').checked,
+    autorisationNecessaire: document.getElementById('f-autorisationNecessaire').checked,
+    accesPL: document.getElementById('f-accesPL').checked,
+    infosComplementaires: document.getElementById('f-infosAcces').value.trim()
+  };
+}
+
+document.getElementById('btnCalculerFiche').addEventListener('click', function(){
+  var totaux = computeColisTotaux();
+  var acces = lireAcces();
+  var distanceVal = parseFloat(document.getElementById('f-distance').value)||0;
+  var resolved = resolveZoneForDistance(distanceVal, state.params);
+  if(!resolved){ banner('Renseigne une distance et au moins une zone tarifaire'); return; }
+  var prestation = (document.querySelector('input[name="f-prestation"]:checked')||{}).value || 'LV1';
+  var nbEtagesPourCalcul = (acces.etage>0) ? 1 : 0; // la fiche raisonne en « étage de livraison », le moteur existant en nombre d'étages à monter
+  var input = {
+    poids: totaux.poidsTotal, colisLourd: totaux.poidsLourd, colisLong: totaux.longueurMax, volume: totaux.volumeTotal,
+    nbEtages: acces.etage, ascenseur: acces.ascenseur==='oui', montageMin: 0
+  };
+  var r = calculerPrestation(state.params, resolved.zone, input);
+  var vh = determinerVehicule(totaux.poidsTotal, totaux.volumeTotal, totaux.longueurMax, state.vehicules);
+  var baseHT = r[prestation+''];
+  var complementsCoches = Array.prototype.slice.call(document.querySelectorAll('[data-complement]:checked')).map(function(x){ return x.getAttribute('data-complement'); });
+  var complementsDetail = (state.params.complements||[]).filter(function(c){ return complementsCoches.indexOf(c.id)>=0; });
+  var totalComplements = complementsDetail.reduce(function(s,c){ return s+c.prixHT; }, 0);
+  var montantHT = baseHT + totalComplements;
+  var tauxTVA = 0.20;
+  var montantTVA = montantHT*tauxTVA;
+  var montantTTC = montantHT+montantTVA;
+  var alertes = calculerAlertes(totaux, acces, vh, r.personnesNecessaires);
+
+  ficheDevisCalcule = { totaux:totaux, acces:acces, zone:resolved.zone, prestation:prestation, personnesNecessaires:r.personnesNecessaires,
+    vehicule: vh.vehicule ? { immat:vh.vehicule.immat, libelle:vh.vehicule.libelle } : null, vehiculeMotif: vh.motif,
+    baseHT:baseHT, complements:complementsDetail, totalComplements:totalComplements, montantHT:montantHT, montantTVA:montantTVA, montantTTC:montantTTC,
+    tauxTVA:tauxTVA, alertes:alertes, calculeLe:new Date().toISOString() };
+
+  var html = '<h2 style="font-size:15px;">DEVIS ESTIMATIF DE VOTRE PRESTATION</h2>'+
+    '<p style="font-size:20px;font-weight:800;color:var(--accent);margin:6px 0 2px;">Montant estimatif HT : '+fmtEuro(montantHT)+'</p>'+
+    '<p class="hint" style="margin:0 0 2px;">TVA (20 %) : '+fmtEuro(montantTVA)+'</p>'+
+    '<p style="font-size:18px;font-weight:800;margin:4px 0 12px;">Montant estimatif TTC : '+fmtEuro(montantTTC)+'</p>'+
+    '<div class="hint" style="margin-bottom:4px;">Détail (usage interne STLS) : '+prestation+' '+fmtEuro(baseHT)+(complementsDetail.length ? ' + '+complementsDetail.map(function(c){ return c.nom+' ('+fmtEuro(c.prixHT)+')'; }).join(' + ') : '')+'</div>'+
+    '<div class="hint" style="margin-bottom:10px;">Zone '+escapeHtml(resolved.zone.code)+' · Personnel : '+r.personnesNecessaires+' · Véhicule : '+(vh.vehicule ? escapeHtml(vh.vehicule.immat)+(vh.vehicule.libelle?' — '+escapeHtml(vh.vehicule.libelle):'') : '—')+'</div>'+
+    (alertes.length ? '<div style="background:#fdecea;border:1px solid var(--danger);border-radius:8px;padding:10px;margin-bottom:10px;">'+
+      alertes.map(function(a){ return '<div style="color:var(--danger);font-weight:600;font-size:13px;">⚠️ '+escapeHtml(a)+'</div>'; }).join('')+'</div>' : '')+
+    '<p class="hint" style="font-size:12px;line-height:1.5;">Le montant indiqué est un devis estimatif établi sur la base des informations et caractéristiques de la marchandise ainsi que des conditions d\'accès déclarées lors de la demande. En cas d\'information inexacte, incomplète ou différente constatée lors de la préparation ou de la réalisation de la prestation, notamment concernant le poids, les dimensions, le nombre de colis, les conditions d\'accès ou les prestations demandées, un surcoût pourra être appliqué.</p>';
+  document.getElementById('ficheDevisResult').innerHTML = html;
+  document.getElementById('ficheSaveRow').style.display = 'block';
+});
+
+// ---------- numérotation, liste, chargement, enregistrement ----------
+async function nextFicheNumero(){
+  var now = new Date();
+  var yymm = String(now.getFullYear()).slice(2)+String(now.getMonth()+1).padStart(2,'0');
+  if(fsReady()){
+    try{
+      var ref = agencyDocRef(state.currentAgencyCode);
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(ref);
+        var counters = (snap.exists && snap.data().ficheCounters) || {};
+        var current = counters[yymm] || 0, next = current+1;
+        counters[yymm] = next;
+        tx.set(ref, { ficheCounters: counters }, { merge:true });
+        return next;
+      });
+      return 'F'+yymm+String(n).padStart(4,'0');
+    }catch(e){ console.error('Firestore nextFicheNumero error', e); }
+  }
+  var key = 'fiche-counter-'+yymm, raw = lsGet(key), n2 = (raw?parseInt(raw,10):0)+1;
+  lsSet(key, String(n2));
+  return 'F'+yymm+String(n2).padStart(4,'0');
+}
+
+async function loadFiches(){
+  state_fiches = [];
+  if(!fsReady() || !fichesColRef) return;
+  try{ var snap = await fichesColRef.get(); snap.forEach(function(d){ state_fiches.push(d.data()); }); }
+  catch(e){ console.error('Firestore loadFiches error', e); }
+}
+function renderFichesList(){
+  var el = document.getElementById('listFiches');
+  if(!state_fiches.length){ el.innerHTML = '<div class="empty">Aucune fiche pour l\'instant</div>'; return; }
+  el.innerHTML = state_fiches.slice().sort(function(a,b){ return (b.createdAt||'').localeCompare(a.createdAt||''); }).map(function(f){
+    return '<div class="base-row"><span>'+escapeHtml(f.numero)+' — '+escapeHtml((f.client||{}).nom||'Sans nom')+
+      (f.devis ? ' · '+fmtEuro(f.devis.montantTTC)+' TTC' : ' · brouillon non calculé')+'</span>'+
+      '<button data-fiche-open="'+escapeHtml(f.numero)+'">Ouvrir</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-fiche-open]'), function(btn){
+    btn.addEventListener('click', function(){ ouvrirFiche(btn.getAttribute('data-fiche-open')); });
+  });
+}
+function viderFormulaireFiche(){
+  ficheEditNumero = null; ficheColis = []; ficheMoyens = {}; ficheDevisCalcule = null;
+  ['f-client-nom','f-client-tel','f-client-email','f-adr1','f-cp','f-ville','f-distance','f-dimAscenseur','f-largeurPassage','f-distancePortage','f-infosAcces'].forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('f-etage').value = 0;
+  document.getElementById('f-typeBatiment').value = 'maison';
+  document.getElementById('f-ascenseur').value = 'non';
+  ['f-courInterieure','f-accesPrive','f-rueEtroite','f-ruePente','f-autorisationNecessaire','f-accesPL'].forEach(function(id){ document.getElementById(id).checked = false; });
+  document.getElementById('f-stationnementOk').checked = true;
+  document.getElementById('ficheFormTitle').textContent = 'Nouvelle fiche';
+  document.getElementById('ficheDevisResult').innerHTML = '';
+  document.getElementById('ficheSaveRow').style.display = 'none';
+  renderColisTable(); renderMoyensForm(); renderChoixPrestation(); renderChoixComplements();
+}
+function ouvrirFiche(numero){
+  var f = state_fiches.find(function(x){ return x.numero===numero; });
+  viderFormulaireFiche();
+  if(f){
+    ficheEditNumero = numero;
+    document.getElementById('ficheFormTitle').textContent = 'Fiche '+numero;
+    document.getElementById('f-client-nom').value = (f.client||{}).nom||'';
+    document.getElementById('f-client-tel').value = (f.client||{}).telephone||'';
+    document.getElementById('f-client-email').value = (f.client||{}).email||'';
+    var a = f.adresseLivraison||{};
+    document.getElementById('f-adr1').value = a.adresse1||''; document.getElementById('f-cp').value = a.cp||''; document.getElementById('f-ville').value = a.ville||'';
+    document.getElementById('f-distance').value = f.distance||'';
+    ficheColis = (f.colis||[]).map(function(l){ ficheColisSeq++; return Object.assign({ _id:'c'+ficheColisSeq }, l); });
+    ficheMoyens = f.moyensDisponibles || {};
+    if(f.acces){
+      var ac = f.acces;
+      document.getElementById('f-typeBatiment').value = ac.typeBatiment||'maison';
+      document.getElementById('f-etage').value = ac.etage||0;
+      document.getElementById('f-ascenseur').value = ac.ascenseur||'non';
+      document.getElementById('f-dimAscenseur').value = ac.dimAscenseur||'';
+      document.getElementById('f-largeurPassage').value = ac.largeurPassage||'';
+      document.getElementById('f-distancePortage').value = ac.distancePortage||'';
+      document.getElementById('f-courInterieure').checked = !!ac.courInterieure;
+      document.getElementById('f-accesPrive').checked = !!ac.accesPrive;
+      document.getElementById('f-rueEtroite').checked = !!ac.rueEtroite;
+      document.getElementById('f-ruePente').checked = !!ac.ruePente;
+      document.getElementById('f-stationnementOk').checked = ac.stationnementOk!==false;
+      document.getElementById('f-autorisationNecessaire').checked = !!ac.autorisationNecessaire;
+      document.getElementById('f-accesPL').checked = !!ac.accesPL;
+      document.getElementById('f-infosAcces').value = ac.infosComplementaires||'';
+    }
+    renderColisTable(); renderMoyensForm(); renderChoixPrestation(); renderChoixComplements();
+    if(f.prestationChoisie){ var r = document.querySelector('input[name="f-prestation"][value="'+f.prestationChoisie+'"]'); if(r) r.checked = true; }
+    (f.complementsChoisis||[]).forEach(function(id){ var cb = document.querySelector('[data-complement="'+id+'"]'); if(cb) cb.checked = true; });
+    if(f.devis){
+      ficheDevisCalcule = f.devis;
+      document.getElementById('ficheDevisResult').innerHTML = '<p class="hint">Dernier devis calculé le '+new Date(f.devis.calculeLe).toLocaleString('fr-FR')+' — '+fmtEuro(f.devis.montantTTC)+' TTC. Clique « Calculer le devis » pour le recalculer après modification.</p>';
+    }
+  }
+  document.getElementById('ficheListCard').style.display = 'none';
+  document.getElementById('ficheFormCard').style.display = 'block';
+}
+document.getElementById('btnNouvelleFiche').addEventListener('click', function(){
+  viderFormulaireFiche();
+  document.getElementById('ficheListCard').style.display = 'none';
+  document.getElementById('ficheFormCard').style.display = 'block';
+});
+document.getElementById('btnRetourListeFiches').addEventListener('click', function(){
+  document.getElementById('ficheFormCard').style.display = 'none';
+  document.getElementById('ficheListCard').style.display = 'block';
+  renderFichesList();
+});
+
+document.getElementById('btnEnregistrerFiche').addEventListener('click', async function(){
+  if(!ficheDevisCalcule){ banner('Calcule le devis avant d\'enregistrer'); return; }
+  var numero = ficheEditNumero || await nextFicheNumero();
+  var fiche = {
+    numero: numero, depotCode: state.currentAgencyCode, createdAt: (state_fiches.find(function(x){return x.numero===numero;})||{}).createdAt || new Date().toISOString(),
+    client: { nom: document.getElementById('f-client-nom').value.trim(), telephone: document.getElementById('f-client-tel').value.trim(), email: document.getElementById('f-client-email').value.trim() },
+    adresseLivraison: { adresse1: document.getElementById('f-adr1').value.trim(), cp: document.getElementById('f-cp').value.trim(), ville: document.getElementById('f-ville').value.trim() },
+    distance: parseFloat(document.getElementById('f-distance').value)||0,
+    colis: ficheColis.map(function(l){ return { reference:l.reference, designation:l.designation, quantite:l.quantite, longueur:l.longueur, largeur:l.largeur, hauteur:l.hauteur, poids:l.poids }; }),
+    acces: lireAcces(), moyensDisponibles: ficheMoyens,
+    prestationChoisie: (document.querySelector('input[name="f-prestation"]:checked')||{}).value || 'LV1',
+    complementsChoisis: Array.prototype.slice.call(document.querySelectorAll('[data-complement]:checked')).map(function(x){ return x.getAttribute('data-complement'); }),
+    devis: ficheDevisCalcule, statut: 'brouillon', versionTarif: new Date().toISOString()
+  };
+  if(fsReady() && fichesColRef){
+    try{ await fichesColRef.doc(numero).set(fiche); }catch(e){ console.error('Firestore save fiche error', e); banner('Enregistrement échoué : '+(e.message||e)); return; }
+  }
+  var idx = state_fiches.findIndex(function(x){ return x.numero===numero; });
+  if(idx>=0) state_fiches[idx] = fiche; else state_fiches.push(fiche);
+  ficheEditNumero = numero;
+  banner('Fiche '+numero+' enregistrée');
+});
+
+// ---------- prestations complémentaires (Paramètres) ----------
+function renderComplementsList(){
+  var el = document.getElementById('listComplements');
+  var arr = state.params.complements || [];
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucune prestation complémentaire</div>'; return; }
+  el.innerHTML = arr.map(function(c, i){
+    return '<div class="base-row"><span>'+escapeHtml(c.nom)+' — '+fmtEuro(c.prixHT)+' HT</span><button data-del-complement="'+i+'">Suppr.</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-del-complement]'), function(btn){
+    btn.addEventListener('click', async function(){
+      state.params.complements.splice(parseInt(btn.getAttribute('data-del-complement'),10),1);
+      await saveTarifData(); renderComplementsList();
+    });
+  });
+}
+document.getElementById('btnAddComplement').addEventListener('click', async function(){
+  var nom = prompt('Nom de la prestation complémentaire (ex. Déballage, Reprise des emballages, Montage simple...) :');
+  if(nom===null || !nom.trim()) return;
+  var prixStr = prompt('Prix HT de cette prestation (€) :', '0');
+  if(prixStr===null) return;
+  var prix = parseFloat(prixStr);
+  if(isNaN(prix) || prix<0){ banner('Prix invalide'); return; }
+  if(!state.params.complements) state.params.complements = [];
+  state.params.complements.push({ id:'cp_'+Date.now().toString(36), nom:nom.trim(), prixHT:prix });
+  await saveTarifData();
+  renderComplementsList();
+});
+
 // ---------- paliers personnel : affichage et édition (Paramètres) ----------
 function renderPaliersList(){
   var el = document.getElementById('listPaliers');
@@ -558,7 +984,12 @@ async function startForAgency(code){
   populateCalcZoneSelect();
   fillParamsForm();
   renderPaliersList();
+  renderComplementsList();
   renderZonesList();
+  fichesColRef = agencyDocRef(code).collection('fiches');
+  await loadFiches();
+  renderFichesList();
+  viderFormulaireFiche();
   document.getElementById('calcDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
 }
 
@@ -599,6 +1030,7 @@ async function loadTarifData(){
         var t = snap.data().tarifs;
         state.params = Object.assign({}, DEFAULT_PARAMS, t.params||{});
         if(!state.params.paliersPersonnel) state.params.paliersPersonnel = DEFAULT_PARAMS.paliersPersonnel.slice();
+        if(!state.params.complements) state.params.complements = DEFAULT_PARAMS.complements.slice();
         state.zones = (t.zones && t.zones.length) ? t.zones : DEFAULT_ZONES.slice();
         return;
       }
@@ -621,7 +1053,7 @@ async function saveTarifData(){
 Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
   btn.addEventListener('click', function(){
     var name = btn.getAttribute('data-tab');
-    ['calc','params','zones'].forEach(function(t){
+    ['calc','params','zones','fiche'].forEach(function(t){
       document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
     });
     Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(b){
