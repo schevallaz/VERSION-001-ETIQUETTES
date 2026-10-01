@@ -6783,6 +6783,27 @@ async function loadAgencyDataAndShowApp(){
   updateAgencyCodeLine();
   updateEmailTemplateFields();
   tryShowQrLanding();
+  applyPendingNewCdeFromFiche();
+}
+
+// reprend une fiche de préparation validée dans Tarifs (bouton « Créer la CDE ») : pré-remplit New CDE
+// avec ce que la fiche a déjà capturé, sans jamais resaisir ; le reste (fournisseur, date, transporteur...)
+// reste à la charge de STLS, qui ne le connaît pas à ce stade
+function applyPendingNewCdeFromFiche(){
+  var raw = lsGet('pending-new-cde');
+  if(!raw) return;
+  lsDelete('pending-new-cde');
+  try{
+    var d = JSON.parse(raw);
+    resetForm();
+    switchTab('new');
+    if(d.client) document.getElementById('f-client').value = d.client;
+    if(d.poids) document.getElementById('f-poids').value = d.poids;
+    if(d.colis) document.getElementById('f-colis').value = d.colis;
+    if(d.ficheNumero) document.getElementById('f-nrecep').value = 'Issue de la fiche '+d.ficheNumero;
+    updatePreview();
+    banner('Fiche '+(d.ficheNumero||'')+' importée — complète fournisseur, date et emplacement');
+  }catch(e){ console.error('applyPendingNewCdeFromFiche error', e); }
 }
 
 async function finalizeLogin(name, isAdmin, agencyCode){

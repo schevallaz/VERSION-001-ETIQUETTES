@@ -382,6 +382,7 @@
         <div class="btn-row" style="margin-top:0;"><button class="btn accent" id="btnCalculerFiche" style="width:100%;">CALCULER LE DEVIS</button></div>
         <div id="ficheDevisResult" style="margin-top:14px;"></div>
         <div class="btn-row" id="ficheSaveRow" style="display:none;"><button class="btn primary" id="btnEnregistrerFiche" style="width:100%;">Enregistrer la fiche (brouillon)</button></div>
+        <div class="btn-row" id="ficheCdeRow" style="display:none;"><button class="btn accent" id="btnCreerCde" style="width:100%;">→ Créer la CDE (Gestion Dépôt)</button></div>
       </div>
     </div>
   </section>
@@ -448,7 +449,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var fichesColRef = null;
 
-var APP_VERSION = '2026.0011';
+var APP_VERSION = '2026.0012';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -760,6 +761,7 @@ document.getElementById('btnCalculerFiche').addEventListener('click', function()
     '<p class="hint" style="font-size:12px;line-height:1.5;">Le montant indiqué est un devis estimatif établi sur la base des informations et caractéristiques de la marchandise ainsi que des conditions d\'accès déclarées lors de la demande. En cas d\'information inexacte, incomplète ou différente constatée lors de la préparation ou de la réalisation de la prestation, notamment concernant le poids, les dimensions, le nombre de colis, les conditions d\'accès ou les prestations demandées, un surcoût pourra être appliqué.</p>';
   document.getElementById('ficheDevisResult').innerHTML = html;
   document.getElementById('ficheSaveRow').style.display = 'block';
+  document.getElementById('ficheCdeRow').style.display = 'block';
 });
 
 // ---------- numérotation, liste, chargement, enregistrement ----------
@@ -847,6 +849,7 @@ function viderFormulaireFiche(){
   document.getElementById('ficheFormTitle').textContent = 'Nouvelle fiche';
   document.getElementById('ficheDevisResult').innerHTML = '';
   document.getElementById('ficheSaveRow').style.display = 'none';
+  document.getElementById('ficheCdeRow').style.display = 'none';
   renderColisTable(); renderMoyensForm(); renderChoixPrestation(); renderChoixComplements();
 }
 function ouvrirFiche(numero){
@@ -902,8 +905,10 @@ document.getElementById('btnRetourListeFiches').addEventListener('click', functi
   renderFichesList();
 });
 
-document.getElementById('btnEnregistrerFiche').addEventListener('click', async function(){
-  if(!ficheDevisCalcule){ banner('Calcule le devis avant d\'enregistrer'); return; }
+// fonction nommée (plutôt qu'un simple gestionnaire de clic) pour pouvoir l'attendre réellement
+// depuis un autre bouton (« Créer la CDE ») sans jamais simuler un clic sur un handler asynchrone
+async function enregistrerFiche(){
+  if(!ficheDevisCalcule){ banner('Calcule le devis avant d\'enregistrer'); return null; }
   var numero = ficheEditNumero || await nextFicheNumero();
   var fiche = {
     numero: numero, depotCode: state.currentAgencyCode, createdAt: (state_fiches.find(function(x){return x.numero===numero;})||{}).createdAt || new Date().toISOString(),
@@ -917,12 +922,32 @@ document.getElementById('btnEnregistrerFiche').addEventListener('click', async f
     devis: ficheDevisCalcule, statut: 'brouillon', versionTarif: new Date().toISOString()
   };
   if(fsReady() && fichesColRef){
-    try{ await fichesColRef.doc(numero).set(fiche); }catch(e){ console.error('Firestore save fiche error', e); banner('Enregistrement échoué : '+(e.message||e)); return; }
+    try{ await fichesColRef.doc(numero).set(fiche); }catch(e){ console.error('Firestore save fiche error', e); banner('Enregistrement échoué : '+(e.message||e)); return null; }
   }
   var idx = state_fiches.findIndex(function(x){ return x.numero===numero; });
   if(idx>=0) state_fiches[idx] = fiche; else state_fiches.push(fiche);
   ficheEditNumero = numero;
-  banner('Fiche '+numero+' enregistrée');
+  return numero;
+}
+document.getElementById('btnEnregistrerFiche').addEventListener('click', async function(){
+  var numero = await enregistrerFiche();
+  if(numero) banner('Fiche '+numero+' enregistrée');
+});
+
+// ---------- intégration New CDE (Gestion Dépôt) : la fiche validée pré-remplit la réception,
+// jamais resaisie — seules les infos que la fiche ne capture pas (fournisseur, date, transporteur...)
+// restent à compléter par STLS ----------
+document.getElementById('btnCreerCde').addEventListener('click', async function(){
+  if(!ficheDevisCalcule){ banner('Calcule le devis avant de créer la CDE'); return; }
+  if(!ficheEditNumero){ var saved = await enregistrerFiche(); if(!saved) return; }
+  var payload = {
+    ficheNumero: ficheEditNumero,
+    client: document.getElementById('f-client-nom').value.trim(),
+    poids: ficheDevisCalcule.totaux.poidsTotal, colis: ficheDevisCalcule.totaux.nbColis,
+    adresse1: document.getElementById('f-adr1').value.trim(), cp: document.getElementById('f-cp').value.trim(), ville: document.getElementById('f-ville').value.trim()
+  };
+  lsSet('pending-new-cde', JSON.stringify(payload));
+  window.location.href = 'index.html';
 });
 
 // ---------- prestations complémentaires (Paramètres) ----------
