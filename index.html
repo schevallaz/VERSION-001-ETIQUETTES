@@ -606,6 +606,14 @@
       <div id="repairMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     <div class="card">
+      <h2>📅 Modifier une date de sortie de CDE</h2>
+      <p class="hint" style="margin:0 0 12px;">Corrige la date de sortie d'une commande déjà sortie du dépôt, en cas d'erreur de saisie.</p>
+      <div class="field"><label for="fixExitLabel">Numéro d'étiquette</label><input type="text" id="fixExitLabel" placeholder="Ex. R000123"></div>
+      <div class="field"><label for="fixExitDate">Nouvelle date de sortie</label><input type="date" id="fixExitDate"></div>
+      <div class="btn-row"><button class="btn primary" id="btnFixExitDate" style="width:100%;">Modifier la date de sortie</button></div>
+      <div id="fixExitMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
       <h2>💾 Sauvegarde des commandes sorties</h2>
       <p class="hint" style="margin:0 0 12px;">Exporte une copie complète de toutes les commandes sorties (fichier JSON) avant toute suppression définitive.</p>
       <div class="btn-row">
@@ -6451,7 +6459,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0053';
+var APP_VERSION = '2026.0054';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -6998,6 +7006,35 @@ async function repairMissingReceivedAt(){
   banner(fixed+' commande(s) réparée(s)');
 }
 document.getElementById('btnRepairReceivedAt').addEventListener('click', repairMissingReceivedAt);
+
+// ---------- correction manuelle de la date de sortie d'une commande déjà sortie ----------
+async function fixExitDate(){
+  var msg = document.getElementById('fixExitMsg');
+  msg.textContent = ''; msg.style.color = '';
+  var label = document.getElementById('fixExitLabel').value.trim().toUpperCase();
+  var dateStr = document.getElementById('fixExitDate').value;
+  if(!label){ msg.textContent = "Saisis le numéro d'étiquette"; msg.style.color = 'var(--danger)'; return; }
+  if(!dateStr){ msg.textContent = 'Choisis la nouvelle date de sortie'; msg.style.color = 'var(--danger)'; return; }
+  var hEntry = state.historyIndex.find(function(h){ return h.labelNumber===label; });
+  if(!hEntry){ msg.textContent = 'Étiquette introuvable : '+label; msg.style.color = 'var(--danger)'; return; }
+  if(!hEntry.exitedAt){ msg.textContent = 'Cette commande n\'est pas encore sortie du dépôt — rien à corriger'; msg.style.color = 'var(--danger)'; return; }
+  var rec = await getReceptionRecord(hEntry.id);
+  if(!rec || !rec.data){ msg.textContent = 'Commande introuvable'; msg.style.color = 'var(--danger)'; return; }
+  var ancienne = rec.data.exitedAt;
+  var heure = ancienne ? ancienne.slice(11) : new Date().toISOString().slice(11); // conserve l'heure déjà enregistrée, ne change que le jour
+  var nouvelle = dateStr+'T'+heure;
+  rec.data.exitedAt = nouvelle;
+  await saveReceptionRecord(hEntry.id, rec);
+  var idx = state.historyIndex.findIndex(function(x){ return x.id===hEntry.id; });
+  if(idx>=0) state.historyIndex[idx] = recordToIndexEntry(rec);
+  await saveHistoryIndex();
+  renderArchiveList();
+  msg.textContent = 'Date de sortie de '+label+' modifiée : '+fmtDate(nouvelle.slice(0,10))+' (était '+fmtDate((ancienne||'').slice(0,10))+')';
+  msg.style.color = 'var(--accent)';
+  document.getElementById('fixExitLabel').value = ''; document.getElementById('fixExitDate').value = '';
+  banner('Date de sortie mise à jour pour '+label);
+}
+document.getElementById('btnFixExitDate').addEventListener('click', fixExitDate);
 
 // ---------- init ----------
 (async function init(){
