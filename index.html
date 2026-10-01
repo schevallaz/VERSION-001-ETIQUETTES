@@ -202,6 +202,21 @@
     </div>
 
     <div class="card">
+      <h2>📥 Importer un fichier (CSV / JSON)</h2>
+      <p class="hint" style="margin:0 0 12px;">Pour un client transmettant ses commandes dans un format structuré. Une ligne par colis ; les lignes partageant le même n° de commande (ou BL, ou contremarque) sont regroupées en une seule réception. Rien n'est créé tant que tu n'as pas contrôlé et validé le tableau ci-dessous.</p>
+      <input type="file" id="importFileInput" accept=".csv,.json,text/csv,application/json" style="display:none;">
+      <div class="btn-row"><button class="btn ghost" id="btnImportChoisir" style="width:100%;">Choisir un fichier .csv ou .json</button></div>
+      <div id="importMsg" style="margin-top:8px;font-size:12.5px;"></div>
+      <div id="importReview" style="display:none;margin-top:14px;">
+        <div class="hint" id="importSummary" style="margin-bottom:8px;"></div>
+        <div class="btn-row"><button class="btn ghost" id="btnImportToutCocher" style="width:auto;padding:7px 12px;font-size:12.5px;">Tout cocher</button> <button class="btn ghost" id="btnImportToutDecocher" style="width:auto;padding:7px 12px;font-size:12.5px;">Tout décocher</button></div>
+        <div id="importGroupesTable" style="margin-top:10px;"></div>
+        <div class="btn-row"><button class="btn primary" id="btnImportCreer" style="width:100%;">Créer les réceptions sélectionnées</button></div>
+        <div class="btn-row"><button class="btn ghost" id="btnImportAnnuler" style="width:100%;">Annuler</button></div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>📄 Importer depuis un document (OCR)</h2>
       <p class="hint" style="margin:0 0 12px;">Photo, scan ou document papier numérisé. La reconnaissance automatique n'est jamais garantie : relis et corrige chaque champ avant de l'appliquer — rien n'est créé tant que tu n'as pas validé.</p>
       <input type="file" id="ocrFileInput" accept="image/*" capture="environment" style="display:none;">
@@ -2390,6 +2405,206 @@ wireProfileCpVilleCascade('cli');
 wireProfileCpVilleCascade('cm');
 
 // ---------- form / preview ----------
+
+
+// ================= Import structuré (CSV / JSON) — New CDE =================
+// correspondance des champs : plusieurs libellés possibles par champ interne, pour s'adapter
+// au format de chaque client sans jamais devoir modifier le code (comparaison insensible à la
+// casse et aux accents)
+var IMPORT_ALIASES = {
+  commande: ['ncommande','numerocommande','numcommande','commande','order','ordernumber','norder','commandenumber'],
+  bl: ['bl','nbl','numerobl','deliverynote'],
+  contremarque: ['contremarque','cmq'],
+  client: ['client','nomclient','nom','customer','customername','destinataire'],
+  fournisseur: ['fournisseur','expediteur','supplier','vendor'],
+  reference: ['reference','ref','référence','sku','refcolis','referencecolis'],
+  designation: ['designation','description','libelle','designationcolis'],
+  quantite: ['quantite','qty','qte','quantity'],
+  poids: ['poids','weight','poidskg','poidsunitaire']
+};
+function normaliserEntete(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+}
+function detecterChampImport(entete){
+  var n = normaliserEntete(entete);
+  for(var cle in IMPORT_ALIASES){ if(IMPORT_ALIASES[cle].indexOf(n)>=0) return cle; }
+  return null;
+}
+function mapperLigneImport(ligneBrute){
+  var mapped = {};
+  Object.keys(ligneBrute).forEach(function(h){
+    var champ = detecterChampImport(h);
+    if(champ && ligneBrute[h]!=null && String(ligneBrute[h]).trim()!=='') mapped[champ] = String(ligneBrute[h]).trim();
+  });
+  return mapped;
+}
+
+// détecte automatiquement le séparateur (point-virgule très courant en France, la virgule servant
+// de séparateur décimal) ; gère les champs entre guillemets contenant eux-mêmes des séparateurs
+function parseCSV(texte){
+  var premiereLigne = (texte.split(/\r?\n/)[0]||'');
+  var sep = (premiereLigne.split(';').length > premiereLigne.split(',').length) ? ';' : ',';
+  var lignes = [], ligneCourante = [], champCourant = '', dansGuillemets = false;
+  for(var i=0;i<texte.length;i++){
+    var c = texte[i];
+    if(dansGuillemets){
+      if(c==='"'){ if(texte[i+1]==='"'){ champCourant+='"'; i++; } else dansGuillemets=false; }
+      else champCourant += c;
+    } else if(c==='"'){ dansGuillemets = true; }
+    else if(c===sep){ ligneCourante.push(champCourant); champCourant=''; }
+    else if(c==='\n' || c==='\r'){
+      if(c==='\r' && texte[i+1]==='\n') i++;
+      ligneCourante.push(champCourant); champCourant='';
+      if(!(ligneCourante.length===1 && ligneCourante[0]==='')) lignes.push(ligneCourante);
+      ligneCourante = [];
+    } else champCourant += c;
+  }
+  if(champCourant!=='' || ligneCourante.length){ ligneCourante.push(champCourant); lignes.push(ligneCourante); }
+  if(!lignes.length) return [];
+  var entetes = lignes[0].map(function(h){ return h.trim(); });
+  return lignes.slice(1).filter(function(l){ return l.some(function(v){ return v.trim()!==''; }); }).map(function(l){
+    var obj = {};
+    entetes.forEach(function(h,idx){ obj[h] = (l[idx]!=null ? l[idx].trim() : ''); });
+    return obj;
+  });
+}
+function parseJSONImport(texte){
+  var data = JSON.parse(texte);
+  if(Array.isArray(data)) return data;
+  var cles = ['lignes','rows','commandes','data','items'];
+  for(var i=0;i<cles.length;i++){ if(Array.isArray(data[cles[i]])) return data[cles[i]]; }
+  throw new Error('format JSON non reconnu — attendu : un tableau, ou { "lignes": [...] }');
+}
+
+// regroupe les lignes (une ligne = un colis) par commande, ou à défaut par BL, ou à défaut par
+// contremarque ; si aucune de ces clés n'existe dans le fichier, chaque ligne reste son propre groupe
+function regrouperLignesImport(lignesBrutes){
+  var mappees = lignesBrutes.map(mapperLigneImport);
+  var cle = mappees.some(function(l){ return l.commande; }) ? 'commande'
+    : mappees.some(function(l){ return l.bl; }) ? 'bl'
+    : mappees.some(function(l){ return l.contremarque; }) ? 'contremarque' : null;
+  var groupes = {}, ordre = [];
+  mappees.forEach(function(l, idx){
+    var clef = cle ? (l[cle] || ('_sans-'+cle+'-'+idx)) : ('_ligne-'+idx);
+    if(!groupes[clef]){ groupes[clef] = { cle:clef, client:'', contremarque:'', fournisseur:'', lignes:[], poids:0, colis:0, inclure:true }; ordre.push(clef); }
+    var g = groupes[clef];
+    if(!g.client && l.client) g.client = l.client;
+    if(!g.contremarque && l.contremarque) g.contremarque = l.contremarque;
+    if(!g.fournisseur && l.fournisseur) g.fournisseur = l.fournisseur;
+    var qte = parseFloat((l.quantite||'1').replace(',','.')) || 1;
+    var poidsUnitaire = parseFloat((l.poids||'0').replace(',','.')) || 0;
+    g.poids = Math.round((g.poids + poidsUnitaire*qte)*100)/100;
+    g.colis += qte;
+    g.lignes.push(l);
+  });
+  return { groupes: ordre.map(function(k){ return groupes[k]; }), cleRegroupement: cle };
+}
+
+var importGroupesCourants = [];
+document.getElementById('btnImportChoisir').addEventListener('click', function(){ document.getElementById('importFileInput').click(); });
+document.getElementById('importFileInput').addEventListener('change', function(ev){
+  var file = ev.target.files && ev.target.files[0];
+  if(!file) return;
+  var msg = document.getElementById('importMsg');
+  msg.textContent = ''; msg.style.color = '';
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var texte = e.target.result, lignesBrutes;
+    try{
+      if(/\.json$/i.test(file.name) || texte.trim().charAt(0)==='[' || texte.trim().charAt(0)==='{'){
+        lignesBrutes = parseJSONImport(texte);
+      } else {
+        lignesBrutes = parseCSV(texte);
+      }
+      if(!lignesBrutes.length) throw new Error('aucune ligne exploitable trouvée dans ce fichier');
+      var res = regrouperLignesImport(lignesBrutes);
+      importGroupesCourants = res.groupes;
+      afficherApercuImport(lignesBrutes.length, res);
+    }catch(e2){
+      console.error('import parse error', e2);
+      msg.textContent = 'Fichier illisible : '+(e2.message||e2);
+      msg.style.color = 'var(--danger)';
+      document.getElementById('importReview').style.display = 'none';
+    }
+  };
+  reader.onerror = function(){ msg.textContent = 'Impossible de lire ce fichier'; msg.style.color = 'var(--danger)'; };
+  reader.readAsText(file);
+  ev.target.value = '';
+});
+
+function afficherApercuImport(nbLignes, res){
+  var cleLabel = { commande:'n° de commande', bl:'BL', contremarque:'contremarque' }[res.cleRegroupement] || 'aucune clé commune (une ligne = une réception)';
+  document.getElementById('importSummary').textContent = nbLignes+' ligne(s) lue(s) → '+res.groupes.length+' réception(s) proposée(s), regroupées par '+cleLabel+'. Vérifie et corrige chaque ligne avant de créer.';
+  document.getElementById('importMsg').textContent = '';
+  renderImportTable();
+  document.getElementById('importReview').style.display = 'block';
+  document.getElementById('importReview').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function renderImportTable(){
+  var el = document.getElementById('importGroupesTable');
+  el.innerHTML = importGroupesCourants.map(function(g, i){
+    return '<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;">'+
+      '<label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;"><input type="checkbox" data-imp-inclure="'+i+'" '+(g.inclure?'checked':'')+' style="width:17px;height:17px;">'+escapeHtml(g.cle)+' — '+g.lignes.length+' ligne(s) du fichier</label>'+
+      '<div class="field"><input type="text" data-imp="client" data-impi="'+i+'" placeholder="Client" value="'+escapeHtml(g.client)+'"></div>'+
+      '<div class="field"><input type="text" data-imp="contremarque" data-impi="'+i+'" placeholder="Contremarque" value="'+escapeHtml(g.contremarque)+'"></div>'+
+      '<div class="field"><input type="text" data-imp="fournisseur" data-impi="'+i+'" placeholder="Fournisseur" value="'+escapeHtml(g.fournisseur)+'"></div>'+
+      '<div style="display:flex;gap:8px;"><input type="number" step="0.1" data-imp="poids" data-impi="'+i+'" placeholder="Poids (kg)" value="'+g.poids+'" style="flex:1;">'+
+      '<input type="number" step="1" data-imp="colis" data-impi="'+i+'" placeholder="Colis" value="'+g.colis+'" style="flex:1;"></div>'+
+      '</div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-imp-inclure]'), function(cb){
+    cb.addEventListener('change', function(){ importGroupesCourants[parseInt(cb.getAttribute('data-imp-inclure'),10)].inclure = cb.checked; });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-imp]'), function(inp){
+    inp.addEventListener('input', function(){
+      var i = parseInt(inp.getAttribute('data-impi'),10), champ = inp.getAttribute('data-imp');
+      importGroupesCourants[i][champ] = (champ==='poids'||champ==='colis') ? (parseFloat(inp.value)||0) : inp.value;
+    });
+  });
+}
+document.getElementById('btnImportToutCocher').addEventListener('click', function(){ importGroupesCourants.forEach(function(g){ g.inclure=true; }); renderImportTable(); });
+document.getElementById('btnImportToutDecocher').addEventListener('click', function(){ importGroupesCourants.forEach(function(g){ g.inclure=false; }); renderImportTable(); });
+document.getElementById('btnImportAnnuler').addEventListener('click', function(){
+  importGroupesCourants = [];
+  document.getElementById('importReview').style.display = 'none';
+  document.getElementById('importMsg').textContent = '';
+});
+
+// création en lot : réutilise exactement le même chemin que la création manuelle (numérotation,
+// base clients/fournisseurs, historique) — un groupe = une réception, comme pour le formulaire normal
+document.getElementById('btnImportCreer').addEventListener('click', async function(){
+  var aCreer = importGroupesCourants.filter(function(g){ return g.inclure; });
+  if(!aCreer.length){ banner('Sélectionne au moins une réception à créer'); return; }
+  if(aCreer.some(function(g){ return !g.client; })){ banner('Chaque réception sélectionnée doit avoir un client'); return; }
+  var btn = this; btn.disabled = true; btn.textContent = 'Création en cours…';
+  var nbCrees = 0;
+  for(var i=0;i<aCreer.length;i++){
+    var g = aCreer[i];
+    await ensureBaseEntry('client', g.client);
+    await ensureBaseEntry('fournisseur', g.fournisseur);
+    var clientMatch = state.base.clients.find(function(c){ return c.nom.toLowerCase()===g.client.toLowerCase(); });
+    var labelNumber = await nextLabelNumber();
+    var id = Date.now().toString(36)+Math.random().toString(36).slice(2,6)+i;
+    var d = {
+      labelNumber: labelNumber, date:'', weekNumber:'', client: g.client, clientCode: clientMatch?clientMatch.code:'',
+      fournisseur: g.fournisseur||'', transporteur:'', contremarque: g.contremarque||'', nrecep:'',
+      poids: String(g.poids||0), colis: String(Math.round(g.colis||0)), palettes:'', vrac:'', support:'', emplacement:''
+    };
+    var record = { id:id, savedAt:new Date().toISOString(), data:d };
+    await saveReceptionRecord(id, record);
+    var entry = recordToIndexEntry(record);
+    state.historyIndex.unshift(entry);
+    nbCrees++;
+  }
+  await saveBase();
+  await saveHistoryIndex();
+  refreshDatalists();
+  renderHistory(); renderPendingList(); renderToRangeList(); renderArchiveList();
+  importGroupesCourants = [];
+  document.getElementById('importReview').style.display = 'none';
+  btn.disabled = false; btn.textContent = 'Créer les réceptions sélectionnées';
+  banner(nbCrees+' réception(s) créée(s) — complète fournisseur, date et emplacement pour chacune');
+});
 
 // ================= Import OCR (New CDE) — jamais de création silencieuse, toujours un contrôle humain =================
 // analyse heuristique du texte reconnu : ne garantit rien, sert uniquement de point de départ à corriger
@@ -6601,7 +6816,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0055';
+var APP_VERSION = '2026.0056';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
