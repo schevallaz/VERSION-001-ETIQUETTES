@@ -447,7 +447,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var fichesColRef = null;
 
-var APP_VERSION = '2026.0009';
+var APP_VERSION = '2026.0010';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -534,6 +534,20 @@ function calculerPrestation(params, zone, input){
 }
 
 function fmtEuro(n){ return n.toFixed(2).replace('.', ',')+' €'; }
+
+// publie un instantané public (zones, barèmes, véhicules) pour le formulaire client — jamais les BL,
+// jamais les fiches, jamais les comptes : seulement ce qui sert au calcul du devis
+async function publierDevisPublic(){
+  if(!fsReady()) return;
+  try{
+    await db.collection('stls_devis_public').doc(state.currentAgencyCode).set({
+      agencyCode: state.currentAgencyCode, agencyName: state.agencyName||'',
+      zones: state.zones, params: state.params, vehicules: (state.vehicules||[]).filter(function(v){ return v.actif!==false; }),
+      publieLe: new Date().toISOString()
+    });
+  }catch(e){ console.error('Firestore publierDevisPublic error', e); }
+}
+
 // ---------- détermination du personnel nécessaire (paliers paramétrables, jamais codés en dur) ----------
 function determinerPersonnel(poidsLourd, paliers){
   var triés = (paliers||[]).slice().sort(function(a,b){
@@ -770,23 +784,56 @@ async function nextFicheNumero(){
   return 'F'+yymm+String(n2).padStart(4,'0');
 }
 
+var state_soumissions = [];
 async function loadFiches(){
-  state_fiches = [];
-  if(!fsReady() || !fichesColRef) return;
-  try{ var snap = await fichesColRef.get(); snap.forEach(function(d){ state_fiches.push(d.data()); }); }
-  catch(e){ console.error('Firestore loadFiches error', e); }
+  state_fiches = []; state_soumissions = [];
+  if(!fsReady()) return;
+  if(fichesColRef){
+    try{ var snap = await fichesColRef.get(); snap.forEach(function(d){ state_fiches.push(d.data()); }); }
+    catch(e){ console.error('Firestore loadFiches error', e); }
+  }
+  // demandes envoyées directement par les clients (formulaire public) : jamais modifiées sur place,
+  // on les importe explicitement comme fiche STLS pour les reprendre et les corriger si besoin
+  try{
+    var snap2 = await db.collection('stls_devis_soumissions').where('depotCode','==',state.currentAgencyCode).get();
+    snap2.forEach(function(d){ state_soumissions.push(d.data()); });
+  }catch(e){ console.error('Firestore loadSoumissions error', e); }
 }
 function renderFichesList(){
   var el = document.getElementById('listFiches');
-  if(!state_fiches.length){ el.innerHTML = '<div class="empty">Aucune fiche pour l\'instant</div>'; return; }
-  el.innerHTML = state_fiches.slice().sort(function(a,b){ return (b.createdAt||'').localeCompare(a.createdAt||''); }).map(function(f){
+  var items = state_soumissions.filter(function(s){ return !state_fiches.some(function(f){ return f.importeDe===s.numero; }); })
+    .map(function(s){ return { data:s, client:true }; })
+    .concat(state_fiches.map(function(f){ return { data:f, client:false }; }));
+  if(!items.length){ el.innerHTML = '<div class="empty">Aucune fiche pour l\'instant</div>'; return; }
+  el.innerHTML = items.sort(function(a,b){ return (b.data.createdAt||'').localeCompare(a.data.createdAt||''); }).map(function(row){
+    var f = row.data;
     return '<div class="base-row"><span>'+escapeHtml(f.numero)+' — '+escapeHtml((f.client||{}).nom||'Sans nom')+
-      (f.devis ? ' · '+fmtEuro(f.devis.montantTTC)+' TTC' : ' · brouillon non calculé')+'</span>'+
-      '<button data-fiche-open="'+escapeHtml(f.numero)+'">Ouvrir</button></div>';
+      (f.devis ? ' · '+fmtEuro(f.devis.montantTTC)+' TTC' : ' · brouillon non calculé')+
+      (row.client ? ' <strong style="color:var(--accent);">· Demande client</strong>' : '')+'</span>'+
+      (row.client ? '<button data-soumission-import="'+escapeHtml(f.numero)+'">Importer</button>'
+                  : '<button data-fiche-open="'+escapeHtml(f.numero)+'">Ouvrir</button>')+'</div>';
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('[data-fiche-open]'), function(btn){
     btn.addEventListener('click', function(){ ouvrirFiche(btn.getAttribute('data-fiche-open')); });
   });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-soumission-import]'), function(btn){
+    btn.addEventListener('click', async function(){ await importerSoumission(btn.getAttribute('data-soumission-import')); });
+  });
+}
+// copie une demande client dans les fiches STLS, pour la reprendre/corriger sans jamais modifier l'originale
+// reçue (traçabilité déclaré/constaté) ; marquée importeDe pour ne plus apparaître en double dans la liste
+async function importerSoumission(numero){
+  var s = state_soumissions.find(function(x){ return x.numero===numero; });
+  if(!s) return;
+  if(!confirm('Importer la demande '+numero+' comme fiche STLS pour la reprendre ?')) return;
+  var ficheNumero = await nextFicheNumero();
+  var fiche = Object.assign({}, s, { numero: ficheNumero, importeDe: s.numero, statut: 'brouillon', createdAt: new Date().toISOString() });
+  if(fsReady() && fichesColRef){
+    try{ await fichesColRef.doc(ficheNumero).set(fiche); }catch(e){ console.error('Firestore import error', e); banner('Import échoué : '+(e.message||e)); return; }
+  }
+  state_fiches.push(fiche);
+  renderFichesList();
+  banner('Demande importée sous '+ficheNumero);
 }
 function viderFormulaireFiche(){
   ficheEditNumero = null; ficheColis = []; ficheMoyens = {}; ficheDevisCalcule = null;
@@ -990,6 +1037,7 @@ async function startForAgency(code){
   await loadFiches();
   renderFichesList();
   viderFormulaireFiche();
+  await publierDevisPublic(); // republie aussi ici : couvre le cas où les véhicules ont changé depuis Gestion du Parc Agence sans repasser par cet écran
   document.getElementById('calcDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
 }
 
@@ -1046,6 +1094,7 @@ async function saveTarifData(){
   if(!fsReady()) return;
   try{
     await agencyDocRef(state.currentAgencyCode).set({ tarifs: { params: state.params, zones: state.zones } }, { merge: true });
+    await publierDevisPublic();
   }catch(e){ console.error('Firestore saveTarifData error', e); }
 }
 
