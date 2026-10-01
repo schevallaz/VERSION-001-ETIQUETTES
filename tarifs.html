@@ -123,6 +123,7 @@
 <body>
 <div class="app">
   <header class="top">
+    <a href="index.html" id="btnRetourTms" class="btn ghost" style="width:auto;padding:8px 14px;font-size:13px;text-decoration:none;margin-bottom:10px;">← Retour TMS</a>
     <h1 id="appTitle">Tarifs STLS <span id="appVersion" style="font-size:13px;font-weight:500;color:var(--ink-soft);vertical-align:middle;"></span></h1>
     <p>Moteur de calcul des prestations de livraison</p>
   </header>
@@ -447,7 +448,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var fichesColRef = null;
 
-var APP_VERSION = '2026.0010';
+var APP_VERSION = '2026.0011';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
