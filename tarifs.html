@@ -177,6 +177,10 @@
           <input type="number" id="calcColisLong" min="0" value="0">
         </div>
         <div class="field">
+          <label for="calcVolume">Volume total (m³)</label>
+          <input type="number" id="calcVolume" min="0" step="0.01" value="0">
+        </div>
+        <div class="field">
           <label for="calcNbEtages">Nombre d'étage(s)</label>
           <input type="number" id="calcNbEtages" min="0" value="0">
         </div>
@@ -238,10 +242,10 @@
         <div class="field"><label for="p-coeffColisLong">Coefficient si colis &gt; référence</label><input type="number" id="p-coeffColisLong" step="0.01"></div>
         <div class="field"><label for="p-coeffSansAscenseur">Coefficient sans ascenseur</label><input type="number" id="p-coeffSansAscenseur" step="0.01"></div>
       </div>
-      <div class="field">
-        <label for="p-maxiLV1">Poids max colis pour LV1 seul (kg)</label>
-        <input type="number" id="p-maxiLV1" step="1">
-      </div>
+      <h2 style="font-size:14.5px;">Personnel nécessaire selon le poids</h2>
+      <p class="hint" style="margin:0 0 10px;">Le colis le plus lourd détermine le nombre minimum de personnes. Le dernier palier, sans plafond, couvre « et plus ».</p>
+      <div id="listPaliers" style="margin-bottom:8px;"></div>
+      <div class="btn-row"><button class="btn ghost" id="btnAddPalier" style="width:100%;">+ Ajouter un palier</button></div>
 
       <h2 style="font-size:14.5px;">Au-delà des zones définies</h2>
       <div class="field">
@@ -352,7 +356,7 @@ function banner(msg){
 var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 
-var APP_VERSION = '2026.0007';
+var APP_VERSION = '2026.0008';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -360,7 +364,8 @@ var state = {
   currentAgencyCode: null,
   agencyName: '',
   params: {},
-  zones: []
+  zones: [],
+  vehicules: []
 };
 
 var DEFAULT_PARAMS = {
@@ -377,7 +382,7 @@ var DEFAULT_PARAMS = {
   coeffColisCourt: 0.6,
   coeffColisLong: 1.2,
   coeffSansAscenseur: 1.3,
-  maxiLV1: 30,
+  paliersPersonnel: [ { poidsMax: 30, personnes: 1 }, { poidsMax: 80, personnes: 2 }, { poidsMax: null, personnes: 3 } ],
   tarifKmSupplementaire: 0.5
 };
 var DEFAULT_ZONES = [
@@ -425,17 +430,90 @@ function calculerPrestation(params, zone, input){
   var coutEtageUnitaire = LV1 * coeffPoids * coeffColis;
   var surchargeEtage = coutEtageUnitaire * (input.nbEtages||0) * (input.ascenseur ? 1 : params.coeffSansAscenseur);
 
-  var alerteEquipe = (input.colisLourd||0) > params.maxiLV1 ? 'Le colis le plus lourd dépasse '+params.maxiLV1+' kg : LV1 seul est déconseillé, prévoir LV2 ou LV3.' : '';
+  var personnesNecessaires = determinerPersonnel(input.colisLourd||0, params.paliersPersonnel);
+  var alerteEquipe = personnesNecessaires>1 ? 'Le colis le plus lourd ('+(input.colisLourd||0)+' kg) nécessite au moins '+personnesNecessaires+' personnes : LV'+personnesNecessaires+' ou plus.' : '';
 
   return {
     LT: LT,
     LV1: LV1+surchargeEtage, LV2: LV2+surchargeEtage, LV3: LV3+surchargeEtage,
     LV1M: LV1+surchargeEtage+montage, LV2M: LV2+surchargeEtage+montage, LV3M: LV3+surchargeEtage+montage,
-    surchargeEtage: surchargeEtage, montage: montage, alerteEquipe: alerteEquipe
+    surchargeEtage: surchargeEtage, montage: montage, alerteEquipe: alerteEquipe, personnesNecessaires: personnesNecessaires
   };
 }
 
 function fmtEuro(n){ return n.toFixed(2).replace('.', ',')+' €'; }
+// ---------- détermination du personnel nécessaire (paliers paramétrables, jamais codés en dur) ----------
+function determinerPersonnel(poidsLourd, paliers){
+  var triés = (paliers||[]).slice().sort(function(a,b){
+    if(a.poidsMax==null) return 1; if(b.poidsMax==null) return -1; return a.poidsMax-b.poidsMax;
+  });
+  for(var i=0;i<triés.length;i++){
+    if(triés[i].poidsMax==null || poidsLourd<=triés[i].poidsMax) return triés[i].personnes;
+  }
+  return triés.length ? triés[triés.length-1].personnes : 1;
+}
+
+// ---------- détermination du véhicule compatible : jamais sur le seul volume (règle fondamentale de la spec) ----------
+// renvoie le plus petit véhicule actif qui respecte à la fois la charge utile, le volume utile ET la longueur utile
+function determinerVehicule(poidsTotal, volumeTotal, longueurMaxCm, vehicules){
+  var longueurMaxM = (longueurMaxCm||0)/100;
+  var actifs = (vehicules||[]).filter(function(v){ return v.actif!==false; });
+  if(!actifs.length) return { vehicule:null, motif:'Aucun véhicule enregistré dans le Parc Agence (Paramètres).' };
+  var compatibles = actifs.filter(function(v){
+    return (v.chargeUtile==null || v.chargeUtile>=poidsTotal) &&
+           (v.volumeUtile==null || v.volumeUtile>=volumeTotal) &&
+           (v.longueurUtile==null || v.longueurUtile>=longueurMaxM);
+  });
+  if(!compatibles.length){
+    var pire = actifs.map(function(v){
+      var raisons = [];
+      if(v.chargeUtile!=null && v.chargeUtile<poidsTotal) raisons.push('charge insuffisante ('+v.chargeUtile+' kg < '+poidsTotal+' kg)');
+      if(v.volumeUtile!=null && v.volumeUtile<volumeTotal) raisons.push('volume insuffisant ('+v.volumeUtile+' m³ < '+volumeTotal+' m³)');
+      if(v.longueurUtile!=null && v.longueurUtile<longueurMaxM) raisons.push('longueur utile insuffisante ('+v.longueurUtile+' m < '+longueurMaxM.toFixed(2)+' m)');
+      return v.immat+' : '+raisons.join(', ');
+    }).join(' · ');
+    return { vehicule:null, motif:'Aucun véhicule du parc ne convient — '+pire };
+  }
+  // le plus petit volume suffisant, pas le plus grand : jamais choisi sur le seul volume, mais départagé par lui une fois la compatibilité déjà acquise
+  compatibles.sort(function(a,b){ return (a.volumeUtile||Infinity)-(b.volumeUtile||Infinity); });
+  return { vehicule: compatibles[0], motif:'' };
+}
+
+// ---------- paliers personnel : affichage et édition (Paramètres) ----------
+function renderPaliersList(){
+  var el = document.getElementById('listPaliers');
+  var arr = (state.params.paliersPersonnel||[]).slice().sort(function(a,b){
+    if(a.poidsMax==null) return 1; if(b.poidsMax==null) return -1; return a.poidsMax-b.poidsMax;
+  });
+  if(!arr.length){ el.innerHTML = '<div class="empty">Aucun palier défini</div>'; return; }
+  el.innerHTML = arr.map(function(p, i){
+    return '<div class="base-row"><span>Jusqu\'à '+(p.poidsMax==null ? '— (et plus)' : p.poidsMax+' kg')+' → '+p.personnes+' personne'+(p.personnes>1?'s':'')+'</span>'+
+      '<button data-del-palier="'+i+'">Suppr.</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-del-palier]'), function(btn){
+    btn.addEventListener('click', async function(){
+      var idx = parseInt(btn.getAttribute('data-del-palier'),10);
+      var sorted = (state.params.paliersPersonnel||[]).slice().sort(function(a,b){ if(a.poidsMax==null) return 1; if(b.poidsMax==null) return -1; return a.poidsMax-b.poidsMax; });
+      sorted.splice(idx,1);
+      state.params.paliersPersonnel = sorted;
+      await saveTarifData();
+      renderPaliersList();
+    });
+  });
+}
+document.getElementById('btnAddPalier').addEventListener('click', async function(){
+  var poidsStr = prompt('Jusqu\'à quel poids (kg) ? Laisse vide pour « et plus » (dernier palier) :');
+  if(poidsStr===null) return;
+  var personnesStr = prompt('Nombre de personnes nécessaires pour ce palier :', '1');
+  if(personnesStr===null) return;
+  var personnes = parseInt(personnesStr,10);
+  if(!personnes || personnes<1){ banner('Nombre de personnes invalide'); return; }
+  if(!state.params.paliersPersonnel) state.params.paliersPersonnel = [];
+  state.params.paliersPersonnel.push({ poidsMax: poidsStr.trim()==='' ? null : parseFloat(poidsStr), personnes: personnes });
+  await saveTarifData();
+  renderPaliersList();
+});
+
 
 // trouve la zone correspondant à une distance exacte ; au-delà de la dernière zone définie,
 // extrapole avec le tarif au km supplémentaire (et le temps de trajet au prorata)
@@ -479,6 +557,7 @@ async function startForAgency(code){
   await loadTarifData();
   populateCalcZoneSelect();
   fillParamsForm();
+  renderPaliersList();
   renderZonesList();
   document.getElementById('calcDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
 }
@@ -513,9 +592,13 @@ async function loadTarifData(){
   if(fsReady()){
     try{
       var snap = await agencyDocRef(state.currentAgencyCode).get();
+      // le parc de véhicules (Paramètres → Gestion du Parc Agence) se charge toujours, qu'il y ait déjà
+      // des tarifs enregistrés ou non — les deux vivent dans le même document mais sont indépendants
+      state.vehicules = (snap.exists && snap.data().vehicules) || [];
       if(snap.exists && snap.data().tarifs){
         var t = snap.data().tarifs;
         state.params = Object.assign({}, DEFAULT_PARAMS, t.params||{});
+        if(!state.params.paliersPersonnel) state.params.paliersPersonnel = DEFAULT_PARAMS.paliersPersonnel.slice();
         state.zones = (t.zones && t.zones.length) ? t.zones : DEFAULT_ZONES.slice();
         return;
       }
@@ -523,6 +606,7 @@ async function loadTarifData(){
   }
   state.params = Object.assign({}, DEFAULT_PARAMS);
   state.zones = DEFAULT_ZONES.slice();
+  if(!state.vehicules) state.vehicules = [];
   await saveTarifData();
 }
 
@@ -572,11 +656,13 @@ document.getElementById('btnCalculer').addEventListener('click', function(){
     poids: parseFloat(document.getElementById('calcPoids').value)||0,
     colisLourd: parseFloat(document.getElementById('calcColisLourd').value)||0,
     colisLong: parseFloat(document.getElementById('calcColisLong').value)||0,
+    volume: parseFloat(document.getElementById('calcVolume').value)||0,
     nbEtages: parseFloat(document.getElementById('calcNbEtages').value)||0,
     ascenseur: document.getElementById('calcAscenseurOui').checked,
     montageMin: parseFloat(document.getElementById('calcMontageMin').value)||0
   };
   var r = calculerPrestation(state.params, zone, input);
+  var vh = determinerVehicule(input.poids, input.volume, input.colisLong, state.vehicules);
   var rows = [
     ['LT (livraison trottoir)', r.LT],
     ['LV1 (1 livreur)', r.LV1],
@@ -594,7 +680,12 @@ document.getElementById('btnCalculer').addEventListener('click', function(){
     }).join('')+
     '</table>'+
     '<p class="hint" style="margin-top:10px;">Dont surcharge étage/poids : '+fmtEuro(r.surchargeEtage)+(r.montage?' · Montage : '+fmtEuro(r.montage):'')+'</p>'+
-    (r.alerteEquipe ? '<p class="hint" style="color:var(--danger);margin-top:4px;">⚠ '+r.alerteEquipe+'</p>' : '');
+    (r.alerteEquipe ? '<p class="hint" style="color:var(--danger);margin-top:4px;">⚠ '+r.alerteEquipe+'</p>' : '')+
+    '<h2 style="font-size:14.5px;margin-top:16px;">Moyens nécessaires</h2>'+
+    '<p class="hint" style="margin:0 0 4px;">Personnel : <strong>'+r.personnesNecessaires+' personne'+(r.personnesNecessaires>1?'s':'')+'</strong></p>'+
+    (vh.vehicule ?
+      '<p class="hint" style="margin:0;color:var(--accent);">Véhicule : <strong>'+escapeHtml(vh.vehicule.immat)+(vh.vehicule.libelle?' — '+escapeHtml(vh.vehicule.libelle):'')+'</strong> ('+vh.vehicule.volumeUtile+' m³, '+vh.vehicule.chargeUtile+' kg, '+vh.vehicule.longueurUtile+' m utiles)</p>'
+      : '<p class="hint" style="margin:0;color:var(--danger);">⚠ '+escapeHtml(vh.motif)+'</p>');
   el.innerHTML = html;
 });
 
@@ -613,7 +704,6 @@ var PARAM_FIELD_MAP = {
   coeffColisCourt: 'p-coeffColisCourt',
   coeffColisLong: 'p-coeffColisLong',
   coeffSansAscenseur: 'p-coeffSansAscenseur',
-  maxiLV1: 'p-maxiLV1',
   tarifKmSupplementaire: 'p-tarifKmSupplementaire'
 };
 

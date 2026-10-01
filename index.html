@@ -739,7 +739,8 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="emailtemplates" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">✉️</div><div style="font-weight:700;color:var(--ink);">Modèles d'e-mail</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="moduleaccess" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔐</div><div style="font-weight:700;color:var(--ink);">Droits d'accès aux modules</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="tournees" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚚🛣️</div><div style="font-weight:700;color:var(--ink);">Tournées de livraisons</div></button>
-        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="livreurs" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚐</div><div style="font-weight:700;color:var(--ink);">Livreurs et véhicules</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="livreurs" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧑‍✈️</div><div style="font-weight:700;color:var(--ink);">Livreurs</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="parcagence" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚐</div><div style="font-weight:700;color:var(--ink);">Gestion du Parc Agence</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1031,12 +1032,29 @@
       <div class="field"><input type="tel" id="lv-tel" placeholder="Téléphone (ex. 06 12 34 56 78)" inputmode="tel" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
       <div class="btn-row"><button class="btn primary" id="btnAddLivreur" style="width:100%;">Ajouter le livreur</button></div>
     </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-parcagence" style="display:none;">
     <div class="card">
-      <h2>🚚 Véhicules</h2>
-      <div id="listVehicules" style="margin-bottom:12px;"></div>
-      <div class="field"><input type="text" id="vh-immat" placeholder="Immatriculation" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
-      <div class="field"><input type="text" id="vh-libelle" placeholder="Libellé (facultatif, ex. Camion 20 m3)" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
-      <div class="btn-row"><button class="btn primary" id="btnAddVehicule" style="width:100%;">Ajouter le véhicule</button></div>
+      <h2>🚐 Parc de véhicules</h2>
+      <p class="hint" style="margin:0 0 12px;">Mesures utiles de chaque véhicule de l'agence — utilisées pour déterminer automatiquement le véhicule compatible avec une prestation.</p>
+      <div id="listParcVehicules" style="margin-bottom:12px;"></div>
+    </div>
+    <div class="card">
+      <h2 id="parcVehiculeFormTitle" style="font-size:15px;">➕ Ajouter un véhicule</h2>
+      <div class="field"><label for="pv-immat">Immatriculation</label><input type="text" id="pv-immat" placeholder="AB-123-CD" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      <div class="field"><label for="pv-libelle">Libellé</label><input type="text" id="pv-libelle" placeholder="Ex. Camion 20 m³" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      <div class="row2">
+        <div class="field"><label for="pv-longueur">Longueur utile (m)</label><input type="number" id="pv-longueur" step="0.01" min="0" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+        <div class="field"><label for="pv-largeur">Largeur utile (m)</label><input type="number" id="pv-largeur" step="0.01" min="0" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="pv-hauteur">Hauteur utile (m)</label><input type="number" id="pv-hauteur" step="0.01" min="0" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+        <div class="field"><label for="pv-volume">Volume utile (m³)</label><input type="number" id="pv-volume" step="0.01" min="0" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      </div>
+      <div class="hint" style="margin:-6px 0 10px;">Le volume se calcule automatiquement à partir des 3 dimensions — modifie-le si le véhicule n'est pas un simple parallélépipède.</div>
+      <div class="field"><label for="pv-charge">Charge utile (kg)</label><input type="number" id="pv-charge" step="1" min="0" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></div>
+      <div class="btn-row"><button class="btn accent" id="btnSaveParcVehicule" style="width:100%;">Enregistrer le véhicule</button></div>
+      <div class="btn-row" id="pvCancelRow" style="display:none;"><button class="btn ghost" id="btnCancelParcVehicule" style="width:100%;">Annuler la modification</button></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
@@ -2797,36 +2815,93 @@ document.getElementById('btnAddLivreur').addEventListener('click', async functio
   renderLivreursList(); banner('Livreur « '+nom+' » ajouté');
 });
 
-function renderVehiculesList(){
-  var el = document.getElementById('listVehicules');
+// ================= Gestion du Parc Agence (Paramètres) =================
+// Mesures utiles de chaque véhicule (longueur/largeur/hauteur/volume utile, charge utile), pour la
+// détermination automatique du véhicule compatible avec une prestation (phase « moteur de moyens »).
+var parcVehiculeEditId = null;
+
+function renderParcVehiculesList(){
+  var el = document.getElementById('listParcVehicules');
   var arr = state.base.vehicules || [];
   if(!arr.length){ el.innerHTML = '<div class="empty">Aucun véhicule</div>'; return; }
   el.innerHTML = arr.slice().sort(function(a,b){ return (a.immat||'').localeCompare(b.immat||'','fr'); }).map(function(v){
-    return '<div class="base-row"><span>'+escapeHtml(v.immat)+(v.libelle ? ' — '+escapeHtml(v.libelle) : '')+(v.actif===false ? ' <em style="color:var(--ink-soft);">(inactif)</em>' : '')+'</span>'+
-      '<span style="display:flex;gap:6px;"><button data-vh-toggle="'+escapeHtml(v.id)+'">'+(v.actif===false ? 'Activer' : 'Désactiver')+'</button><button data-vh-del="'+escapeHtml(v.id)+'">Suppr.</button></span></div>';
+    var mesures = (v.longueurUtile||v.largeurUtile||v.hauteurUtile) ?
+      (v.longueurUtile||'?')+' × '+(v.largeurUtile||'?')+' × '+(v.hauteurUtile||'?')+' m' : 'Mesures non renseignées';
+    return '<div class="base-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 8px;">'+
+      '<div style="display:flex;justify-content:space-between;width:100%;"><strong>'+escapeHtml(v.immat)+(v.libelle ? ' — '+escapeHtml(v.libelle) : '')+'</strong>'+(v.actif===false ? ' <em style="color:var(--ink-soft);">(inactif)</em>' : '')+'</div>'+
+      '<div style="font-size:12.5px;color:var(--ink-soft);">'+escapeHtml(mesures)+(v.volumeUtile ? ' · '+v.volumeUtile+' m³ utiles' : '')+(v.chargeUtile ? ' · '+v.chargeUtile+' kg' : '')+'</div>'+
+      '<div style="display:flex;gap:6px;"><button data-pv-edit="'+escapeHtml(v.id)+'">Modifier</button><button data-pv-toggle="'+escapeHtml(v.id)+'">'+(v.actif===false ? 'Activer' : 'Désactiver')+'</button><button data-pv-del="'+escapeHtml(v.id)+'">Suppr.</button></div></div>';
   }).join('');
-  Array.prototype.forEach.call(el.querySelectorAll('[data-vh-toggle]'), function(btn){
+  Array.prototype.forEach.call(el.querySelectorAll('[data-pv-edit]'), function(btn){
+    btn.addEventListener('click', function(){ startEditParcVehicule(btn.getAttribute('data-pv-edit')); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-pv-toggle]'), function(btn){
     btn.addEventListener('click', async function(){
-      var v = state.base.vehicules.find(function(x){ return x.id===btn.getAttribute('data-vh-toggle'); });
-      if(v){ v.actif = (v.actif===false); await saveBase(); renderVehiculesList(); }
+      var v = state.base.vehicules.find(function(x){ return x.id===btn.getAttribute('data-pv-toggle'); });
+      if(v){ v.actif = (v.actif===false); await saveBase(); renderParcVehiculesList(); }
     });
   });
-  Array.prototype.forEach.call(el.querySelectorAll('[data-vh-del]'), function(btn){
+  Array.prototype.forEach.call(el.querySelectorAll('[data-pv-del]'), function(btn){
     btn.addEventListener('click', async function(){
-      if(!confirm('Supprimer ce véhicule ?')) return;
-      state.base.vehicules = state.base.vehicules.filter(function(x){ return x.id!==btn.getAttribute('data-vh-del'); });
-      await saveBase(); renderVehiculesList();
+      if(!confirm('Supprimer ce véhicule du parc ?')) return;
+      state.base.vehicules = state.base.vehicules.filter(function(x){ return x.id!==btn.getAttribute('data-pv-del'); });
+      await saveBase(); renderParcVehiculesList();
+      if(parcVehiculeEditId===btn.getAttribute('data-pv-del')) clearParcVehiculeForm();
     });
   });
 }
-document.getElementById('btnAddVehicule').addEventListener('click', async function(){
-  var immat = document.getElementById('vh-immat').value.trim().toUpperCase();
+function startEditParcVehicule(id){
+  var v = (state.base.vehicules||[]).find(function(x){ return x.id===id; });
+  if(!v) return;
+  parcVehiculeEditId = id;
+  document.getElementById('pv-immat').value = v.immat||'';
+  document.getElementById('pv-libelle').value = v.libelle||'';
+  document.getElementById('pv-longueur').value = v.longueurUtile||'';
+  document.getElementById('pv-largeur').value = v.largeurUtile||'';
+  document.getElementById('pv-hauteur').value = v.hauteurUtile||'';
+  document.getElementById('pv-volume').value = v.volumeUtile||'';
+  document.getElementById('pv-charge').value = v.chargeUtile||'';
+  document.getElementById('parcVehiculeFormTitle').textContent = '✏️ Modifier '+v.immat;
+  document.getElementById('pvCancelRow').style.display = 'block';
+  document.getElementById('pv-immat').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function clearParcVehiculeForm(){
+  parcVehiculeEditId = null;
+  ['pv-immat','pv-libelle','pv-longueur','pv-largeur','pv-hauteur','pv-volume','pv-charge'].forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('parcVehiculeFormTitle').textContent = '➕ Ajouter un véhicule';
+  document.getElementById('pvCancelRow').style.display = 'none';
+}
+document.getElementById('btnCancelParcVehicule').addEventListener('click', clearParcVehiculeForm);
+
+// volume utile auto-calculé dès que les 3 dimensions sont saisies (reste modifiable ensuite à la main)
+function autoVolumeUtile(){
+  var l = parseFloat(document.getElementById('pv-longueur').value), la = parseFloat(document.getElementById('pv-largeur').value), h = parseFloat(document.getElementById('pv-hauteur').value);
+  if(l>0 && la>0 && h>0) document.getElementById('pv-volume').value = Math.round(l*la*h*100)/100;
+}
+['pv-longueur','pv-largeur','pv-hauteur'].forEach(function(id){ document.getElementById(id).addEventListener('input', autoVolumeUtile); });
+
+document.getElementById('btnSaveParcVehicule').addEventListener('click', async function(){
+  var immat = document.getElementById('pv-immat').value.trim().toUpperCase();
   if(!immat){ banner('Saisis l\'immatriculation'); return; }
   if(!state.base.vehicules) state.base.vehicules = [];
-  state.base.vehicules.push({ id: newRefId('vh'), immat: immat, libelle: document.getElementById('vh-libelle').value.trim(), actif: true });
+  var data = {
+    immat: immat, libelle: document.getElementById('pv-libelle').value.trim(),
+    longueurUtile: parseFloat(document.getElementById('pv-longueur').value)||null,
+    largeurUtile: parseFloat(document.getElementById('pv-largeur').value)||null,
+    hauteurUtile: parseFloat(document.getElementById('pv-hauteur').value)||null,
+    volumeUtile: parseFloat(document.getElementById('pv-volume').value)||null,
+    chargeUtile: parseFloat(document.getElementById('pv-charge').value)||null
+  };
+  if(parcVehiculeEditId){
+    var v = state.base.vehicules.find(function(x){ return x.id===parcVehiculeEditId; });
+    if(v) Object.assign(v, data);
+  } else {
+    state.base.vehicules.push(Object.assign({ id: newRefId('vh'), actif: true }, data));
+  }
   await saveBase();
-  document.getElementById('vh-immat').value = ''; document.getElementById('vh-libelle').value = '';
-  renderVehiculesList(); banner('Véhicule '+immat+' ajouté');
+  banner('Véhicule '+immat+' enregistré');
+  clearParcVehiculeForm();
+  renderParcVehiculesList();
 });
 
 // ================= Comptes (Firebase Authentication, Paramètres → Sécurité) =================
@@ -6071,7 +6146,8 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
   btn.addEventListener('click', function(){
     showSubmodule(btn.getAttribute('data-prefix'), btn.getAttribute('data-key'));
     if(btn.getAttribute('data-key')==='tournees'){ showTourneesList(); }
-    if(btn.getAttribute('data-key')==='livreurs'){ renderLivreursList(); renderVehiculesList(); }
+    if(btn.getAttribute('data-key')==='livreurs'){ renderLivreursList(); }
+    if(btn.getAttribute('data-key')==='parcagence'){ renderParcVehiculesList(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
   });
 });
@@ -6375,7 +6451,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0052';
+var APP_VERSION = '2026.0053';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
