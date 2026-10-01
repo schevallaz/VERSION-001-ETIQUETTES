@@ -1,1 +1,338 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6b57">
+<title>Demande de devis — STLS</title>
+<style>
+  :root{ --bg:#f5f4ee; --card:#fff; --ink:#1c1c1a; --soft:#6b6a63; --line:#e2e0d6; --line-strong:#cfccbe; --accent:#0f6b57; --red:#c0392b; --orange:#e8792e; --green:#1e8e3e; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:16px; line-height:1.4; }
+  #app{ max-width:620px; margin:0 auto; padding:calc(14px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom)); }
+  h1{ font-size:24px; margin:4px 0 2px; }
+  h2{ font-size:15px; margin:18px 0 10px; }
+  .sous{ color:var(--soft); margin:0 0 6px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:12.5px; color:var(--soft); margin-bottom:4px; font-weight:600; }
+  .field input, .field select, .field textarea{ width:100%; padding:10px 11px; border:1px solid var(--line-strong); border-radius:9px; font-size:15px; background:#fff; font-family:inherit; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+  .btn{ padding:14px; border-radius:12px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-size:16px; font-weight:700; font-family:inherit; width:100%; }
+  .btn.ghost{ background:#fff; color:var(--accent); }
+  .btn.danger-text{ background:#fff; color:var(--red); border-color:var(--line-strong); }
+  .btn-row{ margin-top:10px; }
+  .btn-row + .btn-row{ margin-top:8px; }
+  .hint{ font-size:12.5px; color:var(--soft); }
+  .check{ display:flex; align-items:center; gap:8px; font-weight:400; margin:0 0 8px; font-size:14px; }
+  .check input{ width:18px; height:18px; flex-shrink:0; }
+  .colisLigne{ border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; }
+  .devisBox{ background:#f4f7f5; border:1px solid var(--accent); border-radius:12px; padding:14px; }
+  .devisMontant{ font-size:22px; font-weight:800; color:var(--accent); margin:4px 0 2px; }
+  .alerte{ background:#fdecea; border:1px solid var(--red); border-radius:8px; padding:8px 10px; color:var(--red); font-weight:600; font-size:13px; margin-top:6px; }
+  .msg{ text-align:center; padding:50px 14px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="msg"><h1>Chargement…</h1></div></div>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+// ================= Demande de devis en ligne (public, sans compte) =================
+// Étape 3 de « Fiche de préparation de prestation » : le client renseigne lui-même sa demande,
+// voit un devis estimatif immédiat (même moteur de calcul que le TMS), accepte les conditions puis valide.
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c"
+};
+var db = null;
+var state = { params:{}, zones:[], vehicules:[], agencyCode:'', agencyName:'', publieLe:'' };
+var ficheColis = [];
+var ficheColisSeq = 0;
+var ficheMoyens = {};
+var ficheDevisCalcule = null;
 
+function esc(s){ return String(s==null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
+function fmtEuro(n){ return n.toFixed(2).replace('.', ',')+' €'; }
+function qsParam(name){ var m = new RegExp('[?&]'+name+'=([^&]+)').exec(location.search); return m ? decodeURIComponent(m[1]) : ''; }
+
+// ---------- moteur de calcul : copie exacte de celui de tarifs.html (fichiers autonomes, à garder synchronisés) ----------
+function poidsCoefficient(poids, params){
+  if(poids<=10) return params.coeffEtageBase;
+  var n = Math.ceil((poids-10)/30);
+  return params.coeffEtageBase + params.coeffEtageBande*n;
+}
+function determinerPersonnel(poidsLourd, paliers){
+  var triés = (paliers||[]).slice().sort(function(a,b){ if(a.poidsMax==null) return 1; if(b.poidsMax==null) return -1; return a.poidsMax-b.poidsMax; });
+  for(var i=0;i<triés.length;i++){ if(triés[i].poidsMax==null || poidsLourd<=triés[i].poidsMax) return triés[i].personnes; }
+  return triés.length ? triés[triés.length-1].personnes : 1;
+}
+function determinerVehicule(poidsTotal, volumeTotal, longueurMaxCm, vehicules){
+  var longueurMaxM = (longueurMaxCm||0)/100;
+  var actifs = (vehicules||[]).filter(function(v){ return v.actif!==false; });
+  if(!actifs.length) return { vehicule:null, motif:'' };
+  var compatibles = actifs.filter(function(v){
+    return (v.chargeUtile==null || v.chargeUtile>=poidsTotal) && (v.volumeUtile==null || v.volumeUtile>=volumeTotal) && (v.longueurUtile==null || v.longueurUtile>=longueurMaxM);
+  });
+  if(!compatibles.length) return { vehicule:null, motif:'Aucun véhicule standard ne convient à ce volume — un conseiller vous recontactera.' };
+  compatibles.sort(function(a,b){ return (a.volumeUtile||Infinity)-(b.volumeUtile||Infinity); });
+  return { vehicule: compatibles[0], motif:'' };
+}
+function calculerPrestation(params, zone, input){
+  var minCoutLivreur = params.salaireLivreurHeure/60;
+  var LT = (zone.minLivraison * minCoutLivreur * params.coeffLivreurMin) + zone.carburantKm;
+  var LV1 = LT * params.coeffLV1;
+  var LV2 = LT*params.coeffLV2 + LV1;
+  var LV3 = LT*params.coeffLV3 + LV2;
+  var minCoutMontage = params.salaireMonteurHeure/60;
+  var montage = (input.montageMin||0) * minCoutMontage * params.coeffMontageMin;
+  var coeffColis = (input.colisLong||0) > params.colisLongBase ? params.coeffColisLong : params.coeffColisCourt;
+  var coeffPoids = poidsCoefficient(input.poids||0, params);
+  var coutEtageUnitaire = LV1 * coeffPoids * coeffColis;
+  var surchargeEtage = coutEtageUnitaire * (input.nbEtages||0) * (input.ascenseur ? 1 : params.coeffSansAscenseur);
+  var personnesNecessaires = determinerPersonnel(input.colisLourd||0, params.paliersPersonnel);
+  return { LT:LT, LV1:LV1+surchargeEtage, LV2:LV2+surchargeEtage, LV3:LV3+surchargeEtage, montage:montage, personnesNecessaires:personnesNecessaires };
+}
+function resolveZoneForDistance(distance, params, zones){
+  if(!zones.length) return null;
+  var zone = zones.find(function(z){ return distance>=z.kmDe && distance<=z.kmA; });
+  if(zone) return { zone:zone };
+  var maxZone = zones.slice().sort(function(a,b){ return b.kmA-a.kmA; })[0];
+  if(distance <= maxZone.kmA) return { zone:maxZone };
+  var extraKm = distance - maxZone.kmA;
+  var minParKm = maxZone.kmA ? (maxZone.minLivraison / maxZone.kmA) : 0;
+  return { zone: { code:maxZone.code+'+', kmDe:maxZone.kmDe, kmA:distance, carburantKm:maxZone.carburantKm + extraKm*params.tarifKmSupplementaire, minLivraison:maxZone.minLivraison + extraKm*minParKm } };
+}
+
+var MOYENS_MATERIELS_LISTE = [
+  { id:'transpalette', label:'Transpalette' }, { id:'diable', label:'Diable' }, { id:'chariot', label:'Chariot' },
+  { id:'monteCharge', label:'Monte-charge' }, { id:'monteMeuble', label:'Monte-meuble' }, { id:'quai', label:'Quai' },
+  { id:'hayon', label:'Hayon' }, { id:'grue', label:'Grue' }, { id:'autre', label:'Autre' }
+];
+var MENTION_LEGALE = "Le montant indiqué est un devis estimatif établi sur la base des informations et caractéristiques de la marchandise ainsi que des conditions d'accès déclarées lors de la demande. En cas d'information inexacte, incomplète ou différente constatée lors de la préparation ou de la réalisation de la prestation, notamment concernant le poids, les dimensions, le nombre de colis, les conditions d'accès ou les prestations demandées, un surcoût pourra être appliqué.";
+var MENTION_CASE = "J'ai vérifié l'exactitude des informations renseignées et reconnais que le montant indiqué est estimatif et pourra être révisé en cas d'informations erronées ou de conditions différentes de celles déclarées.";
+
+function newColisLigne(){ ficheColisSeq++; return { _id:'c'+ficheColisSeq, reference:'', designation:'', quantite:1, longueur:0, largeur:0, hauteur:0, poids:0 }; }
+function volumeLigneM3(l){ return (l.longueur||0)/100 * (l.largeur||0)/100 * (l.hauteur||0)/100 * (l.quantite||1); }
+
+
+// ---------- rendu du formulaire ----------
+function render(){
+  var app = document.getElementById('app');
+  var h = '<div class="sous" style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">STLS'+(state.agencyName?' — '+esc(state.agencyName):'')+'</div>'+
+    '<h1>Demande de devis</h1>'+
+    '<p class="sous">Remplissez les informations ci-dessous : vous obtiendrez un devis estimatif immédiat.</p>';
+
+  h += '<div class="card"><h2>Vos coordonnées</h2>'+
+    champ('d-nom','Nom / magasin','text')+
+    '<div class="row2">'+champHtml('d-tel','Téléphone','tel')+champHtml('d-email','Email','email')+'</div>'+
+    champ('d-adr1','Adresse de livraison','text')+
+    '<div class="row2">'+champHtml('d-cp','Code postal','text')+champHtml('d-ville','Ville','text')+'</div>'+
+    champ('d-distance','Distance estimée depuis notre dépôt (km)','number')+
+    '</div>';
+
+  h += '<div class="card"><h2>Votre marchandise</h2><p class="hint" style="margin:0 0 10px;">Ajoutez une ligne par référence. Indiquez des dimensions en centimètres.</p>'+
+    '<div id="listColis"></div><div class="btn-row"><button class="btn ghost" id="btnAddColis">+ Ajouter un colis</button></div>'+
+    '<div id="colisTotaux" style="margin-top:12px;font-size:13.5px;line-height:1.7;"></div></div>';
+
+  h += '<div class="card"><h2>Conditions d\'accès</h2>'+
+    '<div class="field"><label>Type de bâtiment</label><select id="d-typeBatiment"><option value="maison">Maison</option><option value="appartement">Appartement</option><option value="commerce">Commerce</option><option value="entreprise">Entreprise</option><option value="chantier">Chantier</option></select></div>'+
+    '<div class="row2">'+champHtml('d-etage','Étage de livraison (0 = RDC)','number')+
+    '<div class="field"><label>Ascenseur</label><select id="d-ascenseur"><option value="non">Non</option><option value="oui">Oui</option></select></div></div>'+
+    '<div class="row2">'+champHtml('d-largeurPassage','Largeur de passage mini (cm)','number')+champHtml('d-distancePortage','Distance véhicule → livraison (m)','number')+'</div>'+
+    checkbox('d-courInterieure','Cour intérieure')+checkbox('d-accesPrive','Accès privé')+checkbox('d-rueEtroite','Rue étroite')+
+    checkbox('d-ruePente','Rue en pente')+checkbox('d-stationnementOk','Stationnement possible devant le lieu de livraison', true)+
+    checkbox('d-autorisationNecessaire','Une autorisation est nécessaire (copropriété, mairie...)')+
+    '<div class="field"><label>Informations complémentaires sur l\'accès</label><textarea id="d-infosAcces" rows="3"></textarea></div></div>';
+
+  h += '<div class="card"><h2>Moyens disponibles sur place</h2><div id="listMoyens"></div></div>';
+
+  h += '<div class="card"><h2>Prestation souhaitée</h2><div id="choixPrestation"></div>'+
+    '<h2>Prestations complémentaires</h2><div id="choixComplements"></div></div>';
+
+  h += '<div class="card"><button class="btn" id="btnCalculer">OBTENIR MON DEVIS ESTIMATIF</button><div id="devisResult" style="margin-top:14px;"></div></div>';
+
+  app.innerHTML = h;
+  renderColisTable(); renderMoyens(); renderPrestationChoix(); renderComplementsChoix();
+  document.getElementById('btnAddColis').addEventListener('click', function(){ ficheColis.push(newColisLigne()); renderColisTable(); });
+  document.getElementById('btnCalculer').addEventListener('click', calculerEtAfficherDevis);
+}
+function champHtml(id,label,type){ return '<div class="field"><label for="'+id+'">'+esc(label)+'</label><input type="'+type+'" id="'+id+'"></div>'; }
+function champ(id,label,type){ return champHtml(id,label,type); }
+function checkbox(id,label,checked){ return '<label class="check"><input type="checkbox" id="'+id+'" '+(checked?'checked':'')+'>'+esc(label)+'</label>'; }
+
+function renderColisTable(){
+  var el = document.getElementById('listColis');
+  if(!ficheColis.length){ el.innerHTML = '<p class="hint">Aucun colis ajouté.</p>'; computeTotaux(); return; }
+  el.innerHTML = ficheColis.map(function(l,i){
+    return '<div class="colisLigne"><div class="hint" style="font-weight:700;margin-bottom:6px;">Colis '+(i+1)+'</div>'+
+      '<div class="row2">'+
+      '<div class="field"><input type="text" data-cf="reference" data-ci="'+i+'" placeholder="Référence" value="'+esc(l.reference)+'"></div>'+
+      '<div class="field"><input type="text" data-cf="designation" data-ci="'+i+'" placeholder="Désignation" value="'+esc(l.designation)+'"></div></div>'+
+      '<div class="row2">'+
+      '<div class="field"><input type="number" data-cf="quantite" data-ci="'+i+'" min="1" placeholder="Quantité" value="'+l.quantite+'"></div>'+
+      '<div class="field"><input type="number" data-cf="poids" data-ci="'+i+'" min="0" step="0.1" placeholder="Poids unitaire (kg)" value="'+(l.poids||'')+'"></div></div>'+
+      '<div class="row3">'+
+      '<div class="field"><input type="number" data-cf="longueur" data-ci="'+i+'" min="0" placeholder="L (cm)" value="'+(l.longueur||'')+'"></div>'+
+      '<div class="field"><input type="number" data-cf="largeur" data-ci="'+i+'" min="0" placeholder="l (cm)" value="'+(l.largeur||'')+'"></div>'+
+      '<div class="field"><input type="number" data-cf="hauteur" data-ci="'+i+'" min="0" placeholder="h (cm)" value="'+(l.hauteur||'')+'"></div></div>'+
+      '<button class="btn danger-text" data-del="'+i+'" style="padding:8px;">Supprimer ce colis</button></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('[data-cf]'), function(inp){
+    inp.addEventListener('input', function(){
+      var i = parseInt(inp.getAttribute('data-ci'),10), f = inp.getAttribute('data-cf');
+      ficheColis[i][f] = (f==='reference'||f==='designation') ? inp.value : (parseFloat(inp.value)||0);
+      computeTotaux();
+    });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-del]'), function(btn){
+    btn.addEventListener('click', function(){ ficheColis.splice(parseInt(btn.getAttribute('data-del'),10),1); renderColisTable(); });
+  });
+  computeTotaux();
+}
+function computeTotaux(){
+  var nbColis = ficheColis.reduce(function(s,l){ return s+(l.quantite||0); },0);
+  var poidsTotal = ficheColis.reduce(function(s,l){ return s+(l.poids||0)*(l.quantite||1); },0);
+  var volumeTotal = ficheColis.reduce(function(s,l){ return s+volumeLigneM3(l); },0);
+  var poidsLourd = ficheColis.reduce(function(m,l){ return Math.max(m,l.poids||0); },0);
+  var longueurMax = ficheColis.reduce(function(m,l){ return Math.max(m,l.longueur||0); },0);
+  var t = { nbColis:nbColis, poidsTotal:poidsTotal, volumeTotal:volumeTotal, poidsLourd:poidsLourd, longueurMax:longueurMax };
+  var elT = document.getElementById('colisTotaux');
+  if(elT) elT.innerHTML = '<strong>'+nbColis+'</strong> colis · <strong>'+poidsTotal.toFixed(1)+' kg</strong> au total · <strong>'+volumeTotal.toFixed(3)+' m³</strong> au total';
+  return t;
+}
+function renderMoyens(){
+  document.getElementById('listMoyens').innerHTML = MOYENS_MATERIELS_LISTE.map(function(m){
+    return '<label class="check"><input type="checkbox" data-moy="'+m.id+'">'+esc(m.label)+'</label>';
+  }).join('');
+  Array.prototype.forEach.call(document.querySelectorAll('[data-moy]'), function(cb){
+    cb.addEventListener('change', function(){ ficheMoyens[cb.getAttribute('data-moy')] = { disponible: cb.checked }; });
+  });
+}
+function renderPrestationChoix(){
+  document.getElementById('choixPrestation').innerHTML = ['LV1','LV2','LV3'].map(function(niv,i){
+    return '<label class="check"><input type="radio" name="d-prestation" value="'+niv+'" '+(i===0?'checked':'')+'>'+niv+' — '+(i+1)+' livreur'+(i>0?'s':'')+'</label>';
+  }).join('');
+}
+function renderComplementsChoix(){
+  var arr = state.params.complements || [];
+  document.getElementById('choixComplements').innerHTML = arr.length ? arr.map(function(c){
+    return '<label class="check" style="justify-content:space-between;"><span><input type="checkbox" data-complement="'+esc(c.id)+'">'+esc(c.nom)+'</span><span class="hint">'+fmtEuro(c.prixHT)+' HT</span></label>';
+  }).join('') : '<p class="hint">Aucune option complémentaire disponible.</p>';
+}
+
+function calculerEtAfficherDevis(){
+  var totaux = computeTotaux();
+  if(!totaux.nbColis || !totaux.poidsTotal){
+    document.getElementById('devisResult').innerHTML = '<div class="alerte">⚠️ Ajoutez au moins un colis avec son poids pour obtenir un devis.</div>';
+    return;
+  }
+  var distance = parseFloat(document.getElementById('d-distance').value)||0;
+  var resolved = resolveZoneForDistance(distance, state.params, state.zones);
+  if(!resolved){
+    document.getElementById('devisResult').innerHTML = '<div class="alerte">⚠️ Indiquez une distance pour calculer le devis.</div>';
+    return;
+  }
+  var acces = {
+    typeBatiment: document.getElementById('d-typeBatiment').value, etage: parseInt(document.getElementById('d-etage').value,10)||0,
+    ascenseur: document.getElementById('d-ascenseur').value, largeurPassage: parseFloat(document.getElementById('d-largeurPassage').value)||0,
+    distancePortage: parseFloat(document.getElementById('d-distancePortage').value)||0, courInterieure: document.getElementById('d-courInterieure').checked,
+    accesPrive: document.getElementById('d-accesPrive').checked, rueEtroite: document.getElementById('d-rueEtroite').checked, ruePente: document.getElementById('d-ruePente').checked,
+    stationnementOk: document.getElementById('d-stationnementOk').checked, autorisationNecessaire: document.getElementById('d-autorisationNecessaire').checked,
+    infosComplementaires: document.getElementById('d-infosAcces').value.trim()
+  };
+  var prestation = (document.querySelector('input[name="d-prestation"]:checked')||{}).value || 'LV1';
+  var input = { poids: totaux.poidsTotal, colisLourd: totaux.poidsLourd, colisLong: totaux.longueurMax, volume: totaux.volumeTotal, nbEtages: acces.etage, ascenseur: acces.ascenseur==='oui', montageMin:0 };
+  var r = calculerPrestation(state.params, resolved.zone, input);
+  var vh = determinerVehicule(totaux.poidsTotal, totaux.volumeTotal, totaux.longueurMax, state.vehicules);
+  var complementsCoches = Array.prototype.slice.call(document.querySelectorAll('[data-complement]:checked')).map(function(x){ return x.getAttribute('data-complement'); });
+  var complementsDetail = (state.params.complements||[]).filter(function(c){ return complementsCoches.indexOf(c.id)>=0; });
+  var totalComplements = complementsDetail.reduce(function(s,c){ return s+c.prixHT; },0);
+  var montantHT = r[prestation] + totalComplements;
+  var montantTVA = montantHT*0.20, montantTTC = montantHT+montantTVA;
+
+  var alertes = [];
+  if(acces.etage>0 && acces.ascenseur==='non') alertes.push('Accès au '+acces.etage+'e étage sans ascenseur : à confirmer avec nos équipes.');
+  if(!acces.stationnementOk) alertes.push('Stationnement non garanti : une solution sera à prévoir le jour de la prestation.');
+  if(r.personnesNecessaires>1) alertes.push('Le colis le plus lourd ('+totaux.poidsLourd.toFixed(0)+' kg) nécessite une équipe de '+r.personnesNecessaires+' personnes.');
+  if(acces.autorisationNecessaire) alertes.push('Cette demande nécessite une validation par nos équipes avant confirmation.');
+  if(!vh.vehicule) alertes.push(vh.motif || 'Un conseiller validera le véhicule nécessaire.');
+
+  ficheDevisCalcule = { totaux:totaux, acces:acces, zone:resolved.zone, prestation:prestation, personnesNecessaires:r.personnesNecessaires,
+    vehicule: vh.vehicule ? { immat:vh.vehicule.immat, libelle:vh.vehicule.libelle } : null,
+    baseHT:r[prestation], complements:complementsDetail, totalComplements:totalComplements, montantHT:montantHT, montantTVA:montantTVA, montantTTC:montantTTC,
+    tauxTVA:0.20, alertes:alertes, versionTarif:state.publieLe, calculeLe:new Date().toISOString() };
+
+  var h = '<div class="devisBox"><div class="hint" style="font-weight:700;">DEVIS ESTIMATIF DE VOTRE PRESTATION</div>'+
+    '<div class="devisMontant">'+fmtEuro(montantHT)+' HT</div>'+
+    '<div class="hint">TVA (20 %) : '+fmtEuro(montantTVA)+'</div>'+
+    '<div style="font-size:17px;font-weight:800;margin-top:4px;">'+fmtEuro(montantTTC)+' TTC</div>'+
+    (alertes.length ? alertes.map(function(a){ return '<div class="alerte">⚠️ '+esc(a)+'</div>'; }).join('') : '')+
+    '<p class="hint" style="margin-top:10px;line-height:1.5;">'+esc(MENTION_LEGALE)+'</p></div>'+
+    '<div style="margin-top:12px;"><label class="check"><input type="checkbox" id="d-accepte">'+esc(MENTION_CASE)+'</label></div>'+
+    '<div class="btn-row"><button class="btn" id="btnValider" style="width:100%;">VALIDER MA DEMANDE</button></div>';
+  document.getElementById('devisResult').innerHTML = h;
+  document.getElementById('btnValider').addEventListener('click', validerDemande);
+  document.getElementById('devisResult').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+async function validerDemande(){
+  if(!document.getElementById('d-accepte').checked){ alert('Merci de cocher la case de confirmation avant de valider votre demande.'); return; }
+  var nom = document.getElementById('d-nom').value.trim();
+  if(!nom){ alert('Merci d\'indiquer votre nom.'); document.getElementById('d-nom').scrollIntoView({behavior:'smooth'}); return; }
+  var btn = document.getElementById('btnValider');
+  btn.disabled = true; btn.textContent = 'Envoi en cours…';
+  var numero = 'D'+Date.now().toString(36).toUpperCase()+Math.random().toString(36).slice(2,5).toUpperCase();
+  var soumission = {
+    numero: numero, depotCode: state.agencyCode, createdAt: new Date().toISOString(),
+    client: { nom: nom, telephone: document.getElementById('d-tel').value.trim(), email: document.getElementById('d-email').value.trim() },
+    adresseLivraison: { adresse1: document.getElementById('d-adr1').value.trim(), cp: document.getElementById('d-cp').value.trim(), ville: document.getElementById('d-ville').value.trim() },
+    distance: parseFloat(document.getElementById('d-distance').value)||0,
+    colis: ficheColis.map(function(l){ return { reference:l.reference, designation:l.designation, quantite:l.quantite, longueur:l.longueur, largeur:l.largeur, hauteur:l.hauteur, poids:l.poids }; }),
+    acces: ficheDevisCalcule.acces, moyensDisponibles: ficheMoyens, prestationChoisie: ficheDevisCalcule.prestation,
+    complementsChoisis: ficheDevisCalcule.complements.map(function(c){ return c.id; }),
+    devis: ficheDevisCalcule, statut: 'nouvelle_demande', source: 'client',
+    validation: { dateHeure: new Date().toISOString(), accepteConditions: true, texteAccepte: MENTION_CASE, userAgent: (navigator.userAgent||'').slice(0,200) }
+  };
+  try{
+    await db.collection('stls_devis_soumissions').doc(numero).set(soumission);
+    afficherConfirmation(numero);
+  }catch(e){
+    console.error('submit error', e);
+    btn.disabled = false; btn.textContent = 'VALIDER MA DEMANDE';
+    alert('Votre demande n\'a pas pu être envoyée. Vérifiez votre connexion et réessayez.');
+  }
+}
+function afficherConfirmation(numero){
+  document.getElementById('app').innerHTML = '<div class="msg"><h1>✅ Demande envoyée</h1>'+
+    '<p class="sous">Référence : '+esc(numero)+'</p>'+
+    '<p>Votre demande de devis a bien été transmise à STLS'+(state.agencyName?' — '+esc(state.agencyName):'')+'. Un conseiller vous recontactera pour confirmer les modalités de votre prestation.</p></div>';
+}
+
+async function demarrer(){
+  var code = qsParam('a');
+  if(!code){ document.getElementById('app').innerHTML = '<div class="msg"><h1>Lien incomplet</h1><p class="sous">Utilisez le lien transmis par STLS pour accéder au formulaire de devis.</p></div>'; return; }
+  try{ firebase.initializeApp(firebaseConfig); db = firebase.firestore(); }
+  catch(e){ document.getElementById('app').innerHTML = '<div class="msg"><h1>Service indisponible</h1><p class="sous">Réessayez dans quelques instants.</p></div>'; return; }
+  try{
+    var snap = await db.collection('stls_devis_public').doc(code).get();
+    if(!snap.exists){ document.getElementById('app').innerHTML = '<div class="msg"><h1>Formulaire indisponible</h1><p class="sous">Ce lien n\'est pas (ou plus) actif. Contactez STLS pour en obtenir un nouveau.</p></div>'; return; }
+    var d = snap.data();
+    state = { params:d.params, zones:d.zones, vehicules:d.vehicules||[], agencyCode:code, agencyName:d.agencyName||'', publieLe:d.publieLe||'' };
+  }catch(e){
+    console.error('load error', e);
+    document.getElementById('app').innerHTML = '<div class="msg"><h1>Connexion impossible</h1><p class="sous">Vérifiez votre connexion internet puis rechargez la page.</p></div>';
+    return;
+  }
+  render();
+}
+demarrer();
+
+</script>
+</body>
+</html>
