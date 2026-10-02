@@ -1466,6 +1466,7 @@ async function switchToAgency(code){
   await migrateArchiveStats();
   await migrateContremarque();
   await migrateReceivedAt();
+  await migrateContremarqueId();
   refreshDatalists();
   renderBaseLists();
   renderTrashList();
@@ -1690,6 +1691,7 @@ function recordToIndexEntry(rec){
   if(rangedCount===0 && d.emplacement){ rangedCount = items.length; } // compat : ancien emplacement global
   var entry = {
     id: rec.id, date: d.date, receivedAt: d.receivedAt, weekNumber: d.weekNumber, client: d.client, contremarque: d.contremarque,
+    contremarqueId: d.contremarqueId || '',
     fournisseur: d.fournisseur, transporteur: d.transporteur, poids: d.poids,
     colis: d.colis, palettes: d.palettes, bonLivraisonId: d.bonLivraisonId || '',
     savedAt: rec.savedAt, labelNumber: d.labelNumber,
@@ -2226,7 +2228,7 @@ function renderContremarquesList(){
   el.innerHTML = sorted.map(function(row){
     var cm = row.item, idx = row.idx;
     var adr = [cm.adresse1, cm.cp, cm.ville].filter(Boolean).join(' · ');
-    return '<div class="hist-item" data-idx="'+idx+'" data-nom="'+escapeHtml(cm.nom||'')+'">'+
+    return '<div class="hist-item" data-idx="'+idx+'" data-nom="'+escapeHtml(cm.nom||'')+'" data-cmid="'+escapeHtml(cm.id||'')+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+'</span></div>'+
       (adr ? '<div class="sub">'+escapeHtml(adr)+'</div>' : '')+
       '<div class="actions">'+
@@ -2242,13 +2244,13 @@ function renderContremarquesList(){
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="blcm"]'), function(btn){
     btn.addEventListener('click', function(){
       var item = btn.closest('.hist-item');
-      renderBLPanel(parseInt(item.getAttribute('data-idx'),10), item.getAttribute('data-nom'));
+      renderBLPanel(parseInt(item.getAttribute('data-idx'),10), item.getAttribute('data-nom'), false, item.getAttribute('data-cmid'));
     });
   });
 }
 
 // ---------- panneau Bons de Livraison d'une fiche contremarque ----------
-async function renderBLPanel(idx, contremarqueNom, forceOpen){
+async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
   var box = document.getElementById('blpanel-'+idx);
   if(!box) return;
   if(!forceOpen && box.style.display === 'block'){ box.style.display = 'none'; return; }
@@ -2256,8 +2258,12 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen){
   box.style.display = 'block';
 
   var existingBLs = await loadBonsLivraisonForContremarque(contremarqueNom);
+  // l'identifiant stable prime dès qu'il existe (lien fiable, posé par « Fiche Contremarque ») ;
+  // la correspondance par nom reste un filet de sécurité pour les commandes jamais encore liées
   var enStock = state.historyIndex.filter(function(h){
-    return isStockEntry(h) && (h.contremarque||'').toLowerCase()===contremarqueNom.toLowerCase() && !h.bonLivraisonId;
+    if(!isStockEntry(h) || h.bonLivraisonId) return false;
+    if(cmId && h.contremarqueId) return h.contremarqueId===cmId;
+    return (h.contremarque||'').toLowerCase()===contremarqueNom.toLowerCase();
   });
 
   var html = '';
@@ -4869,7 +4875,10 @@ async function renderCmLinkPanel(id){
     var cm = list[parseInt(sel.value,10)];
     if(!cm) return;
     var freshRec = await getReceptionRecord(id);
+    // l'identifiant stable prime désormais sur le nom en texte libre : le nom reste affiché tel
+    // quel (il peut différer légèrement), mais le regroupement et les BL se basent sur cm.id
     freshRec.data.contremarque = cm.nom;
+    freshRec.data.contremarqueId = cm.id;
     await saveReceptionRecord(id, freshRec);
     var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(freshRec); }
@@ -4881,8 +4890,14 @@ async function renderCmLinkPanel(id){
   if(createBtn){
     createBtn.addEventListener('click', async function(){
       if(!state.base.contremarques) state.base.contremarques = [];
-      state.base.contremarques.push({ id: 'cm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7), nom: current, pays: 'FR-France' });
+      var nouvelId = 'cm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+      state.base.contremarques.push({ id: nouvelId, nom: current, pays: 'FR-France' });
       await saveBase();
+      var freshRec2 = await getReceptionRecord(id);
+      freshRec2.data.contremarqueId = nouvelId;
+      await saveReceptionRecord(id, freshRec2);
+      var idx2 = state.historyIndex.findIndex(function(x){ return x.id===id; });
+      if(idx2>=0){ state.historyIndex[idx2] = recordToIndexEntry(freshRec2); }
       renderContremarquesList();
       document.getElementById('cnt-contremarques').textContent = pad4(state.base.contremarques.length);
       renderHistory();
@@ -6336,6 +6351,11 @@ async function validateExit(labelNumber){
   if(!hEntry){ banner('Introuvable'); return; }
   var rec = await getReceptionRecord(hEntry.id);
   if(!rec){ banner('Introuvable'); return; }
+  // règle métier : une commande ne devrait sortir du stock qu'une fois rattachée à un Bon de
+  // Livraison — avertissement avec possibilité de passer outre pour les cas exceptionnels, pas un blocage strict
+  if(!rec.data.bonLivraisonId){
+    if(!confirm('⚠️ Cette commande n\'est reliée à aucun Bon de Livraison.\n\n'+(labelNumber||'')+' — '+(rec.data.client||'?')+'\n\nSortir quand même le stock ?')) return;
+  }
 
   var totalLabels = computeLabels(rec.data).length;
   var daysStored = daysSince(rec.data.receivedAt || rec.data.date);
@@ -6816,7 +6836,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0056';
+var APP_VERSION = '2026.0057';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -7120,6 +7140,7 @@ async function loadAgencyDataAndShowApp(){
   await migrateArchiveStats();
   await migrateContremarque();
   await migrateReceivedAt();
+  await migrateContremarqueId();
   refreshDatalists();
   renderBaseLists();
   renderTrashList();
@@ -7336,6 +7357,32 @@ async function migrateContremarque(){
     h.contremarque = (rec && rec.data && rec.data.contremarque) || '';
   }
   await saveHistoryIndex();
+}
+// relie les commandes déjà existantes à l'identifiant stable de leur fiche contremarque, quand la
+// correspondance par nom ne laisse aucune ambiguïté (une seule fiche portant ce nom) ; ne tourne
+// qu'une fois — les liens posés ensuite passent par le bouton « Fiche Contremarque », qui pose
+// toujours l'identifiant directement
+async function migrateContremarqueId(){
+  if(state.base.contremarqueIdMigrated) return;
+  var cms = state.base.contremarques || [];
+  var candidats = state.historyIndex.filter(function(h){ return h.contremarque && !h.contremarqueId; });
+  var touched = false;
+  for(var i=0;i<candidats.length;i++){
+    var h = candidats[i];
+    var matches = cms.filter(function(cm){ return (cm.nom||'').toLowerCase()===h.contremarque.toLowerCase(); });
+    if(matches.length===1){
+      var rec = await getReceptionRecord(h.id);
+      if(rec){
+        rec.data.contremarqueId = matches[0].id;
+        await saveReceptionRecord(h.id, rec);
+        h.contremarqueId = matches[0].id;
+        touched = true;
+      }
+    }
+  }
+  if(touched) await saveHistoryIndex();
+  state.base.contremarqueIdMigrated = true;
+  await saveBase();
 }
 
 // migration : les commandes déjà enregistrées avant la séparation "date prévue" / "date réellement reçue"
