@@ -1301,6 +1301,22 @@ async function startForAgency(code){
   renderCollecteDestFields();
   renderPartenairesList();
   renderCollecteList();
+  ouvrirBLDepuisUrl();
+}
+
+// ouvre directement un BL précis si le lien contient ?bl=NUMERO (ex. depuis Gestion Contremarques,
+// pour imprimer un BL qui vient d'être créé sans avoir à le rechercher à la main)
+function ouvrirBLDepuisUrl(){
+  var m = /[?&]bl=([^&]+)/.exec(location.search);
+  if(!m) return;
+  var numero = decodeURIComponent(m[1]);
+  document.querySelector('.tab-btn[data-tab="alivrer"]').click();
+  document.getElementById('livSearch').value = numero;
+  renderLivList();
+  setTimeout(function(){
+    var btn = document.querySelector('.bl-manage-btn[data-numero="'+numero+'"]');
+    if(btn){ btn.click(); btn.scrollIntoView({ behavior:'smooth', block:'center' }); }
+  }, 150);
 }
 
 function showAccessGate(){
