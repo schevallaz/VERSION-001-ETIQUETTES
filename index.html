@@ -1708,6 +1708,17 @@ function recordToIndexEntry(rec){
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   if(d.deletedAt){ entry.deletedAt = d.deletedAt; entry.deletedBy = d.deletedBy; }
+  // affectation BL par article (palette/colis vrac) : une réception peut être partagée entre plusieurs
+  // BL — itemsDisponibles compte ce qui n'est encore affecté à aucun ; compatible avec les anciennes
+  // réceptions qui n'ont jamais utilisé itemBL (tout ou rien, comme avant)
+  if(d.itemBL){
+    var blVals = items.map(function(m){ return d.itemBL[m.itemId] || ''; });
+    entry.itemsDisponibles = blVals.filter(function(v){ return !v; }).length;
+    var blUniques = blVals.filter(function(v,i){ return v && blVals.indexOf(v)===i; });
+    entry.bonLivraisonId = (blUniques.length===1 && entry.itemsDisponibles===0) ? blUniques[0] : (blUniques.length ? 'partiel' : '');
+  } else {
+    entry.itemsDisponibles = d.bonLivraisonId ? 0 : items.length;
+  }
   return entry;
 }
 
@@ -2266,7 +2277,9 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
     return !h.contremarqueId && (h.contremarque||'').toLowerCase()===contremarqueNom.toLowerCase();
   }
   var toutesLesCommandes = state.historyIndex.filter(appartientAuDossier);
-  var enStock = toutesLesCommandes.filter(function(h){ return isStockEntry(h) && !h.bonLivraisonId; });
+  // disponible = il reste au moins un article (palette/colis vrac) non encore affecté à un BL —
+  // une réception déjà partiellement affectée reste proposée pour le reste de ses articles
+  var enStock = toutesLesCommandes.filter(function(h){ return isStockEntry(h) && (h.itemsDisponibles==null ? !h.bonLivraisonId : h.itemsDisponibles>0); });
 
   var blStatutParNumero = {};
   existingBLs.forEach(function(bl){ blStatutParNumero[bl.numero] = bl.statut; });
@@ -2287,13 +2300,25 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
   if(!enStock.length){
     html += '<div class="hint">Aucune commande en stock, non encore affectée à un BL, pour « '+escapeHtml(contremarqueNom)+' ».</div>';
   } else {
+    // réceptions à un seul article : case simple, comme avant. Réceptions à plusieurs articles
+    // (palettes/colis vrac) : sélection fine, chargée à part — une réception peut être partagée
+    // entre plusieurs BL, le reste non coché restant disponible
     html += enStock.map(function(h){
-      return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:400;">'+
-        '<input type="checkbox" class="bl-cde-check" data-id="'+h.id+'" data-poids="'+(h.poids||0)+'" data-colis="'+((parseFloat(h.colis)||0)+(parseFloat(h.palettes)||0))+'" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
-        '<span>'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+' · '+escapeHtml(h.emplacement||'—')+'</span>'+
-        '</label>';
+      if((h.itemsTotal||1)<=1){
+        var colisEst = (parseFloat(h.colis)||0)+(parseFloat(h.palettes)||0);
+        return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:400;">'+
+          '<input type="checkbox" class="bl-cde-check" data-id="'+h.id+'" data-item="U1" data-poids="'+(h.poids||0)+'" data-colis="'+colisEst+'" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
+          '<span>'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+' · '+escapeHtml(h.emplacement||'—')+'</span>'+
+          '</label>';
+      }
+      return '<div data-reception-block="'+h.id+'" style="margin-bottom:10px;">'+
+        '<div class="sub" style="font-weight:600;">'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+(h.itemsDisponibles<h.itemsTotal ? ' <span style="color:var(--accent);font-weight:400;">('+h.itemsDisponibles+'/'+h.itemsTotal+' encore disponibles — partiellement déjà affectée)</span>' : '')+'</div>'+
+        '<div class="hint">Chargement des articles…</div></div>';
     }).join('');
-    html += '<div class="hint" id="blTotals-'+idx+'" style="margin:8px 0;font-weight:600;color:var(--accent);">0 commande sélectionnée</div>';
+    html += '<div class="hint" id="blTotals-'+idx+'" style="margin:8px 0;font-weight:600;color:var(--accent);">0 article sélectionné</div>'+
+      '<div class="row2"><div class="field"><label>Poids estimé (kg) — modifiable</label><input type="number" step="0.1" id="blPoidsEst-'+idx+'" value="0"></div>'+
+      '<div class="field"><label>Colis estimés — modifiable</label><input type="number" step="1" id="blColisEst-'+idx+'" value="0"></div></div>'+
+      '<div class="hint" style="margin:-6px 0 10px;">Le poids et le nombre de colis ne sont enregistrés que pour la réception entière — cette estimation répartit à parts égales entre les articles sélectionnés. Corrige-la si besoin avant de créer le BL.</div>';
     html += '<div class="row2"><div class="field"><label>Date souhaitée</label><input type="date" id="blDateSouh-'+idx+'"></div>'+
       '<div class="field"><label>Date impérative</label><input type="date" id="blDateImp-'+idx+'"></div></div>'+
       '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="blEstImp-'+idx+'" style="width:17px;height:17px;">Date impérative (à respecter)</label>'+
@@ -2307,39 +2332,71 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
   html += '<div id="blMsg-'+idx+'" style="margin-top:8px;font-size:12.5px;"></div>';
   box.innerHTML = html;
 
+  // charge le détail article par article des réceptions à plusieurs unités (palettes/colis vrac) ;
+  // seuls les articles pas encore affectés à un BL sont proposés
+  var multiReceptions = enStock.filter(function(h){ return (h.itemsTotal||1)>1; });
+  for(var mi=0; mi<multiReceptions.length; mi++){
+    var hm = multiReceptions[mi];
+    var blocEl = box.querySelector('[data-reception-block="'+hm.id+'"]');
+    if(!blocEl) continue;
+    var recFull = await getReceptionRecord(hm.id);
+    if(!recFull){ blocEl.querySelector('.hint').textContent = 'Introuvable'; continue; }
+    var itemsAll = computeLabels(recFull.data);
+    var itemBLMap = recFull.data.itemBL || {};
+    var itemsLibres = itemsAll.filter(function(m){ return !itemBLMap[m.itemId]; });
+    var poidsParItem = (parseFloat(hm.poids)||0) / itemsAll.length;
+    var colisParItem = ((parseFloat(hm.colis)||0)+(parseFloat(hm.palettes)||0)) / itemsAll.length;
+    blocEl.querySelector('.hint').outerHTML = itemsLibres.map(function(m){
+      return '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 4px 14px;font-weight:400;">'+
+        '<input type="checkbox" class="bl-cde-check" data-id="'+hm.id+'" data-item="'+m.itemId+'" data-poids="'+poidsParItem.toFixed(3)+'" data-colis="'+colisParItem.toFixed(3)+'" style="width:17px;height:17px;flex-shrink:0;">'+
+        '<span>'+escapeHtml(m.posLabel||m.itemId)+'</span></label>';
+    }).join('');
+  }
+
   function updateTotals(){
     var checked = Array.prototype.slice.call(box.querySelectorAll('.bl-cde-check:checked'));
     var poids = checked.reduce(function(s,c){ return s+parseFloat(c.getAttribute('data-poids')||0); }, 0);
     var colis = checked.reduce(function(s,c){ return s+parseFloat(c.getAttribute('data-colis')||0); }, 0);
     var totalsEl = document.getElementById('blTotals-'+idx);
-    if(totalsEl) totalsEl.textContent = checked.length+' commande(s) sélectionnée(s) — '+poids.toFixed(1)+' kg · '+colis+' colis';
+    if(totalsEl) totalsEl.textContent = checked.length+' article(s) sélectionné(s)';
+    var poidsEl = document.getElementById('blPoidsEst-'+idx), colisEl = document.getElementById('blColisEst-'+idx);
+    if(poidsEl) poidsEl.value = Math.round(poids*10)/10;
+    if(colisEl) colisEl.value = Math.round(colis);
     var btn = document.getElementById('btnCreateBL-'+idx);
     if(btn) btn.disabled = checked.length===0;
   }
-  Array.prototype.forEach.call(box.querySelectorAll('.bl-cde-check'), function(chk){
-    chk.addEventListener('change', updateTotals);
-  });
+  box.addEventListener('change', function(ev){ if(ev.target.classList.contains('bl-cde-check')) updateTotals(); });
+  updateTotals();
 
   var createBtn = document.getElementById('btnCreateBL-'+idx);
   if(createBtn){
     createBtn.addEventListener('click', async function(){
-      var ids = Array.prototype.slice.call(box.querySelectorAll('.bl-cde-check:checked')).map(function(c){ return c.getAttribute('data-id'); });
-      if(!ids.length) return;
+      var checks = Array.prototype.slice.call(box.querySelectorAll('.bl-cde-check:checked'));
+      if(!checks.length) return;
+      // regroupe par réception : { commandeId: [itemId, ...] }
+      var parReception = {};
+      checks.forEach(function(c){
+        var id = c.getAttribute('data-id'), item = c.getAttribute('data-item');
+        if(!parReception[id]) parReception[id] = [];
+        parReception[id].push(item);
+      });
+      var selection = Object.keys(parReception).map(function(id){ return { commandeId:id, itemIds:parReception[id] }; });
       createBtn.disabled = true;
       createBtn.textContent = 'Création…';
-      var bl = await createBonLivraison(contremarqueNom, ids, {
+      var bl = await createBonLivraison(contremarqueNom, selection, {
         dateSouhaitee: document.getElementById('blDateSouh-'+idx).value,
         dateImperative: document.getElementById('blDateImp-'+idx).value,
         estImperative: document.getElementById('blEstImp-'+idx).checked,
         reprise: document.getElementById('blReprise-'+idx).checked,
         montage: document.getElementById('blMontage-'+idx).checked,
-        instructions: document.getElementById('blInstr-'+idx).value.trim()
-      });
+        instructions: document.getElementById('blInstr-'+idx).value.trim(),
+        poidsOverride: parseFloat(document.getElementById('blPoidsEst-'+idx).value)||0,
+        colisOverride: parseFloat(document.getElementById('blColisEst-'+idx).value)||0
+      }, cmId);
       var msg = document.getElementById('blMsg-'+idx);
-      msg.textContent = 'Bon de Livraison '+bl.numero+' créé';
-      msg.style.color = 'var(--accent)';
+      if(msg){ msg.textContent = 'Bon de Livraison '+bl.numero+' créé'; msg.style.color = 'var(--accent)'; }
       renderHistory();
-      renderBLPanel(idx, contremarqueNom, true);
+      renderBLPanel(idx, contremarqueNom, true, cmId);
     });
   }
 }
@@ -3061,32 +3118,54 @@ function controlerBL(bl){
   return { complet: checks.every(function(c){ return c.ok; }), checks: checks };
 }
 
-async function createBonLivraison(contremarque, commandeIds, dateInfo){
+// selection accepte soit l'ancien format (tableau d'id = toute la réception), soit le nouveau
+// (tableau de { commandeId, itemIds } = seulement certains articles) — une réception peut donc être
+// partagée entre plusieurs BL, le reste de ses articles restant disponible pour un BL ultérieur
+async function createBonLivraison(contremarque, selection, dateInfo, cmId){
   dateInfo = dateInfo || {};
   var numero = await nextBLNumero();
   var poidsTotal = 0, nbColisTotal = 0;
   var commandesSnapshot = [];
-  for(var i=0;i<commandeIds.length;i++){
-    var rec = await getReceptionRecord(commandeIds[i]);
+  var entrees = selection.map(function(s){ return typeof s==='string' ? { commandeId:s, itemIds:null } : s; });
+  var usesOverride = (dateInfo.poidsOverride!=null || dateInfo.colisOverride!=null) && entrees.some(function(e){ return e.itemIds; });
+
+  for(var i=0;i<entrees.length;i++){
+    var commandeId = entrees[i].commandeId, itemIds = entrees[i].itemIds;
+    var rec = await getReceptionRecord(commandeId);
     if(!rec) continue;
-    var poids = parseFloat(rec.data.poids)||0;
-    var colis = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
-    poidsTotal += poids;
-    nbColisTotal += colis;
-    rec.data.bonLivraisonId = numero;
-    await saveReceptionRecord(commandeIds[i], rec);
-    var idx = state.historyIndex.findIndex(function(x){ return x.id===commandeIds[i]; });
+    var poidsRec = parseFloat(rec.data.poids)||0;
+    var colisRec = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
+    var itemsAll = computeLabels(rec.data);
+    var contribPoids, contribColis;
+    if(itemIds && itemIds.length && itemsAll.length>1){
+      // affectation par article : seuls les articles cochés passent sous ce BL, les autres restent libres
+      if(!rec.data.itemBL) rec.data.itemBL = {};
+      itemIds.forEach(function(it){ rec.data.itemBL[it] = numero; });
+      var part = itemIds.length/itemsAll.length;
+      contribPoids = poidsRec*part; contribColis = colisRec*part;
+    } else {
+      // réception entière (comportement historique)
+      rec.data.bonLivraisonId = numero;
+      contribPoids = poidsRec; contribColis = colisRec;
+    }
+    poidsTotal += contribPoids; nbColisTotal += contribColis;
+    await saveReceptionRecord(commandeId, rec);
+    var idx = state.historyIndex.findIndex(function(x){ return x.id===commandeId; });
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
     commandesSnapshot.push({
-      id: commandeIds[i], labelNumber: rec.data.labelNumber||'', client: rec.data.client||'',
-      fournisseur: rec.data.fournisseur||'', poids: poids, colis: colis,
+      id: commandeId, labelNumber: rec.data.labelNumber||'', client: rec.data.client||'',
+      fournisseur: rec.data.fournisseur||'', poids: Math.round(contribPoids*10)/10, colis: Math.round(contribColis),
+      partiel: !!(itemIds && itemIds.length<itemsAll.length),
       emplacement: recordToIndexEntry(rec).emplacement || rec.data.emplacement || ''
     });
   }
-  var cmProfile = findContremarqueProfile(contremarque) || {};
+  // le poids/nombre de colis exacts par article ne sont pas mesurés individuellement : la valeur
+  // vérifiée et éventuellement corrigée par l'utilisateur dans le panneau prime sur l'estimation
+  if(usesOverride){ poidsTotal = dateInfo.poidsOverride; nbColisTotal = dateInfo.colisOverride; }
+  var cmProfile = cmId ? ((state.base.contremarques||[]).find(function(c){ return c.id===cmId; }) || {}) : (findContremarqueProfile(contremarque) || {});
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
   var bl = {
-    numero: numero, contremarque: contremarque, contremarqueId: cmProfile.id||'', commandeIds: commandeIds, commandes: commandesSnapshot,
+    numero: numero, contremarque: contremarque, contremarqueId: cmProfile.id||cmId||'', commandeIds: entrees.map(function(e){ return e.commandeId; }), commandes: commandesSnapshot,
     contremarqueAdresse: { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' },
     depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
@@ -6893,7 +6972,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0058';
+var APP_VERSION = '2026.0059';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
