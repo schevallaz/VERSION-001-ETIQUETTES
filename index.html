@@ -2257,16 +2257,23 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
   box.innerHTML = '<div class="hint">Chargement…</div>';
   box.style.display = 'block';
 
-  var existingBLs = await loadBonsLivraisonForContremarque(contremarqueNom);
+  var existingBLs = await loadBonsLivraisonForContremarque(contremarqueNom, cmId);
   // l'identifiant stable prime dès qu'il existe (lien fiable, posé par « Fiche Contremarque ») ;
   // la correspondance par nom reste un filet de sécurité pour les commandes jamais encore liées
-  var enStock = state.historyIndex.filter(function(h){
-    if(!isStockEntry(h) || h.bonLivraisonId) return false;
+  function appartientAuDossier(h){
+    if(h.deletedAt) return false;
     if(cmId && h.contremarqueId) return h.contremarqueId===cmId;
-    return (h.contremarque||'').toLowerCase()===contremarqueNom.toLowerCase();
-  });
+    return !h.contremarqueId && (h.contremarque||'').toLowerCase()===contremarqueNom.toLowerCase();
+  }
+  var toutesLesCommandes = state.historyIndex.filter(appartientAuDossier);
+  var enStock = toutesLesCommandes.filter(function(h){ return isStockEntry(h) && !h.bonLivraisonId; });
 
-  var html = '';
+  var blStatutParNumero = {};
+  existingBLs.forEach(function(bl){ blStatutParNumero[bl.numero] = bl.statut; });
+  var lignesDossier = toutesLesCommandes.map(function(h){ return Object.assign({ h:h }, statutLigneReception(h, blStatutParNumero)); });
+  var badge = badgeDossierContremarque(lignesDossier);
+
+  var html = dossierSectionHtml(lignesDossier, badge);
   if(existingBLs.length){
     html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Bons de Livraison existants</div>';
     html += existingBLs.map(function(bl){
@@ -3759,15 +3766,65 @@ document.getElementById('tourneeFilterType').addEventListener('change', renderTo
 document.getElementById('tourneeFilterJour').addEventListener('change', renderTourneesTable);
 document.getElementById('tourneeFilterStatut').addEventListener('change', renderTourneesTable);
 
-async function loadBonsLivraisonForContremarque(contremarque){
+async function loadBonsLivraisonForContremarque(contremarque, contremarqueId){
   if(!fsReady()) return [];
   try{
-    var snap = await blColRef.where('contremarque','==',contremarque).get();
+    // l'identifiant stable prime dès qu'il est fourni ; la recherche par nom reste le filet de
+    // sécurité pour les BL créés avant l'introduction du lien stable
+    var snap = contremarqueId ? await blColRef.where('contremarqueId','==',contremarqueId).get()
+                              : await blColRef.where('contremarque','==',contremarque).get();
     var arr = [];
     snap.forEach(function(doc){ arr.push(doc.data()); });
     arr.sort(function(a,b){ return (b.numero||'').localeCompare(a.numero||''); });
     return arr;
   }catch(e){ console.error('Firestore loadBonsLivraisonForContremarque error', e); return []; }
+}
+
+// ================= Tableau de bord du dossier contremarque (§6/§15 de la spec) =================
+// Traduit l'état brut (réception / BL) en vocabulaire métier : REÇU, EN ATTENTE, BL CRÉÉ,
+// EN LIVRAISON, LIVRÉ — jamais stocké, toujours recalculé à partir des données déjà existantes
+function statutLigneReception(h, blStatutParNumero){
+  if(h.exitedAt){
+    if(h.bonLivraisonId){
+      var st = blStatutParNumero[h.bonLivraisonId];
+      if(st==='livre') return { icon:'✅', label:'Livré (BL '+h.bonLivraisonId+')', niveau:'livre' };
+      if(st==='annule') return { icon:'⚠️', label:'Sorti — BL '+h.bonLivraisonId+' annulé', niveau:'anomalie' };
+      if(st==='valide_pour_tournee' || st==='affecte_tournee') return { icon:'🚛', label:'En livraison (BL '+h.bonLivraisonId+')', niveau:'livraison' };
+      return { icon:'🚚', label:'Sorti — BL '+h.bonLivraisonId+' en préparation', niveau:'bl_cree' };
+    }
+    return { icon:'⚠️', label:'Sorti sans BL (cas exceptionnel)', niveau:'anomalie' };
+  }
+  if(h.bonLivraisonId){
+    var st2 = blStatutParNumero[h.bonLivraisonId];
+    if(st2==='annule') return { icon:'⚠️', label:'BL '+h.bonLivraisonId+' annulé — à réaffecter', niveau:'anomalie' };
+    if(st2==='livre') return { icon:'✅', label:'Marqué livré (BL '+h.bonLivraisonId+') — vérifier la sortie de stock', niveau:'anomalie' };
+    if(st2==='valide_pour_tournee' || st2==='affecte_tournee') return { icon:'🚛', label:'En livraison (BL '+h.bonLivraisonId+') — vérifier la sortie de stock', niveau:'anomalie' };
+    return { icon:'🚚', label:'Affecté au BL '+h.bonLivraisonId, niveau:'bl_cree' };
+  }
+  if(!h.receivedAt) return { icon:'⏳', label:'En attente de réception', niveau:'attente' };
+  return { icon:'📦', label:'Reçu — en stock, disponible', niveau:'recu' };
+}
+function badgeDossierContremarque(lignes){
+  if(!lignes.length) return null;
+  var niveaux = lignes.map(function(l){ return l.niveau; });
+  if(niveaux.indexOf('anomalie')>=0) return { icon:'⚠️', label:'ANOMALIE À VÉRIFIER', color:'var(--danger)' };
+  if(niveaux.every(function(n){ return n==='livre'; })) return { icon:'✅', label:'LIVRÉ', color:'#1e8e3e' };
+  if(niveaux.every(function(n){ return n==='livre'||n==='livraison'; })) return { icon:'🚛', label:'EN LIVRAISON', color:'#2563eb' };
+  if(niveaux.every(function(n){ return n==='livre'||n==='livraison'||n==='bl_cree'; })) return { icon:'🚚', label:'BL CRÉÉ', color:'#2563eb' };
+  if(niveaux.indexOf('attente')>=0) return { icon:'⏳', label:'EN ATTENTE', color:'var(--ink-soft)' };
+  return { icon:'✅', label:'COMPLET — prêt pour le BL', color:'#1e8e3e' };
+}
+function dossierSectionHtml(lignes, badge){
+  if(!lignes.length) return '<div class="hint" style="margin-bottom:12px;">Aucune commande liée à cette contremarque pour l\'instant.</div>';
+  var h = '<div class="hint" style="font-weight:600;margin-bottom:6px;">État du dossier</div>';
+  if(badge) h += '<div style="display:inline-block;padding:4px 10px;border-radius:999px;background:'+badge.color+'1a;color:'+badge.color+';font-weight:700;font-size:12.5px;margin-bottom:10px;">'+badge.icon+' '+badge.label+'</div>';
+  h += lignes.map(function(l){
+    return '<div class="sub" style="display:flex;justify-content:space-between;padding:3px 0;">'+
+      '<span>'+escapeHtml(l.h.labelNumber||'')+' — '+escapeHtml(l.h.fournisseur||'—')+'</span>'+
+      '<span style="color:'+(l.niveau==='anomalie'?'var(--danger)':'inherit')+';font-weight:600;">'+l.icon+' '+escapeHtml(l.label)+'</span></div>';
+  }).join('');
+  h += '<div style="border-top:1px solid var(--line);margin:10px 0;"></div>';
+  return h;
 }
 
 // ---------- numéro d'étiquette unique (compteur atomique partagé via Firestore quand disponible) ----------
@@ -6836,7 +6893,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0057';
+var APP_VERSION = '2026.0058';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
