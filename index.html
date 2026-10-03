@@ -1699,6 +1699,7 @@ function recordToIndexEntry(rec){
     colis: d.colis, palettes: d.palettes, bonLivraisonId: d.bonLivraisonId || '',
     savedAt: rec.savedAt, labelNumber: d.labelNumber,
     itemsTotal: items.length, itemsRanged: rangedCount,
+    soloItemId: items.length===1 ? items[0].itemId : null, // identifiant réel de l'unique article (P1/V1/U1) — jamais supposé
     avarieCount: d.avarieCount || 0,
     receptionMailSent: !!d.receptionMailSent,
     deliveryDate: d.deliveryDate || ''
@@ -2274,6 +2275,129 @@ function renderContremarquesList(){
 }
 
 
+
+// ================= PHASE 4 — Sortie physique conditionnée au BP =================
+// transfère une affectation existante vers une nouvelle, en vérifiant dans la même transaction que
+// l'affectation actuelle correspond exactement à ce qui est attendu (même type, même id) — sinon
+// quelqu'un d'autre a déjà transféré ou modifié ces articles entre-temps, et on refuse plutôt que
+// d'écraser silencieusement
+async function transfererArticles(selections, depuisAttendu, versAffectation){
+  if(!fsReady() || !receptionsColRef) return { ok:false, conflits:[], erreur:'Connexion indisponible' };
+  var par = (typeof currentIdentity==='function' ? currentIdentity() : '') || lsGet('access-identity') || '';
+  var le = new Date().toISOString();
+  try{
+    return await db.runTransaction(async function(tx){
+      var conflits = [], recs = {};
+      for(var i=0;i<selections.length;i++){
+        var cid = selections[i].commandeId;
+        if(recs[cid]) continue;
+        var ref = receptionsColRef.doc(cid);
+        var snap = await tx.get(ref);
+        recs[cid] = { ref:ref, exists: snap.exists, record: snap.exists ? snap.data() : null };
+      }
+      selections.forEach(function(sel){
+        var r = recs[sel.commandeId];
+        if(!r || !r.exists){ conflits.push({ commandeId:sel.commandeId, itemId:null, affectationActuelle:'introuvable' }); return; }
+        var aff = (r.record.data && r.record.data.itemAffectation) || {};
+        sel.itemIds.forEach(function(itemId){
+          var cour = aff[itemId];
+          if(!cour || cour.type!==depuisAttendu.type || cour.id!==depuisAttendu.id){
+            conflits.push({ commandeId:sel.commandeId, itemId:itemId, affectationActuelle:cour||null });
+          }
+        });
+      });
+      if(conflits.length) return { ok:false, conflits:conflits };
+      selections.forEach(function(sel){
+        var r = recs[sel.commandeId];
+        sel.itemIds.forEach(function(itemId){ r.record.data.itemAffectation[itemId] = Object.assign({ par:par, le:le }, versAffectation); });
+        tx.set(r.ref, r.record);
+      });
+      return { ok:true };
+    });
+  }catch(e){ console.error('Firestore transfererArticles error', e); return { ok:false, conflits:[], erreur: e.message||String(e) }; }
+}
+
+// valide la sortie physique d'un Bon de Préparation : pose exitedAt sur chaque réception couverte.
+// Sécurité : n'accepte de le faire QUE si le BP couvre CHAQUE réception en entier — sinon, poser
+// exitedAt sur toute la réception sortirait à tort des articles qui n'appartiennent pas à ce BP et
+// qui restent physiquement au dépôt. Dans ce cas, on refuse avec un message clair plutôt que de
+// risquer de perdre la marchandise de vue.
+async function validerSortieBP(numero){
+  if(!fsReady() || !bpColRef) return { ok:false, motif:'Connexion indisponible' };
+  var bpSnap = await bpColRef.doc(numero).get();
+  if(!bpSnap.exists) return { ok:false, motif:'Bon de Préparation introuvable' };
+  var bp = bpSnap.data();
+  if(bp.statut!=='pret') return { ok:false, motif:'Le BP doit être marqué « Prêt » avant de valider la sortie' };
+
+  for(var i=0;i<bp.lignes.length;i++){
+    var ligne = bp.lignes[i];
+    var rec = await getReceptionRecord(ligne.commandeId);
+    if(!rec) return { ok:false, motif:'Commande '+(ligne.labelNumber||ligne.commandeId)+' introuvable' };
+    var itemsAll = computeLabels(rec.data).map(function(m){ return m.itemId; });
+    var manquants = itemsAll.filter(function(it){ return ligne.itemIds.indexOf(it)<0; });
+    if(manquants.length){
+      return { ok:false, motif:'La commande '+(ligne.labelNumber||ligne.commandeId)+' n\'est que partiellement couverte par ce BP ('+manquants.length+' article(s) restant ailleurs) — la sortie ne peut pas être validée tant que la réception entière n\'est pas dans ce BP.' };
+    }
+  }
+
+  var par = lsGet('access-identity')||'', le = new Date().toISOString();
+  for(var j=0;j<bp.lignes.length;j++){
+    var rec2 = await getReceptionRecord(bp.lignes[j].commandeId);
+    if(!rec2) continue;
+    rec2.data.exitedAt = le;
+    await saveReceptionRecord(bp.lignes[j].commandeId, rec2);
+    var idx = state.historyIndex.findIndex(function(x){ return x.id===bp.lignes[j].commandeId; });
+    if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec2); }
+  }
+  await bpColRef.doc(numero).set({ statut:'sorti', sortieValidee:{ par:par, le:le } }, { merge:true });
+  return { ok:true };
+}
+
+// crée le Bon de Livraison à partir d'un BP déjà sorti (destination livraison) : transfère le verrou
+// du BP vers le nouveau BL, sans jamais repasser par une « disponibilité » qui n'existe plus — ces
+// articles ont déjà quitté le stock, ils ne sont plus « en stock disponible », mais toujours verrouillés
+async function createBonLivraisonFromBP(numero, dateInfo){
+  dateInfo = dateInfo || {};
+  var bpSnap = await bpColRef.doc(numero).get();
+  if(!bpSnap.exists) return { erreur:true, motif:'Bon de Préparation introuvable' };
+  var bp = bpSnap.data();
+  if(bp.statut!=='sorti') return { erreur:true, motif:'La sortie de ce BP n\'est pas encore validée' };
+  if(bp.blNumero) return { erreur:true, motif:'Ce BP est déjà rattaché au BL '+bp.blNumero };
+
+  var selections = bp.lignes.map(function(l){ return { commandeId:l.commandeId, itemIds:l.itemIds }; });
+  var numeroBL = await nextBLNumero();
+  var transfert = await transfererArticles(selections, { type:'bp', id:numero }, { type:'bl', id:numeroBL });
+  if(!transfert.ok) return { erreur:true, conflits: transfert.conflits||[], motif: transfert.erreur||'' };
+
+  var poidsTotal = 0, nbColisTotal = 0, commandesSnapshot = [];
+  bp.lignes.forEach(function(l){
+    poidsTotal += l.poids; nbColisTotal += l.colis;
+    commandesSnapshot.push({ id:l.commandeId, labelNumber:l.labelNumber, client:bp.contremarque, fournisseur:l.fournisseur, poids:l.poids, colis:l.colis, partiel:l.partiel, emplacement:l.emplacement });
+  });
+  for(var i=0;i<bp.lignes.length;i++){
+    var recU = await getReceptionRecord(bp.lignes[i].commandeId);
+    if(recU){ var idx = state.historyIndex.findIndex(function(x){ return x.id===bp.lignes[i].commandeId; }); if(idx>=0) state.historyIndex[idx] = recordToIndexEntry(recU); }
+  }
+  var cmProfile = (state.base.contremarques||[]).find(function(c){ return c.id===bp.contremarqueId; }) || {};
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
+  var bl = {
+    numero: numeroBL, contremarque: bp.contremarque, contremarqueId: bp.contremarqueId||'', commandeIds: bp.lignes.map(function(l){ return l.commandeId; }), commandes: commandesSnapshot,
+    contremarqueAdresse: { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' },
+    depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
+    poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
+    dateLivraisonPrevue: dateInfo.dateSouhaitee||dateInfo.dateImperative||'', dateSouhaitee: dateInfo.dateSouhaitee||'', dateImperative: dateInfo.dateImperative||'', estImperative: !!dateInfo.estImperative, creneauSouhaite: '',
+    reprise: !!dateInfo.reprise, montage: !!dateInfo.montage, instructions: dateInfo.instructions||'',
+    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '' },
+    volume: '', natureMarchandise: '', emailDestinataire: cmProfile.mail||'',
+    rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
+    validationExploitant: { valide:false, par:'', le:'' }, tourneeId: '', bpOrigine: numero,
+    type: 'livraison', createdAt: new Date().toISOString()
+  };
+  bl.statut = controlerBL(bl).complet ? 'complet' : 'incomplet';
+  if(fsReady()){ try{ await blColRef.doc(numeroBL).set(bl); await bpColRef.doc(numero).set({ blNumero:numeroBL }, { merge:true }); }catch(e){ console.error('Firestore createBonLivraisonFromBP error', e); } }
+  return bl;
+}
+
 // ================= PHASE 3 — Bon de Préparation =================
 async function nextBPNumero(){
   var now = new Date();
@@ -2384,9 +2508,13 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
     var nb = bp.lignes.length;
     var actions = '';
     if(bp.statut==='brouillon') actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="pret" style="padding:4px 10px;font-size:12px;">Marquer prêt</button>';
-    else if(bp.statut==='pret') actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="brouillon" style="padding:4px 10px;font-size:12px;">Revenir à créé</button>';
-    return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;">'+
-      '<span>'+escapeHtml(bp.numero)+' — '+(bp.destination==='emporte'?'Emporté client':'Livraison')+' · '+nb+' commande(s) · '+lbl+'</span>'+actions+'</div>';
+    else if(bp.statut==='pret') actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="brouillon" style="padding:4px 10px;font-size:12px;">Revenir à créé</button>'+
+      '<button class="btn accent bp-valider-sortie" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">✅ Valider la sortie</button>';
+    else if(bp.statut==='sorti' && bp.destination==='livraison' && !bp.blNumero) actions = '<button class="btn accent bp-creer-bl" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">Créer le BL</button>';
+    else if(bp.statut==='sorti' && bp.blNumero) actions = '<a href="livraisons.html?bl='+escapeHtml(bp.blNumero)+'" style="font-size:12px;color:var(--accent);font-weight:600;">→ BL '+escapeHtml(bp.blNumero)+'</a>';
+    return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">'+
+      '<span>'+escapeHtml(bp.numero)+' — '+(bp.destination==='emporte'?'Emporté client':'Livraison')+' · '+nb+' commande(s) · '+lbl+'</span>'+
+      '<span style="display:flex;gap:6px;">'+actions+'</span><div id="bpMsgLigne-'+escapeHtml(bp.numero)+'" style="width:100%;font-size:12px;"></div></div>';
   }).join('') : '<div class="hint">Aucun Bon de Préparation pour l\'instant.</div>';
 
   html += '<div class="hint" style="font-weight:600;margin:14px 0 6px;">Nouveau Bon de Préparation</div>';
@@ -2401,7 +2529,7 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
       if((h.itemsTotal||1)<=1){
         var colisEst = (parseFloat(h.colis)||0)+(parseFloat(h.palettes)||0);
         return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:400;">'+
-          '<input type="checkbox" class="bp-cde-check" data-id="'+h.id+'" data-item="U1" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
+          '<input type="checkbox" class="bp-cde-check" data-id="'+h.id+'" data-item="'+(h.soloItemId||'U1')+'" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
           '<span>'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+' · '+escapeHtml(h.emplacement||'—')+'</span></label>';
       }
       return '<div data-bp-reception-block="'+h.id+'" style="margin-bottom:10px;">'+
@@ -2476,6 +2604,39 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
       renderBPPanel(idx, contremarqueNom, true, cmId);
     });
   });
+  Array.prototype.forEach.call(box.querySelectorAll('.bp-valider-sortie'), function(btn){
+    btn.addEventListener('click', async function(){
+      var num = btn.getAttribute('data-num');
+      if(!confirm('Valider la sortie physique du Bon de Préparation '+num+' ?\n\nLa marchandise doit avoir réellement quitté son emplacement de stock.')) return;
+      btn.disabled = true;
+      var res = await validerSortieBP(num);
+      var ligneMsg = document.getElementById('bpMsgLigne-'+num);
+      if(!res.ok){
+        if(ligneMsg){ ligneMsg.textContent = '⚠️ '+res.motif; ligneMsg.style.color = 'var(--danger)'; }
+        btn.disabled = false;
+        return;
+      }
+      renderHistory(); renderArchiveList(); renderToRangeList();
+      renderBPPanel(idx, contremarqueNom, true, cmId);
+    });
+  });
+  Array.prototype.forEach.call(box.querySelectorAll('.bp-creer-bl'), function(btn){
+    btn.addEventListener('click', async function(){
+      var num = btn.getAttribute('data-num');
+      btn.disabled = true;
+      var bl = await createBonLivraisonFromBP(num, {});
+      if(bl && bl.erreur){
+        var ligneMsg = document.getElementById('bpMsgLigne-'+num);
+        var detail = (bl.conflits||[]).map(function(c){ return c.commandeId+'/'+c.itemId; }).join(' — ');
+        if(ligneMsg){ ligneMsg.textContent = '⚠️ '+(bl.motif||'Création refusée')+(detail?' ('+detail+')':''); ligneMsg.style.color = 'var(--danger)'; }
+        btn.disabled = false;
+        return;
+      }
+      renderHistory();
+      renderBPPanel(idx, contremarqueNom, true, cmId);
+      banner('BL '+bl.numero+' créé depuis '+num);
+    });
+  });
 }
 
 // ---------- panneau Bons de Livraison d'une fiche contremarque ----------
@@ -2527,7 +2688,7 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
       if((h.itemsTotal||1)<=1){
         var colisEst = (parseFloat(h.colis)||0)+(parseFloat(h.palettes)||0);
         return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:400;">'+
-          '<input type="checkbox" class="bl-cde-check" data-id="'+h.id+'" data-item="U1" data-poids="'+(h.poids||0)+'" data-colis="'+colisEst+'" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
+          '<input type="checkbox" class="bl-cde-check" data-id="'+h.id+'" data-item="'+(h.soloItemId||'U1')+'" data-poids="'+(h.poids||0)+'" data-colis="'+colisEst+'" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
           '<span>'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+' · '+escapeHtml(h.emplacement||'—')+'</span>'+
           '</label>';
       }
@@ -7228,7 +7389,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0062';
+var APP_VERSION = '2026.0063';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
