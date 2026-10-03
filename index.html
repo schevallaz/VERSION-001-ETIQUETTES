@@ -5217,8 +5217,8 @@ function renderHistory(){
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     var blBadge = h.bonLivraisonId ? '<span style="color:var(--accent);font-weight:600;">🚚 BL '+escapeHtml(h.bonLivraisonId)+'</span>' : '';
     var walkPanel = renderWalkPanel(h.labelNumber);
-    var cmLinked = findContremarqueProfile(h.contremarque);
-    var cmBtnLabel = cmLinked ? 'Fiche contremarque ✓' : 'Fiche contremarque';
+    var cmLinked = h.contremarqueId ? (state.base.contremarques||[]).find(function(c){ return c.id===h.contremarqueId; }) : findContremarqueProfile(h.contremarque);
+    var cmBtnLabel = cmLinked ? 'Mettre en Préparation' : 'Mettre en Préparation (lier d\'abord)';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span><span class="date">'+fmtDate(h.receivedAt||h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+(blBadge?' · '+blBadge:'')+'</div>'+
@@ -5512,21 +5512,33 @@ function findContremarqueById(id){
   return (state.base.contremarques||[]).find(function(x){ return x.id===id; }) || null;
 }
 
-// panneau (depuis "CDE en stock") pour associer une commande à une fiche contremarque existante,
-// ou en créer une nouvelle directement à partir du nom de contremarque déjà saisi sur la commande
-async function renderCmLinkPanel(id){
+// panneau (depuis "CDE en stock") : associer la commande à une fiche contremarque (ou en créer une),
+// puis mettre directement cette commande en préparation — tout en un seul endroit, sans naviguer
+// jusqu'à Gestion Contremarques
+async function renderCmLinkPanel(id, forceOpen){
   var box = document.getElementById('cmlink-'+id);
   if(!box) return;
-  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+  if(!forceOpen && box.style.display === 'block'){ box.style.display = 'none'; return; }
   var rec = await getReceptionRecord(id);
   if(!rec){ banner('Introuvable'); return; }
   var current = rec.data.contremarque || '';
-  var linked = findContremarqueProfile(current);
+  var linked = rec.data.contremarqueId ? (state.base.contremarques||[]).find(function(c){ return c.id===rec.data.contremarqueId; }) : findContremarqueProfile(current);
   var list = state.base.contremarques || [];
 
   var html = '';
   if(linked){
     html += '<div class="hint" style="margin-bottom:8px;color:var(--accent);font-weight:600;">✓ Associée à la fiche « '+escapeHtml(linked.nom)+(linked.prenom?' '+escapeHtml(linked.prenom):'')+' »</div>';
+    var dejaAffectee = Object.values(rec.data.itemAffectation||{}).length>0 && Object.keys(rec.data.itemAffectation||{}).length>=computeLabels(rec.data).length;
+    if(dejaAffectee){
+      html += '<div class="hint" style="color:var(--ink-soft);">Cette commande est déjà entièrement affectée (BP ou BL) — rien à mettre en préparation.</div>';
+    } else {
+      html += '<div class="field"><label>Destination</label><select id="bpstockDest-'+id+'">'+
+        '<option value="livraison">Livraison</option><option value="emporte">Emporté client</option></select></div>'+
+        '<div class="btn-row"><button class="btn accent" id="btnBPStock-'+id+'" style="width:100%;">📋 Créer le Bon de Préparation</button></div>'+
+        '<div id="bpstockMsg-'+id+'" style="margin-top:4px;font-size:12.5px;"></div>';
+    }
+    html += '<div style="border-top:1px solid var(--line);margin:12px 0;"></div>'+
+      '<div class="hint" style="margin-bottom:6px;">Associer à une autre fiche :</div>';
   } else if(current){
     html += '<div class="hint" style="margin-bottom:8px;">Contremarque actuelle : « '+escapeHtml(current)+' » — aucune fiche ne correspond.</div>';
   } else {
@@ -5547,6 +5559,24 @@ async function renderCmLinkPanel(id){
   box.innerHTML = html;
   box.style.display = 'block';
 
+  var btnBP = document.getElementById('btnBPStock-'+id);
+  if(btnBP){
+    btnBP.addEventListener('click', async function(){
+      btnBP.disabled = true; btnBP.textContent = 'Création…';
+      var dest = document.getElementById('bpstockDest-'+id).value;
+      var bp = await createBonPreparation(linked.id, linked.nom, [{ commandeId:id, itemIds:null }], dest);
+      var msg = document.getElementById('bpstockMsg-'+id);
+      if(bp && bp.erreur){
+        if(msg){ msg.textContent = '⚠️ '+(bp.motif||'Création refusée — déjà affectée ailleurs'); msg.style.color = 'var(--danger)'; }
+        btnBP.disabled = false; btnBP.textContent = '📋 Créer le Bon de Préparation';
+        return;
+      }
+      renderHistory();
+      banner('Bon de Préparation '+bp.numero+' créé pour « '+escapeHtml(linked.nom)+' »');
+      renderCmLinkPanel(id, true);
+    });
+  }
+
   document.getElementById('cmlinkAssocBtn-'+id).addEventListener('click', async function(){
     var sel = document.getElementById('cmlinkSelect-'+id);
     if(sel.value===''){ banner('Choisis une fiche'); return; }
@@ -5562,6 +5592,7 @@ async function renderCmLinkPanel(id){
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(freshRec); }
     renderHistory();
     banner('Commande associée à la fiche « '+cm.nom+' »');
+    renderCmLinkPanel(id, true);
   });
 
   var createBtn = document.getElementById('cmlinkCreateBtn-'+id);
@@ -5579,7 +5610,8 @@ async function renderCmLinkPanel(id){
       renderContremarquesList();
       document.getElementById('cnt-contremarques').textContent = pad4(state.base.contremarques.length);
       renderHistory();
-      banner('Fiche « '+current+' » créée — complète-la dans Base → Fiches Contremarque');
+      banner('Fiche « '+current+' » créée');
+      renderCmLinkPanel(id, true);
     });
   }
 }
@@ -7529,7 +7561,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0065';
+var APP_VERSION = '2026.0066';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
