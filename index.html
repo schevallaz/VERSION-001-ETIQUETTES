@@ -1467,6 +1467,7 @@ async function switchToAgency(code){
   await migrateContremarque();
   await migrateReceivedAt();
   await migrateContremarqueId();
+  await migrateItemAffectation();
   refreshDatalists();
   renderBaseLists();
   renderTrashList();
@@ -7279,6 +7280,7 @@ async function loadAgencyDataAndShowApp(){
   await migrateContremarque();
   await migrateReceivedAt();
   await migrateContremarqueId();
+  await migrateItemAffectation();
   refreshDatalists();
   renderBaseLists();
   renderTrashList();
@@ -7520,6 +7522,101 @@ async function migrateContremarqueId(){
   }
   if(touched) await saveHistoryIndex();
   state.base.contremarqueIdMigrated = true;
+  await saveBase();
+}
+
+// ================= PHASE 1 — Verrou central d'affectation =================
+// Chaque article (palette/colis vrac) ne peut être affecté qu'à UNE seule chose à la fois :
+// absent = disponible, ou { type:'bl'|'bp'|'emporte'|'retour', id, par, le }.
+// Toute fonction qui affecte un article DOIT passer par réclamerArticles — jamais écrire
+// directement sur itemAffectation. C'est ce passage obligé, en transaction Firestore, qui ferme
+// la faille trouvée dans l'audit : deux demandes simultanées sur le même article ne peuvent
+// jamais réussir toutes les deux, même si elles arrivent à la même milliseconde.
+async function reclamerArticles(selections, nouvelleAffectation){
+  if(!fsReady() || !receptionsColRef) return { ok:false, conflits:[], erreur:'Connexion indisponible' };
+  var par = (typeof currentIdentity==='function' ? currentIdentity() : '') || lsGet('access-identity') || '';
+  var le = new Date().toISOString();
+  try{
+    return await db.runTransaction(async function(tx){
+      var conflits = [];
+      var recs = {};
+      // 1) lit TOUTES les réceptions concernées, dans la même transaction, avant d'écrire quoi que ce soit
+      for(var i=0;i<selections.length;i++){
+        var cid = selections[i].commandeId;
+        if(recs[cid]) continue;
+        var ref = receptionsColRef.doc(cid);
+        var snap = await tx.get(ref);
+        recs[cid] = { ref:ref, exists: snap.exists, record: snap.exists ? snap.data() : null };
+      }
+      // 2) vérifie chaque article demandé : doit être strictement disponible, sinon on refuse tout en bloc
+      selections.forEach(function(sel){
+        var r = recs[sel.commandeId];
+        if(!r || !r.exists){ conflits.push({ commandeId:sel.commandeId, itemId:null, affectationActuelle:'introuvable' }); return; }
+        var aff = (r.record.data && r.record.data.itemAffectation) || {};
+        sel.itemIds.forEach(function(itemId){
+          if(aff[itemId]) conflits.push({ commandeId:sel.commandeId, itemId:itemId, affectationActuelle:aff[itemId] });
+        });
+      });
+      if(conflits.length) return { ok:false, conflits:conflits };
+      // 3) tout est libre : pose le verrou sur chaque article demandé, en une seule transaction atomique
+      selections.forEach(function(sel){
+        var r = recs[sel.commandeId];
+        if(!r.record.data.itemAffectation) r.record.data.itemAffectation = {};
+        sel.itemIds.forEach(function(itemId){ r.record.data.itemAffectation[itemId] = Object.assign({ par:par, le:le }, nouvelleAffectation); });
+        tx.set(r.ref, r.record);
+      });
+      return { ok:true };
+    });
+  }catch(e){ console.error('Firestore reclamerArticles error', e); return { ok:false, conflits:[], erreur: e.message||String(e) }; }
+}
+
+// libère un ou plusieurs articles (retour au stock disponible) — toujours une action explicite et
+// tracée, jamais un effet de bord silencieux d'une autre opération
+async function libererArticles(selections){
+  if(!fsReady() || !receptionsColRef) return false;
+  try{
+    await db.runTransaction(async function(tx){
+      var recs = {};
+      for(var i=0;i<selections.length;i++){
+        var cid = selections[i].commandeId;
+        if(recs[cid]) continue;
+        var ref = receptionsColRef.doc(cid);
+        var snap = await tx.get(ref);
+        if(snap.exists) recs[cid] = { ref:ref, record: snap.data() };
+      }
+      selections.forEach(function(sel){
+        var r = recs[sel.commandeId];
+        if(!r) return;
+        if(!r.record.data.itemAffectation) r.record.data.itemAffectation = {};
+        sel.itemIds.forEach(function(itemId){ delete r.record.data.itemAffectation[itemId]; });
+        tx.set(r.ref, r.record);
+      });
+    });
+    return true;
+  }catch(e){ console.error('Firestore libererArticles error', e); return false; }
+}
+
+// migration : convertit les anciens formats (itemBL par article, ou bonLivraisonId sur toute la
+// réception) vers itemAffectation — tourne une seule fois, les nouvelles affectations passent
+// désormais exclusivement par réclamerArticles
+async function migrateItemAffectation(){
+  if(state.base.itemAffectationMigrated) return;
+  var candidats = state.historyIndex.filter(function(h){ return h.bonLivraisonId; });
+  for(var i=0;i<candidats.length;i++){
+    var h = candidats[i];
+    var rec = await getReceptionRecord(h.id);
+    if(!rec || rec.data.itemAffectation) continue; // déjà migrée ou introuvable
+    var d = rec.data;
+    var items = computeLabels(d);
+    d.itemAffectation = {};
+    if(d.itemBL){
+      items.forEach(function(m){ if(d.itemBL[m.itemId]) d.itemAffectation[m.itemId] = { type:'bl', id:d.itemBL[m.itemId], par:'', le:'' }; });
+    } else if(d.bonLivraisonId){
+      items.forEach(function(m){ d.itemAffectation[m.itemId] = { type:'bl', id:d.bonLivraisonId, par:'', le:'' }; });
+    }
+    await saveReceptionRecord(h.id, rec);
+  }
+  state.base.itemAffectationMigrated = true;
   await saveBase();
 }
 
