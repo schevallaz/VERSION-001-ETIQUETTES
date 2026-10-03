@@ -1289,6 +1289,7 @@ try{
 var configDocRef = null;      // liée à l'agence active une fois choisie (voir setActiveAgency)
 var receptionsColRef = null;  // idem
 var blColRef = null; // Bons de Livraison du dépôt actif
+var bpColRef = null; // Bons de Préparation du dépôt actif
 var tourneesColRef = null; // Tournées de livraisons du dépôt actif
 var globalDocRef = fsAvailable ? db.collection('stls_depot').doc('global') : null;
 var oldConfigDocRef = fsAvailable ? db.collection('stls_depot').doc('config') : null; // ancien emplacement (avant multi-agences), utilisé pour la migration uniquement
@@ -1299,6 +1300,7 @@ function setActiveAgency(code){
   configDocRef = agencyDocRef(code);
   receptionsColRef = configDocRef ? configDocRef.collection('receptions') : null;
   blColRef = configDocRef ? configDocRef.collection('bonsLivraison') : null;
+  bpColRef = configDocRef ? configDocRef.collection('bonsPreparation') : null;
   tourneesColRef = configDocRef ? configDocRef.collection('tournees') : null;
 }
 
@@ -1719,6 +1721,9 @@ function recordToIndexEntry(rec){
   var blVals = affVals.filter(function(v){ return v && v.type==='bl'; }).map(function(v){ return v.id; });
   var blUniques = blVals.filter(function(v,i){ return blVals.indexOf(v)===i; });
   entry.bonLivraisonId = (blUniques.length===1 && blVals.length===items.length) ? blUniques[0] : (blUniques.length ? 'partiel' : '');
+  var bpVals = affVals.filter(function(v){ return v && v.type==='bp'; }).map(function(v){ return v.id; });
+  var bpUniques = bpVals.filter(function(v,i){ return bpVals.indexOf(v)===i; });
+  entry.bonPreparationId = (bpUniques.length===1 && bpVals.length===items.length) ? bpUniques[0] : (bpUniques.length ? 'partiel' : '');
   return entry;
 }
 
@@ -2244,18 +2249,231 @@ function renderContremarquesList(){
       (adr ? '<div class="sub">'+escapeHtml(adr)+'</div>' : '')+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="editcm">Modifier</button>'+
+        '<button class="btn ghost" data-act="bpcm">Bons de Préparation</button>'+
         '<button class="btn accent" data-act="blcm">Bons de Livraison</button>'+
       '</div>'+
+      '<div id="bppanel-'+idx+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="blpanel-'+idx+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '</div>';
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="editcm"]'), function(btn){
     btn.addEventListener('click', function(){ startEditContremarque(parseInt(btn.closest('.hist-item').getAttribute('data-idx'),10)); });
   });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="bpcm"]'), function(btn){
+    btn.addEventListener('click', function(){
+      var item = btn.closest('.hist-item');
+      renderBPPanel(parseInt(item.getAttribute('data-idx'),10), item.getAttribute('data-nom'), false, item.getAttribute('data-cmid'));
+    });
+  });
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="blcm"]'), function(btn){
     btn.addEventListener('click', function(){
       var item = btn.closest('.hist-item');
       renderBLPanel(parseInt(item.getAttribute('data-idx'),10), item.getAttribute('data-nom'), false, item.getAttribute('data-cmid'));
+    });
+  });
+}
+
+
+// ================= PHASE 3 — Bon de Préparation =================
+async function nextBPNumero(){
+  var now = new Date();
+  var yymm = String(now.getFullYear()).slice(2)+String(now.getMonth()+1).padStart(2,'0');
+  if(fsReady()){
+    try{
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var counters = (snap.exists && snap.data().bpCounters) || {};
+        var current = counters[yymm] || 0;
+        var next = current + 1;
+        counters[yymm] = next;
+        tx.set(configDocRef, { bpCounters: counters }, { merge: true });
+        return next;
+      });
+      return 'BP'+yymm+String(n).padStart(4,'0');
+    }catch(e){ console.error('Firestore nextBPNumero error', e); }
+  }
+  var key = 'bp-counter-'+yymm;
+  var raw = lsGet(key);
+  var n2 = (raw ? parseInt(raw,10) : 0) + 1;
+  lsSet(key, String(n2));
+  return 'BP'+yymm+String(n2).padStart(4,'0');
+}
+
+async function loadBonsPreparationForContremarque(cmId){
+  if(!fsReady() || !bpColRef) return [];
+  try{
+    var snap = await bpColRef.where('contremarqueId','==',cmId).get();
+    var arr = []; snap.forEach(function(doc){ arr.push(doc.data()); });
+    arr.sort(function(a,b){ return (b.numero||'').localeCompare(a.numero||''); });
+    return arr;
+  }catch(e){ console.error('Firestore loadBonsPreparationForContremarque error', e); return []; }
+}
+
+// crée un Bon de Préparation : pose le verrou (type 'bp') sur les articles choisis dès la création —
+// la marchandise est « prise » pour cette préparation avant même que la sortie physique soit validée,
+// ce qui empêche une autre préparation ou un BL de la sélectionner entre-temps
+async function createBonPreparation(cmId, cmNom, selection, destination){
+  var entrees = selection.map(function(s){ return typeof s==='string' ? { commandeId:s, itemIds:null } : s; });
+  for(var p=0;p<entrees.length;p++){
+    if(!entrees[p].itemIds || !entrees[p].itemIds.length){
+      var rec0 = await getReceptionRecord(entrees[p].commandeId);
+      if(rec0) entrees[p].itemIds = computeLabels(rec0.data).map(function(m){ return m.itemId; });
+    }
+  }
+  var numero = await nextBPNumero();
+  var verrou = await reclamerArticles(entrees.map(function(e){ return { commandeId:e.commandeId, itemIds:e.itemIds }; }), { type:'bp', id:numero });
+  if(!verrou.ok) return { erreur:true, conflits: verrou.conflits||[], motif: verrou.erreur||'' };
+
+  var lignes = [];
+  for(var i=0;i<entrees.length;i++){
+    var rec = await getReceptionRecord(entrees[i].commandeId);
+    if(!rec) continue;
+    var idx = state.historyIndex.findIndex(function(x){ return x.id===entrees[i].commandeId; });
+    if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+    var itemsAll = computeLabels(rec.data);
+    var part = entrees[i].itemIds.length/itemsAll.length;
+    lignes.push({
+      commandeId: entrees[i].commandeId, itemIds: entrees[i].itemIds,
+      labelNumber: rec.data.labelNumber||'', fournisseur: rec.data.fournisseur||'',
+      poids: Math.round((parseFloat(rec.data.poids)||0)*part*10)/10,
+      colis: Math.round(((parseFloat(rec.data.colis)||0)+(parseFloat(rec.data.palettes)||0))*part),
+      partiel: entrees[i].itemIds.length<itemsAll.length,
+      emplacement: recordToIndexEntry(rec).emplacement || rec.data.emplacement || ''
+    });
+  }
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
+  var bp = {
+    numero: numero, contremarqueId: cmId||'', contremarque: cmNom||'', destination: destination,
+    lignes: lignes, statut: 'brouillon', depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
+    createdAt: new Date().toISOString(), createdPar: lsGet('access-identity')||'', sortieValidee: null
+  };
+  if(fsReady() && bpColRef){
+    try{ await bpColRef.doc(numero).set(bp); }catch(e){ console.error('Firestore createBonPreparation error', e); }
+  }
+  return bp;
+}
+
+async function passerStatutBP(numero, nouveauStatut){
+  if(!fsReady() || !bpColRef) return false;
+  try{ await bpColRef.doc(numero).set({ statut: nouveauStatut }, { merge:true }); return true; }
+  catch(e){ console.error('Firestore passerStatutBP error', e); return false; }
+}
+
+var BP_STATUT_LABEL = { brouillon: '📋 Créé', pret: '✅ Prêt', sorti: '🚚 Sortie validée' };
+
+// ---------- panneau Bons de Préparation d'une fiche contremarque (même disposition que le panneau BL) ----------
+async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
+  var box = document.getElementById('bppanel-'+idx);
+  if(!box) return;
+  if(!forceOpen && box.style.display === 'block'){ box.style.display = 'none'; return; }
+  box.innerHTML = '<div class="hint">Chargement…</div>';
+  box.style.display = 'block';
+
+  var existingBPs = await loadBonsPreparationForContremarque(cmId);
+  function appartientAuDossier(h){
+    if(h.deletedAt) return false;
+    if(cmId && h.contremarqueId) return h.contremarqueId===cmId;
+    return !h.contremarqueId && (h.contremarque||'').toLowerCase()===contremarqueNom.toLowerCase();
+  }
+  var toutesLesCommandes = state.historyIndex.filter(appartientAuDossier);
+  var enStock = toutesLesCommandes.filter(function(h){ return isStockEntry(h) && (h.itemsDisponibles==null || h.itemsDisponibles>0); });
+
+  var html = '<div class="hint" style="font-weight:600;margin-bottom:8px;">Bons de préparation existants</div>';
+  html += existingBPs.length ? existingBPs.map(function(bp){
+    var lbl = BP_STATUT_LABEL[bp.statut]||bp.statut;
+    var nb = bp.lignes.length;
+    var actions = '';
+    if(bp.statut==='brouillon') actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="pret" style="padding:4px 10px;font-size:12px;">Marquer prêt</button>';
+    else if(bp.statut==='pret') actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="brouillon" style="padding:4px 10px;font-size:12px;">Revenir à créé</button>';
+    return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;">'+
+      '<span>'+escapeHtml(bp.numero)+' — '+(bp.destination==='emporte'?'Emporté client':'Livraison')+' · '+nb+' commande(s) · '+lbl+'</span>'+actions+'</div>';
+  }).join('') : '<div class="hint">Aucun Bon de Préparation pour l\'instant.</div>';
+
+  html += '<div class="hint" style="font-weight:600;margin:14px 0 6px;">Nouveau Bon de Préparation</div>';
+  if(!enStock.length){
+    html += '<div class="hint">Aucune commande disponible en stock pour « '+escapeHtml(contremarqueNom)+' ».</div>';
+  } else {
+    html += '<div class="field"><label>Destination</label><select id="bpDestination-'+idx+'">'+
+      '<option value="livraison">Livraison</option><option value="emporte">Emporté client</option></select></div>';
+    html += '<div class="btn-row"><button class="btn ghost" id="btnBPComplete-'+idx+'" style="width:100%;">Préparation complète (toutes les commandes disponibles)</button></div>';
+    html += '<div class="hint" style="margin:10px 0 6px;">ou sélection partielle :</div>';
+    html += enStock.map(function(h){
+      if((h.itemsTotal||1)<=1){
+        var colisEst = (parseFloat(h.colis)||0)+(parseFloat(h.palettes)||0);
+        return '<label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;font-weight:400;">'+
+          '<input type="checkbox" class="bp-cde-check" data-id="'+h.id+'" data-item="U1" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">'+
+          '<span>'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+' · '+escapeHtml(h.emplacement||'—')+'</span></label>';
+      }
+      return '<div data-bp-reception-block="'+h.id+'" style="margin-bottom:10px;">'+
+        '<div class="sub" style="font-weight:600;">'+escapeHtml(h.labelNumber||'')+' — '+escapeHtml(h.client||'—')+(h.itemsDisponibles<h.itemsTotal ? ' <span style="color:var(--accent);font-weight:400;">('+h.itemsDisponibles+'/'+h.itemsTotal+' disponibles)</span>' : '')+'</div>'+
+        '<div class="hint">Chargement…</div></div>';
+    }).join('');
+    html += '<div class="btn-row"><button class="btn primary" id="btnBPCreer-'+idx+'" style="width:100%;" disabled>Créer le Bon de Préparation</button></div>';
+  }
+  html += '<div id="bpMsg-'+idx+'" style="margin-top:8px;font-size:12.5px;"></div>';
+  box.innerHTML = html;
+
+  var multiReceptions = enStock.filter(function(h){ return (h.itemsTotal||1)>1; });
+  for(var mi=0; mi<multiReceptions.length; mi++){
+    var hm = multiReceptions[mi];
+    var blocEl = box.querySelector('[data-bp-reception-block="'+hm.id+'"]');
+    if(!blocEl) continue;
+    var recFull = await getReceptionRecord(hm.id);
+    if(!recFull){ blocEl.querySelector('.hint').textContent = 'Introuvable'; continue; }
+    var itemsAll = computeLabels(recFull.data);
+    var affMap = recFull.data.itemAffectation || {};
+    var itemsLibres = itemsAll.filter(function(m){ return !affMap[m.itemId]; });
+    blocEl.querySelector('.hint').outerHTML = itemsLibres.map(function(m){
+      return '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 4px 14px;font-weight:400;">'+
+        '<input type="checkbox" class="bp-cde-check" data-id="'+hm.id+'" data-item="'+m.itemId+'" style="width:17px;height:17px;flex-shrink:0;">'+
+        '<span>'+escapeHtml(m.posLabel||m.itemId)+'</span></label>';
+    }).join('');
+  }
+
+  function selectionCourante(){
+    var checks = Array.prototype.slice.call(box.querySelectorAll('.bp-cde-check:checked'));
+    var parReception = {};
+    checks.forEach(function(c){
+      var id = c.getAttribute('data-id'), item = c.getAttribute('data-item');
+      if(!parReception[id]) parReception[id] = [];
+      parReception[id].push(item);
+    });
+    return Object.keys(parReception).map(function(id){ return { commandeId:id, itemIds:parReception[id] }; });
+  }
+  box.addEventListener('change', function(ev){
+    if(!ev.target.classList.contains('bp-cde-check')) return;
+    var btn = document.getElementById('btnBPCreer-'+idx);
+    if(btn) btn.disabled = selectionCourante().length===0;
+  });
+
+  var msgEl = document.getElementById('bpMsg-'+idx);
+  async function lancerCreation(selection){
+    var dest = document.getElementById('bpDestination-'+idx).value;
+    var bp = await createBonPreparation(cmId, contremarqueNom, selection, dest);
+    if(bp && bp.erreur){
+      var detail = bp.conflits.map(function(c){
+        var a = c.affectationActuelle;
+        return c.itemId===null ? 'introuvable' : (a?'déjà affecté ('+a.type+' '+a.id+')':'?');
+      }).join(' — ');
+      if(msgEl){ msgEl.textContent = '⚠️ Création refusée — '+(detail||bp.motif||'conflit'); msgEl.style.color = 'var(--danger)'; }
+    } else if(bp){
+      if(msgEl){ msgEl.textContent = 'Bon de Préparation '+bp.numero+' créé'; msgEl.style.color = 'var(--accent)'; }
+    }
+    renderHistory();
+    renderBPPanel(idx, contremarqueNom, true, cmId);
+  }
+  var btnComplete = document.getElementById('btnBPComplete-'+idx);
+  if(btnComplete) btnComplete.addEventListener('click', function(){
+    var toutesLesSelections = enStock.map(function(h){ return { commandeId:h.id, itemIds:null }; });
+    lancerCreation(toutesLesSelections);
+  });
+  var btnCreer = document.getElementById('btnBPCreer-'+idx);
+  if(btnCreer) btnCreer.addEventListener('click', function(){ lancerCreation(selectionCourante()); });
+
+  Array.prototype.forEach.call(box.querySelectorAll('.bp-statut'), function(btn){
+    btn.addEventListener('click', async function(){
+      await passerStatutBP(btn.getAttribute('data-num'), btn.getAttribute('data-nouveau'));
+      renderBPPanel(idx, contremarqueNom, true, cmId);
     });
   });
 }
@@ -3903,6 +4121,12 @@ function statutLigneReception(h, blStatutParNumero){
     if(st2==='valide_pour_tournee' || st2==='affecte_tournee') return { icon:'🚛', label:'En livraison (BL '+h.bonLivraisonId+') — vérifier la sortie de stock', niveau:'anomalie' };
     return { icon:'🚚', label:'Affecté au BL '+h.bonLivraisonId, niveau:'bl_cree' };
   }
+  if(h.bonPreparationId && h.bonPreparationId!=='partiel'){
+    return { icon:'📋', label:'En préparation ('+h.bonPreparationId+')', niveau:'bp_cree' };
+  }
+  if(h.bonPreparationId==='partiel'){
+    return { icon:'📋', label:'Partiellement en préparation', niveau:'bp_cree' };
+  }
   if(!h.receivedAt) return { icon:'⏳', label:'En attente de réception', niveau:'attente' };
   return { icon:'📦', label:'Reçu — en stock, disponible', niveau:'recu' };
 }
@@ -3913,6 +4137,7 @@ function badgeDossierContremarque(lignes){
   if(niveaux.every(function(n){ return n==='livre'; })) return { icon:'✅', label:'LIVRÉ', color:'#1e8e3e' };
   if(niveaux.every(function(n){ return n==='livre'||n==='livraison'; })) return { icon:'🚛', label:'EN LIVRAISON', color:'#2563eb' };
   if(niveaux.every(function(n){ return n==='livre'||n==='livraison'||n==='bl_cree'; })) return { icon:'🚚', label:'BL CRÉÉ', color:'#2563eb' };
+  if(niveaux.every(function(n){ return n==='livre'||n==='livraison'||n==='bl_cree'||n==='bp_cree'; })) return { icon:'📋', label:'BP CRÉÉ', color:'#2563eb' };
   if(niveaux.indexOf('attente')>=0) return { icon:'⏳', label:'EN ATTENTE', color:'var(--ink-soft)' };
   return { icon:'✅', label:'COMPLET — prêt pour le BL', color:'#1e8e3e' };
 }
@@ -7003,7 +7228,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0061';
+var APP_VERSION = '2026.0062';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
