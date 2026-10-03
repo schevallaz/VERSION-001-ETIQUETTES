@@ -1710,16 +1710,15 @@ function recordToIndexEntry(rec){
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   if(d.deletedAt){ entry.deletedAt = d.deletedAt; entry.deletedBy = d.deletedBy; }
   // affectation BL par article (palette/colis vrac) : une réception peut être partagée entre plusieurs
-  // BL — itemsDisponibles compte ce qui n'est encore affecté à aucun ; compatible avec les anciennes
-  // réceptions qui n'ont jamais utilisé itemBL (tout ou rien, comme avant)
-  if(d.itemBL){
-    var blVals = items.map(function(m){ return d.itemBL[m.itemId] || ''; });
-    entry.itemsDisponibles = blVals.filter(function(v){ return !v; }).length;
-    var blUniques = blVals.filter(function(v,i){ return v && blVals.indexOf(v)===i; });
-    entry.bonLivraisonId = (blUniques.length===1 && entry.itemsDisponibles===0) ? blUniques[0] : (blUniques.length ? 'partiel' : '');
-  } else {
-    entry.itemsDisponibles = d.bonLivraisonId ? 0 : items.length;
-  }
+  // itemAffectation est désormais la seule source de vérité (phase 2) : un article y figure dès
+  // qu'il est pris par un BP, un BL, un emporté ou un retour — itemsDisponibles ne compte que ce
+  // qui n'y figure pas du tout
+  var affMap = d.itemAffectation || {};
+  var affVals = items.map(function(m){ return affMap[m.itemId] || null; });
+  entry.itemsDisponibles = affVals.filter(function(v){ return !v; }).length;
+  var blVals = affVals.filter(function(v){ return v && v.type==='bl'; }).map(function(v){ return v.id; });
+  var blUniques = blVals.filter(function(v,i){ return blVals.indexOf(v)===i; });
+  entry.bonLivraisonId = (blUniques.length===1 && blVals.length===items.length) ? blUniques[0] : (blUniques.length ? 'partiel' : '');
   return entry;
 }
 
@@ -2345,8 +2344,8 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
     var recFull = await getReceptionRecord(hm.id);
     if(!recFull){ blocEl.querySelector('.hint').textContent = 'Introuvable'; continue; }
     var itemsAll = computeLabels(recFull.data);
-    var itemBLMap = recFull.data.itemBL || {};
-    var itemsLibres = itemsAll.filter(function(m){ return !itemBLMap[m.itemId]; });
+    var affMap = recFull.data.itemAffectation || {};
+    var itemsLibres = itemsAll.filter(function(m){ return !affMap[m.itemId]; });
     var poidsParItem = (parseFloat(hm.poids)||0) / itemsAll.length;
     var colisParItem = ((parseFloat(hm.colis)||0)+(parseFloat(hm.palettes)||0)) / itemsAll.length;
     blocEl.querySelector('.hint').outerHTML = itemsLibres.map(function(m){
@@ -2397,6 +2396,17 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
         colisOverride: parseFloat(document.getElementById('blColisEst-'+idx).value)||0
       }, cmId);
       var msg = document.getElementById('blMsg-'+idx);
+      if(bl && bl.erreur){
+        var detail = bl.conflits.map(function(c){
+          if(c.itemId===null) return c.commandeId+' : introuvable';
+          var a = c.affectationActuelle;
+          return c.commandeId+' / '+c.itemId+' : déjà affecté ('+(a&&a.type==='bl'?'BL '+a.id:(a?a.type+' '+a.id:'?'))+')';
+        }).join(' — ');
+        if(msg){ msg.textContent = '⚠️ Création refusée — '+(detail||bl.motif||'conflit'); msg.style.color = 'var(--danger)'; }
+        createBtn.disabled = false; createBtn.textContent = 'Créer le Bon de Livraison';
+        renderBLPanel(idx, contremarqueNom, true, cmId); // réaffiche l'état réel : quelqu'un d'autre a pris un article entre-temps
+        return;
+      }
       if(msg){ msg.textContent = 'Bon de Livraison '+bl.numero+' créé'; msg.style.color = 'var(--accent)'; }
       renderHistory();
       renderBLPanel(idx, contremarqueNom, true, cmId);
@@ -3126,39 +3136,43 @@ function controlerBL(bl){
 // partagée entre plusieurs BL, le reste de ses articles restant disponible pour un BL ultérieur
 async function createBonLivraison(contremarque, selection, dateInfo, cmId){
   dateInfo = dateInfo || {};
+  var entrees = selection.map(function(s){ return typeof s==='string' ? { commandeId:s, itemIds:null } : s; });
+
+  // normalise la sélection en identifiants d'articles complets (même pour l'ancien format
+  // « réception entière ») : le verrou doit porter sur exactement ce qui va être affecté
+  for(var p=0;p<entrees.length;p++){
+    if(!entrees[p].itemIds || !entrees[p].itemIds.length){
+      var rec0 = await getReceptionRecord(entrees[p].commandeId);
+      if(rec0) entrees[p].itemIds = computeLabels(rec0.data).map(function(m){ return m.itemId; });
+    }
+  }
+
   var numero = await nextBLNumero();
+  // phase 2 : passage obligatoire par le verrou central — refuse tout en bloc si un seul article
+  // demandé est déjà pris ailleurs, avant même de songer à créer le BL
+  var verrou = await reclamerArticles(entrees.map(function(e){ return { commandeId:e.commandeId, itemIds:e.itemIds }; }), { type:'bl', id:numero });
+  if(!verrou.ok){ return { erreur:true, conflits: verrou.conflits||[], motif: verrou.erreur||'' }; }
+
   var poidsTotal = 0, nbColisTotal = 0;
   var commandesSnapshot = [];
-  var entrees = selection.map(function(s){ return typeof s==='string' ? { commandeId:s, itemIds:null } : s; });
   var usesOverride = (dateInfo.poidsOverride!=null || dateInfo.colisOverride!=null) && entrees.some(function(e){ return e.itemIds; });
 
   for(var i=0;i<entrees.length;i++){
     var commandeId = entrees[i].commandeId, itemIds = entrees[i].itemIds;
-    var rec = await getReceptionRecord(commandeId);
+    var rec = await getReceptionRecord(commandeId); // relu après le verrou : itemAffectation déjà à jour
     if(!rec) continue;
     var poidsRec = parseFloat(rec.data.poids)||0;
     var colisRec = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
     var itemsAll = computeLabels(rec.data);
-    var contribPoids, contribColis;
-    if(itemIds && itemIds.length && itemsAll.length>1){
-      // affectation par article : seuls les articles cochés passent sous ce BL, les autres restent libres
-      if(!rec.data.itemBL) rec.data.itemBL = {};
-      itemIds.forEach(function(it){ rec.data.itemBL[it] = numero; });
-      var part = itemIds.length/itemsAll.length;
-      contribPoids = poidsRec*part; contribColis = colisRec*part;
-    } else {
-      // réception entière (comportement historique)
-      rec.data.bonLivraisonId = numero;
-      contribPoids = poidsRec; contribColis = colisRec;
-    }
+    var part = itemIds.length/itemsAll.length;
+    var contribPoids = poidsRec*part, contribColis = colisRec*part;
     poidsTotal += contribPoids; nbColisTotal += contribColis;
-    await saveReceptionRecord(commandeId, rec);
     var idx = state.historyIndex.findIndex(function(x){ return x.id===commandeId; });
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
     commandesSnapshot.push({
       id: commandeId, labelNumber: rec.data.labelNumber||'', client: rec.data.client||'',
       fournisseur: rec.data.fournisseur||'', poids: Math.round(contribPoids*10)/10, colis: Math.round(contribColis),
-      partiel: !!(itemIds && itemIds.length<itemsAll.length),
+      partiel: itemIds.length<itemsAll.length,
       emplacement: recordToIndexEntry(rec).emplacement || rec.data.emplacement || ''
     });
   }
@@ -3196,7 +3210,15 @@ async function createBonLivraisonForExit(recId, type, dateInfo){
   dateInfo = dateInfo || {};
   var rec = await getReceptionRecord(recId);
   if(!rec) return null;
-  var numero = await nextBLNumero();
+  // phase 2 : même verrou que la création depuis Gestion Contremarques — c'est précisément le chemin
+  // qui ne vérifiait jamais rien avant (la faille trouvée dans l'audit). Une commande déjà affectée
+  // ailleurs (même sortie, même BL différent) ne peut plus se voir attribuer un second BL ici.
+  var tousArticles = computeLabels(rec.data).map(function(m){ return m.itemId; });
+  var numeroReserve = await nextBLNumero();
+  var verrou = await reclamerArticles([{ commandeId: recId, itemIds: tousArticles }], { type:'bl', id:numeroReserve });
+  if(!verrou.ok) return { erreur:true, conflits: verrou.conflits||[], motif: verrou.erreur||'' };
+  var numero = numeroReserve;
+  rec = await getReceptionRecord(recId); // relu après le verrou
   var poids = parseFloat(rec.data.poids)||0;
   var colis = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
   var contremarque = rec.data.contremarque || '';
@@ -3229,10 +3251,8 @@ async function createBonLivraisonForExit(recId, type, dateInfo){
     type: (type==='emporte'?'emporte':'livraison'), createdAt: new Date().toISOString()
   };
   bl.statut = controlerBL(bl).complet ? 'complet' : 'incomplet';
-  rec.data.bonLivraisonId = numero;
-  await saveReceptionRecord(recId, rec);
   var idx = state.historyIndex.findIndex(function(x){ return x.id===recId; });
-  if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+  if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); } // itemAffectation déjà posé par le verrou
   if(fsReady()){
     try{ await blColRef.doc(numero).set(bl); }
     catch(e){ console.error('Firestore createBonLivraisonForExit error', e); }
@@ -5263,12 +5283,17 @@ function renderArchiveList(){
           };
           var bl = await createBonLivraisonForExit(id, btn.getAttribute('data-bltype'), dateInfo);
           var msg = document.getElementById('editblMsg-'+id);
-          if(bl){
-            msg.textContent = 'Bon de Livraison '+bl.numero+' créé ('+(btn.getAttribute('data-bltype')==='emporte'?'Emporté Dépôt':'BL Livraison')+')';
-            msg.style.color = 'var(--accent)';
+          if(bl && bl.erreur){
+            var detail = bl.conflits.map(function(c){
+              var a = c.affectationActuelle;
+              return c.itemId===null ? 'introuvable' : (a&&a.type==='bl'?'déjà affectée au BL '+a.id:(a?'déjà affectée ('+a.type+' '+a.id+')':'?'));
+            }).join(' — ');
+            if(msg){ msg.textContent = '⚠️ Création refusée — cette commande est '+(detail||bl.motif||'déjà affectée ailleurs'); msg.style.color = 'var(--danger)'; }
+            else banner('Création refusée — '+(detail||bl.motif||'déjà affectée ailleurs'));
+          } else if(bl){
+            if(msg){ msg.textContent = 'Bon de Livraison '+bl.numero+' créé ('+(btn.getAttribute('data-bltype')==='emporte'?'Emporté Dépôt':'BL Livraison')+')'; msg.style.color = 'var(--accent)'; }
           } else {
-            msg.textContent = 'Erreur lors de la création du BL';
-            msg.style.color = 'var(--danger)';
+            if(msg){ msg.textContent = 'Erreur lors de la création du BL'; msg.style.color = 'var(--danger)'; }
           }
           btn.disabled = false;
         });
@@ -6491,8 +6516,11 @@ async function validateExit(labelNumber){
   var rec = await getReceptionRecord(hEntry.id);
   if(!rec){ banner('Introuvable'); return; }
   // règle métier : une commande ne devrait sortir du stock qu'une fois rattachée à un Bon de
-  // Livraison — avertissement avec possibilité de passer outre pour les cas exceptionnels, pas un blocage strict
-  if(!rec.data.bonLivraisonId){
+  // Livraison — avertissement avec possibilité de passer outre pour les cas exceptionnels, pas un
+  // blocage strict. itemAffectation (phase 2) est la seule source de vérité : au moins un article
+  // de la réception doit être affecté à un BL pour que l'avertissement ne se déclenche pas.
+  var aAuMoinsUnBL = Object.values(rec.data.itemAffectation||{}).some(function(a){ return a && a.type==='bl'; });
+  if(!aAuMoinsUnBL){
     if(!confirm('⚠️ Cette commande n\'est reliée à aucun Bon de Livraison.\n\n'+(labelNumber||'')+' — '+(rec.data.client||'?')+'\n\nSortir quand même le stock ?')) return;
   }
 
@@ -6975,7 +7003,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0060';
+var APP_VERSION = '2026.0061';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
