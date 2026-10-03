@@ -449,7 +449,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var fichesColRef = null;
 
-var APP_VERSION = '2026.0012';
+var APP_VERSION = '2026.0013';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -1052,7 +1052,9 @@ async function startForAgency(code){
   lsSet('current-agency', code);
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===code; });
   state.agencyName = ag ? ag.name : code;
-  document.getElementById('accessGateOverlay').style.display = 'none';
+  // l'écran d'accès ne se referme qu'une fois TOUTES les données chargées (véhicules, tarifs, zones,
+  // fiches) — sinon un clic trop rapide sur « Calculer » tombe sur un state.vehicules encore vide,
+  // avant même que la vraie liste ait eu le temps d'arriver de Firestore
   await loadTarifData();
   populateCalcZoneSelect();
   fillParamsForm();
@@ -1065,6 +1067,7 @@ async function startForAgency(code){
   viderFormulaireFiche();
   await publierDevisPublic(); // republie aussi ici : couvre le cas où les véhicules ont changé depuis Gestion du Parc Agence sans repasser par cet écran
   document.getElementById('calcDepotLine').textContent = 'Dépôt actif : '+state.currentAgencyCode+(state.agencyName?' — '+state.agencyName:'');
+  document.getElementById('accessGateOverlay').style.display = 'none';
 }
 
 function showAccessGate(){
