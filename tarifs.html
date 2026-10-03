@@ -6,6 +6,7 @@
 <title>Tarifs STLS</title>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <style>
   :root{
     --ink:#1c1c1a; --ink-soft:#5f5e5a; --line:#dcdad2; --line-strong:#b4b2a9;
@@ -130,17 +131,33 @@
 
   <div id="accessGateOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:55;align-items:center;justify-content:center;padding:20px 12px;">
     <div class="card" style="max-width:360px;width:100%;">
-      <h2 style="margin-bottom:6px;">Code d'accès</h2>
-      <p class="hint" style="margin:0 0 14px;">Utilise le même code que sur Gestion Dépôt (équipe ou personnel).</p>
-      <div class="field">
-        <input type="text" id="accessCodeInput" placeholder="Code" maxlength="10" style="text-align:center;font-size:20px;letter-spacing:2px;">
+      <div id="accessStep1">
+        <h2 style="margin-bottom:6px;">Connexion</h2>
+        <p class="hint" style="margin:0 0 14px;">Connecte-toi avec ton compte STLS — le même que sur Gestion Dépôt.</p>
+        <div class="field"><input type="email" id="accessEmailInput" placeholder="Email" autocomplete="username" style="text-align:center;"></div>
+        <div class="field"><input type="password" id="accessPasswordInput" placeholder="Mot de passe" autocomplete="current-password" style="text-align:center;"></div>
+        <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
+        <div class="btn-row"><button class="btn primary" id="btnAccessSubmit" style="width:100%;">Se connecter</button></div>
+        <div class="btn-row"><button class="btn ghost" id="btnForgotPassword" style="width:100%;">Mot de passe oublié ?</button></div>
       </div>
-      <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
-      <div class="btn-row">
-        <button class="btn primary" id="btnAccessSubmit" style="width:100%;">Valider</button>
+      <div id="accessStep2" style="display:none;">
+        <h2 style="margin-bottom:6px;">Mot de passe oublié</h2>
+        <p class="hint" style="margin:0 0 14px;">Saisis ton email : si un compte existe, un lien de réinitialisation te sera envoyé.</p>
+        <div class="field"><input type="email" id="accessResetEmailInput" placeholder="Email" style="text-align:center;"></div>
+        <div id="accessResetMsg" style="display:none;font-size:12.5px;margin-top:4px;"></div>
+        <div class="btn-row"><button class="btn primary" id="btnSendReset" style="width:100%;">Envoyer le lien</button></div>
+        <div class="btn-row"><button class="btn ghost" id="btnBackToLogin" style="width:100%;">← Retour</button></div>
+      </div>
+      <div id="accessStep3" style="display:none;">
+        <h2 style="margin-bottom:6px;">Ton agence</h2>
+        <p class="hint" style="margin:0 0 14px;">Choisis l'agence sur laquelle tu travailles.</p>
+        <div class="field"><select id="accessAgencySelect" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select></div>
+        <div class="btn-row"><button class="btn primary" id="btnAccessAgencySubmit" style="width:100%;">Valider</button></div>
       </div>
     </div>
   </div>
+
+
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="calc">Calculateur</button>
@@ -449,7 +466,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var fichesColRef = null;
 
-var APP_VERSION = '2026.0013';
+var APP_VERSION = '2026.0014';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -1033,7 +1050,24 @@ function resolveZoneForDistance(distance, params){
 }
 
 // ---------- session : réutilise la session de Gestion Dépôt si déjà connecté sur cet appareil ----------
-var globalSecurity = { masterCode:'2013', adminCode:'ADMIN1', users:[] };
+var globalSecurity = { accounts:{} };
+var pendingAccount = null;
+
+// authentification anonyme immédiate (avant toute connexion réelle) : satisfait déjà les règles
+// Firestore (request.auth != null) le temps que l'utilisateur se connecte avec son vrai compte —
+// sans ça, aucune lecture Firestore ne peut jamais aboutir, règles fermées obligent
+var authReady = null;
+function ensureAuth(){
+  if(!fsAvailable) return Promise.resolve(false);
+  if(authReady) return authReady;
+  authReady = new Promise(function(resolve){
+    if(!(window.firebase && firebase.auth)){ resolve(false); return; }
+    var auth = firebase.auth();
+    var unsub = auth.onAuthStateChanged(function(user){ if(user){ unsub(); resolve(true); } });
+    auth.signInAnonymously().catch(function(e){ console.error('Firebase anonymous sign-in error', e); unsub(); resolve(false); });
+  });
+  return authReady;
+}
 
 async function loadGlobalSecurity(){
   if(!fsReady()) return;
@@ -1075,25 +1109,86 @@ function showAccessGate(){
 }
 
 document.getElementById('btnAccessSubmit').addEventListener('click', async function(){
-  var val = document.getElementById('accessCodeInput').value.trim();
+  var email = document.getElementById('accessEmailInput').value.trim();
+  var pass = document.getElementById('accessPasswordInput').value;
   var err = document.getElementById('accessGateError');
   err.style.display = 'none';
-  if(!val) return;
-  var isKnown = val.toUpperCase()===globalSecurity.masterCode.toUpperCase() ||
-    val.toUpperCase()===globalSecurity.adminCode.toUpperCase() ||
-    (globalSecurity.users||[]).some(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
-  if(!isKnown){
-    err.textContent = 'Code invalide';
+  if(!email || !pass){ err.textContent = 'Saisis ton email et ton mot de passe'; err.style.display = 'block'; return; }
+  if(!(window.firebase && firebase.auth)){ err.textContent = 'Connexion indisponible pour le moment — réessaie.'; err.style.display = 'block'; return; }
+  var btn = this; btn.disabled = true;
+  try{
+    var cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
+    var uid = cred.user.uid;
+    await loadGlobalSecurity();
+    var account = (globalSecurity.accounts || {})[uid];
+    if(!account){
+      await firebase.auth().signOut();
+      err.textContent = 'Compte non reconnu — contacte l\'administrateur';
+      err.style.display = 'block';
+      btn.disabled = false;
+      return;
+    }
+    pendingAccount = account;
+    if(account.isAdmin){
+      goToAgencyStep(account.agencyCode);
+    } else {
+      await finalizeLogin(account.agencyCode);
+    }
+  }catch(e){
+    var m = 'Email ou mot de passe incorrect';
+    if(e && e.code==='auth/too-many-requests') m = 'Trop de tentatives — réessaie dans quelques minutes';
+    if(e && e.code==='auth/network-request-failed') m = 'Connexion réseau indisponible';
+    if(e && e.code==='auth/invalid-email') m = 'Email invalide';
+    err.textContent = m;
     err.style.display = 'block';
-    return;
   }
-  var userMatch = (globalSecurity.users||[]).find(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
-  var agencyCode = (userMatch && userMatch.agencyCode) || (state.agenciesList[0] && state.agenciesList[0].code);
-  if(!agencyCode){ err.textContent = 'Aucun dépôt disponible'; err.style.display='block'; return; }
-  lsSet('access-unlocked','1');
-  lsSet('access-identity', userMatch ? userMatch.name : val.toUpperCase());
-  await startForAgency(agencyCode);
+  btn.disabled = false;
 });
+document.getElementById('accessEmailInput').addEventListener('keydown', function(e){ if(e.key==='Enter'){ document.getElementById('accessPasswordInput').focus(); } });
+document.getElementById('accessPasswordInput').addEventListener('keydown', function(e){ if(e.key==='Enter'){ document.getElementById('btnAccessSubmit').click(); } });
+
+document.getElementById('btnForgotPassword').addEventListener('click', function(){
+  document.getElementById('accessStep1').style.display = 'none';
+  document.getElementById('accessStep2').style.display = 'block';
+  document.getElementById('accessResetEmailInput').value = document.getElementById('accessEmailInput').value;
+  document.getElementById('accessResetMsg').style.display = 'none';
+});
+document.getElementById('btnBackToLogin').addEventListener('click', function(){
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep1').style.display = 'block';
+});
+document.getElementById('btnSendReset').addEventListener('click', async function(){
+  var email = document.getElementById('accessResetEmailInput').value.trim();
+  var msg = document.getElementById('accessResetMsg');
+  msg.style.display = 'block';
+  if(!email){ msg.textContent = 'Saisis ton email'; msg.style.color = 'var(--danger)'; return; }
+  if(!(window.firebase && firebase.auth)){ msg.textContent = 'Connexion indisponible pour le moment'; msg.style.color = 'var(--danger)'; return; }
+  try{ await firebase.auth().sendPasswordResetEmail(email); }catch(e){}
+  msg.textContent = 'Email envoyé si ce compte existe — vérifie ta boîte de réception';
+  msg.style.color = 'var(--accent)';
+});
+
+function goToAgencyStep(preselectCode){
+  document.getElementById('accessStep1').style.display = 'none';
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep3').style.display = 'block';
+  var sel = document.getElementById('accessAgencySelect');
+  sel.innerHTML = (state.agenciesList||[]).map(function(a){ return '<option value="'+a.code+'">'+a.code+' — '+(a.name||'')+'</option>'; }).join('');
+  if(preselectCode) sel.value = preselectCode;
+}
+document.getElementById('btnAccessAgencySubmit').addEventListener('click', async function(){
+  var code = document.getElementById('accessAgencySelect').value;
+  if(!code || !pendingAccount) return;
+  await finalizeLogin(code);
+});
+async function finalizeLogin(agencyCode){
+  lsSet('access-unlocked','1');
+  lsSet('current-agency', agencyCode);
+  document.getElementById('accessStep1').style.display = 'block';
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep3').style.display = 'none';
+  await startForAgency(agencyCode); // referme lui-même l'écran d'accès, une fois tout chargé
+}
 
 // ---------- données tarifs (stockées sur le document du dépôt actif) ----------
 async function loadTarifData(){
@@ -1308,6 +1403,7 @@ document.getElementById('btnSaveZone').addEventListener('click', async function(
 (async function init(){
   await initFirebase(10);
   if(fsReady()){ globalDocRef = db.collection('stls_depot').doc('global'); }
+  await ensureAuth(); // indispensable avant toute lecture Firestore : les règles exigent request.auth != null
   await loadGlobalSecurity();
   var unlocked = lsGet('access-unlocked');
   var agencyCode = lsGet('current-agency');
