@@ -1326,13 +1326,16 @@ function ensureAuth(){
   authReady = new Promise(function(resolve){
     if(!(window.firebase && firebase.auth)){ resolve(false); return; }
     var auth = firebase.auth();
+    // le SDK restaure d'abord une éventuelle session existante : on attend cet état avant de décider
+    // quoi que ce soit. Une session déjà là (compte réel ou anonyme) n'est JAMAIS remplacée —
+    // signInAnonymously() écraserait sinon le compte réel connecté.
     var unsub = auth.onAuthStateChanged(function(user){
-      if(user){ unsub(); resolve(true); }
-    });
-    auth.signInAnonymously().catch(function(e){
-      console.error('Firebase anonymous sign-in error', e);
       unsub();
-      resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
+      if(user){ resolve(true); return; }
+      auth.signInAnonymously().then(function(){ resolve(true); }).catch(function(e){
+        console.error('Firebase anonymous sign-in error', e);
+        resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
+      });
     });
   });
   return authReady;
@@ -2358,7 +2361,7 @@ async function traiterAnnulationBL(commandeId, itemIds, ancienBLNumero){
   var rec = await getReceptionRecord(commandeId);
   if(!rec) return { ok:false, motif:'Commande introuvable' };
   var selections = [{ commandeId: commandeId, itemIds: itemIds }];
-  var par = lsGet('access-identity')||'', le = new Date().toISOString();
+  var par = currentIdentity(), le = new Date().toISOString();
 
   if(rec.data.exitedAt){
     // la marchandise est physiquement sortie : retour obligatoire par le rangement, jamais instantané
@@ -2417,7 +2420,7 @@ async function transfererArticles(selections, depuisAttendu, versAffectation){
         sel.itemIds.forEach(function(itemId){
           // versAffectation === null : libère (vérifié) plutôt que de transférer vers une nouvelle affectation
           if(versAffectation===null) delete r.record.data.itemAffectation[itemId];
-          else r.record.data.itemAffectation[itemId] = Object.assign({ par:par, le:le }, versAffectation);
+          else r.record.data.itemAffectation[itemId] = Object.assign({ par:par, parUid:currentUid(), le:le }, versAffectation);
         });
         tx.set(r.ref, r.record);
       });
@@ -2449,7 +2452,7 @@ async function validerSortieBP(numero){
     }
   }
 
-  var par = lsGet('access-identity')||'', le = new Date().toISOString();
+  var par = currentIdentity(), le = new Date().toISOString();
   for(var j=0;j<bp.lignes.length;j++){
     var rec2 = await getReceptionRecord(bp.lignes[j].commandeId);
     if(!rec2) continue;
@@ -2578,7 +2581,7 @@ async function createBonPreparation(cmId, cmNom, selection, destination){
   var bp = {
     numero: numero, contremarqueId: cmId||'', contremarque: cmNom||'', destination: destination,
     lignes: lignes, statut: 'brouillon', depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
-    createdAt: new Date().toISOString(), createdPar: lsGet('access-identity')||'', sortieValidee: null
+    createdAt: new Date().toISOString(), createdPar: currentIdentity(), createdParUid: currentUid(), sortieValidee: null
   };
   if(fsReady() && bpColRef){
     try{ await bpColRef.doc(numero).set(bp); }catch(e){ console.error('Firestore createBonPreparation error', e); }
@@ -7437,7 +7440,17 @@ async function tryShowQrLanding(){
 
 // ---------- contrôle d'accès : code équipe (onboarding) + code administrateur (agences) + codes personnels ----------
 function isUnlocked(){ return !!lsGet('access-unlocked'); }
-function currentIdentity(){ return lsGet('access-identity') || ''; }
+// identité du compte réellement connecté (session Firebase vérifiée) : ce n'est plus une valeur modifiable
+// depuis le navigateur ; le stockage local ne sert que de repli quand aucune session de compte n'existe
+function currentUid(){
+  try{ var u = window.firebase && firebase.auth && firebase.auth().currentUser; return (u && !u.isAnonymous) ? u.uid : ''; }catch(e){ return ''; }
+}
+function currentIdentity(){
+  var uid = currentUid();
+  var acc = uid && state.globalSecurity && state.globalSecurity.accounts && state.globalSecurity.accounts[uid];
+  if(acc && acc.name) return acc.name;
+  return lsGet('access-identity') || '';
+}
 
 function updateSecurityIdentityLine(){
   var el = document.getElementById('secIdentityLine');
@@ -7561,7 +7574,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0066';
+var APP_VERSION = '2026.0067';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -8148,7 +8161,7 @@ async function reclamerArticles(selections, nouvelleAffectation){
       selections.forEach(function(sel){
         var r = recs[sel.commandeId];
         if(!r.record.data.itemAffectation) r.record.data.itemAffectation = {};
-        sel.itemIds.forEach(function(itemId){ r.record.data.itemAffectation[itemId] = Object.assign({ par:par, le:le }, nouvelleAffectation); });
+        sel.itemIds.forEach(function(itemId){ r.record.data.itemAffectation[itemId] = Object.assign({ par:par, parUid:currentUid(), le:le }, nouvelleAffectation); });
         tx.set(r.ref, r.record);
       });
       return { ok:true };

@@ -135,14 +135,28 @@
 
   <div id="accessGateOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:55;align-items:center;justify-content:center;padding:20px 12px;">
     <div class="card" style="max-width:360px;width:100%;">
-      <h2 style="margin-bottom:6px;">Code d'accès</h2>
-      <p class="hint" style="margin:0 0 14px;">Utilise le même code que sur Gestion Dépôt (équipe ou personnel).</p>
-      <div class="field">
-        <input type="text" id="accessCodeInput" placeholder="Code" maxlength="10" style="text-align:center;font-size:20px;letter-spacing:2px;">
+      <div id="accessStep1">
+        <h2 style="margin-bottom:6px;">Connexion</h2>
+        <p class="hint" style="margin:0 0 14px;">Connecte-toi avec ton compte STLS — le même que sur Gestion Dépôt.</p>
+        <div class="field"><input type="email" id="accessEmailInput" placeholder="Email" autocomplete="username" style="text-align:center;"></div>
+        <div class="field"><input type="password" id="accessPasswordInput" placeholder="Mot de passe" autocomplete="current-password" style="text-align:center;"></div>
+        <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
+        <div class="btn-row"><button class="btn primary" id="btnAccessSubmit" style="width:100%;">Se connecter</button></div>
+        <div class="btn-row"><button class="btn ghost" id="btnForgotPassword" style="width:100%;">Mot de passe oublié ?</button></div>
       </div>
-      <div id="accessGateError" style="display:none;color:var(--danger);font-size:12.5px;margin-top:4px;"></div>
-      <div class="btn-row">
-        <button class="btn primary" id="btnAccessSubmit" style="width:100%;">Valider</button>
+      <div id="accessStep2" style="display:none;">
+        <h2 style="margin-bottom:6px;">Mot de passe oublié</h2>
+        <p class="hint" style="margin:0 0 14px;">Saisis ton email : si un compte existe, un lien de réinitialisation te sera envoyé.</p>
+        <div class="field"><input type="email" id="accessResetEmailInput" placeholder="Email" style="text-align:center;"></div>
+        <div id="accessResetMsg" style="display:none;font-size:12.5px;margin-top:4px;"></div>
+        <div class="btn-row"><button class="btn primary" id="btnSendReset" style="width:100%;">Envoyer le lien</button></div>
+        <div class="btn-row"><button class="btn ghost" id="btnBackToLogin" style="width:100%;">← Retour</button></div>
+      </div>
+      <div id="accessStep3" style="display:none;">
+        <h2 style="margin-bottom:6px;">Ton agence</h2>
+        <p class="hint" style="margin:0 0 14px;">Choisis l'agence sur laquelle tu travailles.</p>
+        <div class="field"><select id="accessAgencySelect" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select></div>
+        <div class="btn-row"><button class="btn primary" id="btnAccessAgencySubmit" style="width:100%;">Valider</button></div>
       </div>
     </div>
   </div>
@@ -326,13 +340,16 @@ function ensureAuth(){
   authReady = new Promise(function(resolve){
     if(!(window.firebase && firebase.auth)){ resolve(false); return; }
     var auth = firebase.auth();
+    // le SDK restaure d'abord une éventuelle session existante : on attend cet état avant de décider
+    // quoi que ce soit. Une session déjà là (compte réel ou anonyme) n'est JAMAIS remplacée —
+    // signInAnonymously() écraserait sinon le compte réel connecté.
     var unsub = auth.onAuthStateChanged(function(user){
-      if(user){ unsub(); resolve(true); }
-    });
-    auth.signInAnonymously().catch(function(e){
-      console.error('Firebase anonymous sign-in error', e);
       unsub();
-      resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
+      if(user){ resolve(true); return; }
+      auth.signInAnonymously().then(function(){ resolve(true); }).catch(function(e){
+        console.error('Firebase anonymous sign-in error', e);
+        resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
+      });
     });
   });
   return authReady;
@@ -393,7 +410,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0019';
+var APP_VERSION = '2026.0020';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -626,7 +643,18 @@ async function saveBonPatch(numero, patch){
   }
 }
 
-var globalSecurity = { masterCode:'2013', adminCode:'ADMIN1', users:[] };
+var globalSecurity = { accounts:{} };
+var pendingAccount = null;
+// identité du compte réellement connecté (session Firebase vérifiée), repli sur le stockage local
+function currentUid(){
+  try{ var u = window.firebase && firebase.auth && firebase.auth().currentUser; return (u && !u.isAnonymous) ? u.uid : ''; }catch(e){ return ''; }
+}
+function currentIdentity(){
+  var uid = currentUid();
+  var acc = uid && globalSecurity && globalSecurity.accounts && globalSecurity.accounts[uid];
+  if(acc && acc.name) return acc.name;
+  return lsGet('access-identity') || '';
+}
 
 async function loadGlobalSecurity(){
   if(!fsReady()) return;
@@ -916,7 +944,7 @@ function renderBLActions(numero){
       }
       else if(act==='validexploit'){
         if(!confirm('Confirmer la validation de ce BL pour intégration dans une tournée ?')) return;
-        await saveBonPatch(num, { statut: 'valide_pour_tournee', validationExploitant: { valide: true, par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+        await saveBonPatch(num, { statut: 'valide_pour_tournee', validationExploitant: { valide: true, par: currentIdentity(), le: new Date().toISOString() } });
       }
       else if(act==='affecter'){
         var tid = btn.getAttribute('data-tournee');
@@ -939,12 +967,12 @@ function renderBLActions(numero){
         if(motif===null) return;
         motif = motif.trim();
         if(!motif){ banner('Un motif est obligatoire pour annuler un BL'); return; }
-        await saveBonPatch(num, { statut: 'annule', annulation: { motif: motif, par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+        await saveBonPatch(num, { statut: 'annule', annulation: { motif: motif, par: currentIdentity(), le: new Date().toISOString() } });
       }
       else if(act==='reactiver'){
         if(!confirm('Réactiver le BL '+num+' ? Il devra être de nouveau validé par l\'exploitant avant d\'entrer dans une tournée.')) return;
         var bReact = state.bons.find(function(x){ return x.numero===num; });
-        await saveBonPatch(num, { statut: (controlerBL(bReact).complet ? 'complet' : 'incomplet'), validationExploitant: { valide: false, par: '', le: '' }, reactivation: { par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+        await saveBonPatch(num, { statut: (controlerBL(bReact).complet ? 'complet' : 'incomplet'), validationExploitant: { valide: false, par: '', le: '' }, reactivation: { par: currentIdentity(), le: new Date().toISOString() } });
       }
       // la liste est réaffichée (badges de statut à jour) puis le panneau du BL est rouvert sur son nouvel état
       refreshAllBonLists();
@@ -1279,7 +1307,6 @@ async function startForAgency(code){
   lsSet('current-agency', code);
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===code; });
   state.agencyName = ag ? ag.name : code;
-  document.getElementById('accessGateOverlay').style.display = 'none';
   blColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('bonsLivraison') : null;
   tourneesColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('tournees') : null;
   configDocRef = agencyDocRef(code);
@@ -1301,6 +1328,7 @@ async function startForAgency(code){
   renderCollecteDestFields();
   renderPartenairesList();
   renderCollecteList();
+  document.getElementById('accessGateOverlay').style.display = 'none'; // seulement une fois toutes les données chargées
   ouvrirBLDepuisUrl();
 }
 
@@ -1324,25 +1352,85 @@ function showAccessGate(){
 }
 
 document.getElementById('btnAccessSubmit').addEventListener('click', async function(){
-  var val = document.getElementById('accessCodeInput').value.trim();
+  var email = document.getElementById('accessEmailInput').value.trim();
+  var pass = document.getElementById('accessPasswordInput').value;
   var err = document.getElementById('accessGateError');
   err.style.display = 'none';
-  if(!val) return;
-  var isKnown = val.toUpperCase()===globalSecurity.masterCode.toUpperCase() ||
-    val.toUpperCase()===globalSecurity.adminCode.toUpperCase() ||
-    (globalSecurity.users||[]).some(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
-  if(!isKnown){
-    err.textContent = 'Code invalide';
+  if(!email || !pass){ err.textContent = 'Saisis ton email et ton mot de passe'; err.style.display = 'block'; return; }
+  if(!(window.firebase && firebase.auth)){ err.textContent = 'Connexion indisponible pour le moment — réessaie.'; err.style.display = 'block'; return; }
+  var btn = this; btn.disabled = true;
+  try{
+    var cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
+    var uid = cred.user.uid;
+    await loadGlobalSecurity();
+    var account = (globalSecurity.accounts || {})[uid];
+    if(!account){
+      await firebase.auth().signOut();
+      err.textContent = 'Compte non reconnu — contacte l\'administrateur';
+      err.style.display = 'block';
+      btn.disabled = false;
+      return;
+    }
+    pendingAccount = account;
+    if(account.isAdmin){ goToAgencyStep(account.agencyCode); }
+    else { await finalizeLogin(account.agencyCode); }
+  }catch(e){
+    var m = 'Email ou mot de passe incorrect';
+    if(e && e.code==='auth/too-many-requests') m = 'Trop de tentatives — réessaie dans quelques minutes';
+    if(e && e.code==='auth/network-request-failed') m = 'Connexion réseau indisponible';
+    if(e && e.code==='auth/invalid-email') m = 'Email invalide';
+    err.textContent = m;
     err.style.display = 'block';
-    return;
   }
-  var userMatch = (globalSecurity.users||[]).find(function(u){ return u.name.toUpperCase()===val.toUpperCase(); });
-  var agencyCode = (userMatch && userMatch.agencyCode) || (state.agenciesList[0] && state.agenciesList[0].code);
-  if(!agencyCode){ err.textContent = 'Aucun dépôt disponible'; err.style.display='block'; return; }
-  lsSet('access-unlocked','1');
-  lsSet('access-identity', userMatch ? userMatch.name : val.toUpperCase());
-  await startForAgency(agencyCode);
+  btn.disabled = false;
 });
+document.getElementById('accessEmailInput').addEventListener('keydown', function(e){ if(e.key==='Enter'){ document.getElementById('accessPasswordInput').focus(); } });
+document.getElementById('accessPasswordInput').addEventListener('keydown', function(e){ if(e.key==='Enter'){ document.getElementById('btnAccessSubmit').click(); } });
+
+document.getElementById('btnForgotPassword').addEventListener('click', function(){
+  document.getElementById('accessStep1').style.display = 'none';
+  document.getElementById('accessStep2').style.display = 'block';
+  document.getElementById('accessResetEmailInput').value = document.getElementById('accessEmailInput').value;
+  document.getElementById('accessResetMsg').style.display = 'none';
+});
+document.getElementById('btnBackToLogin').addEventListener('click', function(){
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep1').style.display = 'block';
+});
+document.getElementById('btnSendReset').addEventListener('click', async function(){
+  var email = document.getElementById('accessResetEmailInput').value.trim();
+  var msg = document.getElementById('accessResetMsg');
+  msg.style.display = 'block';
+  if(!email){ msg.textContent = 'Saisis ton email'; msg.style.color = 'var(--danger)'; return; }
+  if(!(window.firebase && firebase.auth)){ msg.textContent = 'Connexion indisponible pour le moment'; msg.style.color = 'var(--danger)'; return; }
+  try{ await firebase.auth().sendPasswordResetEmail(email); }catch(e){}
+  msg.textContent = 'Email envoyé si ce compte existe — vérifie ta boîte de réception';
+  msg.style.color = 'var(--accent)';
+});
+
+function goToAgencyStep(preselectCode){
+  document.getElementById('accessStep1').style.display = 'none';
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep3').style.display = 'block';
+  var sel = document.getElementById('accessAgencySelect');
+  sel.innerHTML = (state.agenciesList||[]).map(function(a){ return '<option value="'+a.code+'">'+a.code+' — '+(a.name||'')+'</option>'; }).join('');
+  if(preselectCode) sel.value = preselectCode;
+}
+document.getElementById('btnAccessAgencySubmit').addEventListener('click', async function(){
+  var code = document.getElementById('accessAgencySelect').value;
+  if(!code || !pendingAccount) return;
+  await finalizeLogin(code);
+});
+async function finalizeLogin(agencyCode){
+  lsSet('access-unlocked','1');
+  lsSet('access-identity', pendingAccount ? pendingAccount.name : '');
+  lsSet('access-is-admin', pendingAccount && pendingAccount.isAdmin ? '1' : '');
+  lsSet('current-agency', agencyCode);
+  document.getElementById('accessStep1').style.display = 'block';
+  document.getElementById('accessStep2').style.display = 'none';
+  document.getElementById('accessStep3').style.display = 'none';
+  await startForAgency(agencyCode); // referme lui-même l'écran d'accès, une fois tout chargé
+}
 
 // ================= Prise de RDV (file d'exploitation) + validation exploitant =================
 function isInRdvQueue(b){
@@ -1424,7 +1512,7 @@ function renderRdvQueue(openNumero){
         '</div>'+
         '<div id="rdvq-form-'+n+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">'+
           '<div class="row2"><div class="field"><label>Date du RDV</label><input type="date" id="rdvq-date-'+n+'" value="'+(r.date||'')+'"></div>'+
-            '<div class="field"><label>Pris par</label><input type="text" id="rdvq-par-'+n+'" value="'+escapeHtml(r.prisPar||lsGet('access-identity')||'')+'"></div></div>'+
+            '<div class="field"><label>Pris par</label><input type="text" id="rdvq-par-'+n+'" value="'+escapeHtml(r.prisPar||currentIdentity())+'"></div></div>'+
           '<div class="row2"><div class="field"><label>Créneau début</label><input type="time" id="rdvq-debut-'+n+'" value="'+(r.creneauDebut||'')+'"></div>'+
             '<div class="field"><label>Créneau fin</label><input type="time" id="rdvq-fin-'+n+'" value="'+(r.creneauFin||'')+'"></div></div>'+
           '<div class="field"><label>Observations</label><textarea id="rdvq-obs-'+n+'" style="width:100%;min-height:56px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:14px;">'+escapeHtml(r.observations||'')+'</textarea></div>'+
@@ -1503,7 +1591,7 @@ function renderRdvQueue(openNumero){
     btn.addEventListener('click', async function(){
       var n = btn.getAttribute('data-numero');
       if(!confirm('Confirmer la validation du BL '+n+' pour intégration dans une tournée ?')) return;
-      await saveBonPatch(n, { statut: 'valide_pour_tournee', validationExploitant: { valide: true, par: (lsGet('access-identity')||''), le: new Date().toISOString() } });
+      await saveBonPatch(n, { statut: 'valide_pour_tournee', validationExploitant: { valide: true, par: currentIdentity(), le: new Date().toISOString() } });
       banner('BL '+n+' validé — à affecter à une tournée dans « Commandes à Livrer »');
       refreshAllBonLists();
     });
@@ -1725,7 +1813,7 @@ function controleBLPourTournee(b, t, date){
 async function construireTournee(bons, t, date, opts){
   opts = opts || {};
   var mode = opts.mode || 'manuel';
-  var par = lsGet('access-identity') || '', now = new Date().toISOString();
+  var par = currentIdentity(), now = new Date().toISOString();
   var id = instanceIdOf(t.id, date);
   var inst = state.instances.find(function(i){ return i.id===id; });
   if(inst && !instanceModifiable(inst)){
@@ -1766,7 +1854,7 @@ async function retirerBLDeTournee(numero, motif, opts){
     banner('La tournée est « '+((INSTANCE_STATUTS[inst.statut]||{}).label||inst.statut)+' » : retrait impossible');
     return false;
   }
-  var par = lsGet('access-identity') || '', now = new Date().toISOString();
+  var par = currentIdentity(), now = new Date().toISOString();
   await saveBonPatch(numero, {
     statut: 'valide_pour_tournee', tourneeId: '', tourneeInstanceId: '', affectation: null,
     historiqueAffectations: (b.historiqueAffectations||[]).concat([{ action: 'retrait', instanceId: aff.instanceId||'', tourneeId: aff.tourneeId||b.tourneeId||'', date: aff.date||'', par: par, le: now, motif: motif||'' }])
@@ -1984,7 +2072,7 @@ function renderControleHtml(inst){
 
 // change le statut d'une tournée planifiée et le consigne dans son historique
 async function transitionInstance(inst, statut, extra, action, motif){
-  var par = lsGet('access-identity') || '', now = new Date().toISOString();
+  var par = currentIdentity(), now = new Date().toISOString();
   inst.statut = statut;
   if(extra) Object.keys(extra).forEach(function(k){ inst[k] = extra[k]; });
   inst.historique = (inst.historique||[]).concat([{ action: action, statut: statut, par: par, le: now, motif: motif||'' }]);
@@ -2113,7 +2201,7 @@ function renderTourneesPlanifiees(){
     }
     var nbDerog = (inst.derogations||[]).length;
     if(!confirm('VALIDATION DE LA TOURNÉE\n\nTournée : '+inst.tourneeId+'\nDate : '+fmtDateLong(inst.date)+'\nBL : '+res.bons.length+'\nDérogations : '+nbDerog+'\n\nValider cette tournée ?')) return;
-    await transitionInstance(inst, 'validee', { validePar: (lsGet('access-identity')||''), valideLe: new Date().toISOString() }, 'validation');
+    await transitionInstance(inst, 'validee', { validePar: currentIdentity(), valideLe: new Date().toISOString() }, 'validation');
     banner('Tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' validée'); renderTourneesPlanifiees();
   });
   on('.pl-derog', async function(btn){
@@ -2123,7 +2211,7 @@ function renderTourneesPlanifiees(){
     if(motif===null) return;
     motif = motif.trim();
     if(!motif){ banner('Une justification est obligatoire pour déroger à une date impérative'); return; }
-    var par = lsGet('access-identity') || '', now = new Date().toISOString();
+    var par = currentIdentity(), now = new Date().toISOString();
     inst.derogations = (inst.derogations||[]).filter(function(d){ return d.bl!==n; }).concat([{ bl: n, code: 'date_imperative', motif: motif, par: par, le: now, dateImperative: b.dateImperative, dateTournee: inst.date }]);
     inst.historique = (inst.historique||[]).concat([{ action: 'derogation', bl: n, par: par, le: now, motif: motif }]);
     await saveInstance(inst);
@@ -2132,7 +2220,7 @@ function renderTourneesPlanifiees(){
   on('.pl-derog-off', async function(btn){
     var inst = byId(btn.getAttribute('data-id')), n = btn.getAttribute('data-bl');
     inst.derogations = (inst.derogations||[]).filter(function(d){ return d.bl!==n; });
-    inst.historique = (inst.historique||[]).concat([{ action: 'derogation_retiree', bl: n, par: (lsGet('access-identity')||''), le: new Date().toISOString() }]);
+    inst.historique = (inst.historique||[]).concat([{ action: 'derogation_retiree', bl: n, par: currentIdentity(), le: new Date().toISOString() }]);
     await saveInstance(inst);
     renderTourneesPlanifiees();
   });
@@ -2185,13 +2273,13 @@ function renderTourneesPlanifiees(){
   on('.pl-demarrer', async function(btn){
     var inst = byId(btn.getAttribute('data-id'));
     if(!confirm('Démarrer la tournée '+inst.tourneeId+' du '+fmtDateLong(inst.date)+' ?')) return;
-    await transitionInstance(inst, 'en_cours', { demarrePar: (lsGet('access-identity')||''), demarreLe: new Date().toISOString() }, 'demarrage');
+    await transitionInstance(inst, 'en_cours', { demarrePar: currentIdentity(), demarreLe: new Date().toISOString() }, 'demarrage');
     banner('Tournée démarrée'); renderTourneesPlanifiees();
   });
   on('.pl-livre', async function(btn){
     var n = btn.getAttribute('data-numero');
     var b = state.bons.find(function(x){ return x.numero===n; });
-    var par = lsGet('access-identity') || '', now = new Date().toISOString();
+    var par = currentIdentity(), now = new Date().toISOString();
     await saveBonPatch(n, { statut: 'livre', livraison: { par: par, le: now }, historiqueAffectations: (b.historiqueAffectations||[]).concat([{ action: 'livraison', instanceId: (b.affectation||{}).instanceId||'', par: par, le: now }]) });
     banner('BL '+n+' livré'); refreshAllBonLists();
   });
@@ -2208,7 +2296,7 @@ function renderTourneesPlanifiees(){
     var restants = bonsDeInstance(inst).filter(function(b){ return b.statut!=='livre'; });
     if(restants.length){ banner('Il reste '+restants.length+' BL non livré(s) : '+restants.map(function(b){ return b.numero; }).join(', ')); return; }
     if(!confirm('Terminer la tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' ? Toutes les livraisons sont terminées.')) return;
-    await transitionInstance(inst, 'terminee', { terminePar: (lsGet('access-identity')||''), termineLe: new Date().toISOString() }, 'fin');
+    await transitionInstance(inst, 'terminee', { terminePar: currentIdentity(), termineLe: new Date().toISOString() }, 'fin');
     banner('Tournée terminée'); renderTourneesPlanifiees();
   });
   on('.pl-annuler', async function(btn){
@@ -2219,7 +2307,7 @@ function renderTourneesPlanifiees(){
     motif = motif.trim();
     if(!motif){ banner('Un motif est obligatoire pour annuler une tournée'); return; }
     for(var i=0; i<bons.length; i++) await retirerBLDeTournee(bons[i].numero, 'Tournée annulée : '+motif, { force: true });
-    await transitionInstance(inst, 'annulee', { annulation: { motif: motif, par: (lsGet('access-identity')||''), le: new Date().toISOString() } }, 'annulation', motif);
+    await transitionInstance(inst, 'annulee', { annulation: { motif: motif, par: currentIdentity(), le: new Date().toISOString() } }, 'annulation', motif);
     if(inst.lienActif) await desactiverLien(inst, 'Tournée annulée');
     banner('Tournée annulée : BL de nouveau disponibles'); refreshAllBonLists();
   });
@@ -2333,7 +2421,7 @@ async function publierSnapshotLivreur(inst, lien, modifications){
 async function creerLienLivreur(inst, opts){
   var col = livreurCol();
   if(!col){ banner('Pas de connexion à la base : envoi impossible'); return null; }
-  var token = genererToken(), now = new Date().toISOString(), par = lsGet('access-identity') || '';
+  var token = genererToken(), now = new Date().toISOString(), par = currentIdentity();
   var version = (inst.version||0) + 1;
   var lien = { token: token, agence: state.currentAgencyCode||'', instanceId: inst.id, tourneeId: inst.tourneeId, date: inst.date,
     livreurId: opts.livreurId||'', livreurNom: opts.livreurNom||'', telephone: opts.telephone||'', vehicule: opts.vehicule||'',
@@ -2352,7 +2440,7 @@ async function creerLienLivreur(inst, opts){
 async function desactiverLien(inst, motif){
   var col = livreurCol(), token = inst.lienActif;
   if(!token) return;
-  var now = new Date().toISOString(), par = lsGet('access-identity') || '';
+  var now = new Date().toISOString(), par = currentIdentity();
   if(col) await col.doc(token).set({ actif: false, desactiveLe: now, desactivePar: par, motifDesactivation: motif||'' }, { merge: true });
   inst.envois = (inst.envois||[]).map(function(e){ return e.token===token ? Object.assign({}, e, { actif: false, desactiveLe: now, motifDesactivation: motif||'' }) : e; });
   inst.lienActif = '';
@@ -2372,7 +2460,7 @@ async function republierSiLien(inst, type, bl){
   var prev = (cur.exists && cur.data().modifications) || [];
   var mods = prev.concat([{ version: inst.version, type: type, bl: bl||'', le: now }]).slice(-20);
   await publierSnapshotLivreur(inst, lienDoc, mods);
-  inst.historique = (inst.historique||[]).concat([{ action: 'tournee_republiee', version: inst.version, type: type, bl: bl||'', par: (lsGet('access-identity')||''), le: now }]);
+  inst.historique = (inst.historique||[]).concat([{ action: 'tournee_republiee', version: inst.version, type: type, bl: bl||'', par: currentIdentity(), le: now }]);
   await saveInstance(inst);
 }
 
@@ -2758,7 +2846,7 @@ function wirePreuvesPanel(container){
     btn.addEventListener('click', async function(){
       var n = btn.getAttribute('data-numero');
       var b = state.bons.find(function(x){ return x.numero===n; });
-      var par = lsGet('access-identity') || '', now = new Date().toISOString();
+      var par = currentIdentity(), now = new Date().toISOString();
       await saveBonPatch(n, { statut:'livre', livraison:{ par:par, le:now, source:'livreur' }, historiqueAffectations:(b.historiqueAffectations||[]).concat([{ action:'livraison', instanceId:(b.affectation||{}).instanceId||'', par:par, le:now, source:'livreur' }]) });
       banner('BL '+n+' marqué livré'); refreshAllBonLists();
     });

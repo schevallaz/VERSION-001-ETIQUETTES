@@ -466,7 +466,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var fichesColRef = null;
 
-var APP_VERSION = '2026.0014';
+var APP_VERSION = '2026.0015';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -1063,8 +1063,17 @@ function ensureAuth(){
   authReady = new Promise(function(resolve){
     if(!(window.firebase && firebase.auth)){ resolve(false); return; }
     var auth = firebase.auth();
-    var unsub = auth.onAuthStateChanged(function(user){ if(user){ unsub(); resolve(true); } });
-    auth.signInAnonymously().catch(function(e){ console.error('Firebase anonymous sign-in error', e); unsub(); resolve(false); });
+    // le SDK restaure d'abord une éventuelle session existante : on attend cet état avant de décider
+    // quoi que ce soit. Une session déjà là (compte réel ou anonyme) n'est JAMAIS remplacée —
+    // signInAnonymously() écraserait sinon le compte réel connecté.
+    var unsub = auth.onAuthStateChanged(function(user){
+      unsub();
+      if(user){ resolve(true); return; }
+      auth.signInAnonymously().then(function(){ resolve(true); }).catch(function(e){
+        console.error('Firebase anonymous sign-in error', e);
+        resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
+      });
+    });
   });
   return authReady;
 }
