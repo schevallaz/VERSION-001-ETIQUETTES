@@ -2398,7 +2398,7 @@ async function traiterAnnulationBL(commandeId, itemIds, ancienBLNumero){
     rec = await getReceptionRecord(commandeId); // relu après le transfert
     itemIds.forEach(function(it){ if(rec.data.emplacements) delete rec.data.emplacements[it]; });
     var autresEmplaces = Object.keys(rec.data.emplacements||{}).length>0;
-    if(!autresEmplaces) effacerInfosSortie(rec.data); // seulement si plus aucun article de la réception n'est encore noté sorti
+    if(!autresEmplaces) effacerInfosSortie(rec.data, { motif:'BL annulé — marchandise retraitée', depuis:{ type:'bl', id:ancienBLNumero } }); // seulement si plus aucun article de la réception n'est encore noté sorti
     await saveReceptionRecord(commandeId, rec);
   } else {
     // jamais physiquement sortie (BL annulé avant la sortie) : rien à faire physiquement — libération
@@ -2637,7 +2637,12 @@ function getZonesSortie(){ return (state.zonesSortie && state.zonesSortie.length
 // un emporté client quitte le dépôt à l'instant même
 function sortieDemandeZone(bp){ return sortieGenereBL(bp) || bp.facturable===false; }
 // efface toutes les informations de sortie quand la marchandise revient au dépôt (elles seraient fausses)
-function effacerInfosSortie(d){
+function effacerInfosSortie(d, ctx){
+  // la période de stockage déjà facturable ne doit pas disparaître : on garde trace de la sortie avant de l'effacer
+  if(d.exitedAt){
+    d.historiqueSorties = (d.historiqueSorties||[]).concat([{ sortieLe:d.exitedAt, bp:d.sortieBP||'', destination:d.sortieDestination||'', zone:d.zoneSortie||'',
+      depuis:(ctx && ctx.depuis) || null, retourLe:new Date().toISOString(), par:currentIdentity(), parUid:currentUid(), motif:(ctx && ctx.motif) || '' }]);
+  }
   d.exitedAt = '';
   ['sortieBP','sortieDestination','sortieDestinationLibelle','sortieFacturable','zoneSortie','zoneSortieLe'].forEach(function(k){ delete d[k]; });
 }
@@ -2843,7 +2848,7 @@ async function genererBonPreparationPdf(numero){
   banner('Bon de Préparation '+numero+' téléchargé');
 }
 
-var BP_STATUT_LABEL = { brouillon: '📋 Créé', pret: '✅ Prêt', sorti: '🚚 Sortie validée' };
+var BP_STATUT_LABEL = { brouillon: '📋 Créé', pret: '✅ Prêt', sorti: '🚚 Sortie validée', retourne: '↩️ Retourné au dépôt' };
 
 // ---------- panneau Bons de Préparation d'une fiche contremarque (même disposition que le panneau BL) ----------
 async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
@@ -3058,7 +3063,7 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
     html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Bons de Livraison existants</div>';
     html += existingBLs.map(function(bl){
       return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;">'+
-        '<span>BL '+escapeHtml(bl.numero)+' — '+bl.commandeIds.length+' commande(s) · '+bl.poidsTotal.toFixed(1)+' kg · '+bl.nbColisTotal+' colis'+(bl.dateLivraisonPrevue?' · livraison prévue '+fmtDate(bl.dateLivraisonPrevue):'')+'</span>'+
+        '<span>BL '+escapeHtml(bl.numero)+' — '+bl.commandeIds.length+' commande(s) · '+bl.poidsTotal.toFixed(1)+' kg · '+bl.nbColisTotal+' colis'+(bl.dateLivraisonPrevue?' · livraison prévue '+fmtDate(bl.dateLivraisonPrevue):'')+(bl.statut==='retourne'?' · <strong>↩️ retourné au dépôt</strong>':(bl.statut==='annule'?' · <strong>⛔ annulé</strong>':''))+'</span>'+
         '<a href="livraisons.html?bl='+encodeURIComponent(bl.numero)+'" style="flex-shrink:0;color:var(--accent);font-weight:600;text-decoration:none;">📄 Voir / imprimer</a></div>';
     }).join('');
   } else {
@@ -5802,9 +5807,10 @@ function ligneSortieHtml(h){
     if(lienBL) parts.push(lienBL);
     else if(getDestination(h.sortieDestination).genereBL) parts.push('<span style="color:var(--ink-soft);">BL à créer depuis la fiche contremarque</span>');
     if(h.zoneSortie) parts.push('<span>📍 '+escapeHtml(h.zoneSortie)+'</span>');
+    parts.push('<span style="color:var(--ink-soft);font-size:12px;">Retour au dépôt : depuis Gestion Livraisons</span>');
   } else {
     parts.push('<span style="color:var(--ink-soft);">Sortie hors Bon de Préparation (ancien circuit)</span>');
-    if(lienBL) parts.push(lienBL);
+    if(lienBL){ parts.push(lienBL); parts.push('<span style="color:var(--ink-soft);font-size:12px;">Retour au dépôt : depuis Gestion Livraisons</span>'); }
   }
   return '<div class="sub" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'+parts.join('')+'</div>';
 }
@@ -5860,7 +5866,7 @@ function renderArchiveList(){
       '<div class="sub" style="color:var(--ink-soft);">'+detail+'</div>'+
       ligneSortieHtml(h)+zoneEditHtml(h)+
       '<div class="actions">'+
-        '<button class="btn ghost" data-act="restock">Remettre en stock</button>'+
+        (!h.sortieBP && !h.bonLivraisonId && state.isAdmin ? '<button class="btn ghost" data-act="restock">Remettre en stock (ancienne sortie)</button>' : '')+
         (state.isAdmin ? '<button class="btn danger" data-act="del">Supprimer</button>' : '')+
       '</div>'+
       '</div>';
@@ -5880,11 +5886,12 @@ function renderArchiveList(){
       var ix = state.historyIndex.findIndex(function(x){ return x.id===id; }); if(ix>=0) state.historyIndex[ix] = recordToIndexEntry(recZ);
       renderArchiveList(); banner('Marchandise déplacée vers « '+recZ.data.zoneSortie+' »');
     });
-    item.querySelector('[data-act="restock"]').addEventListener('click', async function(){
+    var btnRestock = item.querySelector('[data-act="restock"]');
+    if(btnRestock) btnRestock.addEventListener('click', async function(){
       if(!confirm('Remettre '+(labelNumber||'cette commande')+' dans "CDE à Ranger" ? Elle devra être rangée à nouveau.')) return;
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
-      effacerInfosSortie(rec.data);
+      effacerInfosSortie(rec.data, { motif:'Remise en stock (sortie d\'avant le Bon de Préparation)' });
       rec.data.emplacements = {};
       rec.data.emplacement = '';
       await saveReceptionRecord(id, rec);
@@ -7346,7 +7353,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0073';
+var APP_VERSION = '2026.0074';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';

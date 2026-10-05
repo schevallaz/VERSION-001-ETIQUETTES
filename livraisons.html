@@ -286,6 +286,7 @@
 
   <!-- ===== TAB: COMMANDES A LIVRER ===== -->
   <section id="tab-alivrer" style="display:block;">
+    <div id="sortiesSansBlCard"></div>
     <div class="card">
       <h2>Commandes à Livrer</h2>
       <p class="hint" id="livDepotLine" style="margin:0 0 14px;"></p>
@@ -404,7 +405,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0022';
+var APP_VERSION = '2026.0023';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -430,7 +431,7 @@ function isEarlyStatut(s){ return !BL_STATUTS[s] || s==='incomplet' || s==='comp
 // statut qui découle du contrôle : incomplet dès qu'il manque une information, sinon complet
 // (les statuts plus avancés — RDV, validation, tournée — sont conservés tant que le BL reste complet)
 function statutAfterControl(b){
-  if(b.statut==='annule' || b.statut==='livre') return b.statut;      // un BL annulé ou livré ne change pas de statut à l'enregistrement
+  if(b.statut==='annule' || b.statut==='livre' || b.statut==='retourne') return b.statut;      // un BL annulé, livré ou retourné au dépôt ne change pas de statut à l'enregistrement
   if(!controlerBL(b).complet) return 'incomplet';
   return isEarlyStatut(b.statut) ? 'complet' : b.statut;
 }
@@ -453,6 +454,7 @@ var BL_STATUTS = {
   valide_pour_tournee: { label: 'Validé pour tournée', color: '#1e8e3e', icon: '✅' },
   affecte_tournee: { label: 'Affecté à une tournée', color: '#1e8e3e', icon: '🚛' },
   livre: { label: 'BL livré', color: '#7a7a72', icon: '📦' },
+  retourne: { label: 'Retourné au dépôt', color: '#7a7a72', icon: '↩️' },
   annule: { label: 'BL annulé', color: '#7a7a72', icon: '⛔' }
 };
 
@@ -635,6 +637,105 @@ async function saveBonPatch(numero, patch){
     try{ await blColRef.doc(numero).set(patch, { merge: true }); }
     catch(e){ console.error('Firestore saveBonPatch error', e); }
   }
+}
+
+
+// ================= Retour de marchandise au dépôt =================
+// Une marchandise qui revient au dépôt ne disparaît jamais : elle repasse par « CDE à Ranger », verrouillée sur
+// « retour » jusqu'à son rangement réel (qui lève le verrou, côté Gestion Dépôt). La date d'entrée d'origine ne
+// change jamais, et l'historique de la sortie (date, BP, zone) est conservé dans historiqueSorties au lieu d'être effacé.
+var bpColRef = null;
+function receptionsCol(){ return (fsReady() && configDocRef) ? configDocRef.collection('receptions') : null; }
+// transaction unique : tout est vérifié et écrit d'un bloc, ou rien (jamais de retour à moitié enregistré)
+async function retourMarchandiseAuDepot(commandeIds, depuis, motif){
+  var col = receptionsCol(); if(!col) return { ok:false, motif:'Connexion indisponible' };
+  var par = currentIdentity(), parUid = currentUid(), le = new Date().toISOString();
+  try{
+    return await db.runTransaction(async function(tx){
+      var recs = [], problemes = [];
+      for(var i=0;i<commandeIds.length;i++){
+        var ref = col.doc(commandeIds[i]); var snap = await tx.get(ref);
+        if(!snap.exists){ problemes.push(commandeIds[i]+' : introuvable'); continue; }
+        recs.push({ ref:ref, record:snap.data(), id:commandeIds[i], mine:[] });
+      }
+      if(problemes.length) return { ok:false, motif:problemes.join(' · ') };
+      recs.forEach(function(r){
+        var d = r.record.data, aff = d.itemAffectation || {};
+        r.mine = Object.keys(aff).filter(function(it){ var a = aff[it]; return a && a.type===depuis.type && a.id===depuis.id; });
+        // la marchandise doit réellement être sortie du dépôt : sinon il n'y a rien à retourner
+        if(r.mine.length && !d.exitedAt) problemes.push((d.labelNumber||r.id)+' : n\'a pas quitté le dépôt');
+      });
+      if(problemes.length) return { ok:false, motif:problemes.join(' · ') };
+      var cibles = recs.filter(function(r){ return r.mine.length; });
+      if(!cibles.length) return { ok:false, motif:'plus aucune marchandise n\'est affectée à ce document (déjà retournée ?)' };
+      cibles.forEach(function(r){
+        var d = r.record.data;
+        r.mine.forEach(function(it){ d.itemAffectation[it] = { type:'retour', id:depuis.id, par:par, parUid:parUid, le:le }; });
+        var reste = Object.keys(d.itemAffectation).some(function(it){ var a = d.itemAffectation[it]; return a && (a.type==='bl' || a.type==='bp'); });
+        if(!reste){
+          d.historiqueSorties = (d.historiqueSorties||[]).concat([{ sortieLe:d.exitedAt, bp:d.sortieBP||'', destination:d.sortieDestination||'', zone:d.zoneSortie||'', depuis:{ type:depuis.type, id:depuis.id }, retourLe:le, par:par, parUid:parUid, motif:motif||'' }]);
+          d.exitedAt = '';
+          ['sortieBP','sortieDestination','sortieDestinationLibelle','sortieFacturable','zoneSortie','zoneSortieLe'].forEach(function(k){ delete d[k]; });
+          d.emplacements = {}; d.emplacement = '';
+        }
+        tx.set(r.ref, r.record);
+      });
+      return { ok:true, nb:cibles.length };
+    });
+  }catch(e){ console.error('retourMarchandiseAuDepot', e); return { ok:false, motif:(e && e.message) || 'erreur' }; }
+}
+function demanderMotifRetour(titre){
+  var m = prompt(titre+'\n\nMotif (obligatoire) :');
+  if(m===null) return null;
+  m = m.trim(); if(!m){ banner('Un motif est obligatoire'); return null; }
+  return m;
+}
+async function retourBLAuDepot(num, motifDonne){
+  var b = state.bons.find(function(x){ return x.numero===num; }); if(!b) return false;
+  var ids = (b.commandeIds||[]).filter(function(v,i,a){ return a.indexOf(v)===i; });
+  if(!ids.length){ banner('Ce BL ne contient aucune commande en stock : rien à retourner'); return false; }
+  var motif = motifDonne || demanderMotifRetour('Retour de la marchandise du BL '+num+' au dépôt.');
+  if(!motif) return false;
+  if(!confirm('Confirmer : la marchandise du BL '+num+' est physiquement revenue au dépôt ?\n\nElle repassera par « CDE à Ranger » et ne redeviendra disponible qu\'une fois rangée à nouveau. Ce BL sera clos (« Retourné au dépôt »).')) return false;
+  var res = await retourMarchandiseAuDepot(ids, { type:'bl', id:num }, motif);
+  if(!res.ok){ banner('Retour impossible — '+res.motif); return false; }
+  if(b.statut==='affecte_tournee'){ await retirerBLDeTournee(num, 'Retour au dépôt : '+motif, { force:true }); }
+  await saveBonPatch(num, { statut:'retourne', tourneeId:'', tourneeInstanceId:'', affectation:null, retourDepot:{ motif:motif, par:currentIdentity(), parUid:currentUid(), le:new Date().toISOString() } });
+  banner('Marchandise du BL '+num+' revenue au dépôt : à ranger dans Gestion Dépôt');
+  return true;
+}
+async function retourBPAuDepot(numero){
+  var col = bpColRef; if(!col) return false;
+  var snap = await col.doc(numero).get(); if(!snap.exists){ banner('Bon de Préparation introuvable'); return false; }
+  var bp = snap.data();
+  if(bp.blNumero){ banner('Ce BP a déjà un BL ('+bp.blNumero+') : le retour se fait depuis ce BL'); return false; }
+  var ids = (bp.lignes||[]).map(function(l){ return l.commandeId; }).filter(function(v,i,a){ return a.indexOf(v)===i; });
+  var motif = demanderMotifRetour('Remettre en stock la marchandise du Bon de Préparation '+numero+'.');
+  if(!motif) return false;
+  if(!confirm('Confirmer : la marchandise du BP '+numero+' est physiquement revenue au dépôt ?\n\nElle repassera par « CDE à Ranger ».')) return false;
+  var res = await retourMarchandiseAuDepot(ids, { type:'bp', id:numero }, motif);
+  if(!res.ok){ banner('Retour impossible — '+res.motif); return false; }
+  await col.doc(numero).set({ statut:'retourne', retourDepot:{ motif:motif, par:currentIdentity(), parUid:currentUid(), le:new Date().toISOString() } }, { merge:true });
+  banner('Marchandise du BP '+numero+' remise au dépôt : à ranger dans Gestion Dépôt');
+  return true;
+}
+// sorties validées dont le BL n'est pas (encore) créé : à créer depuis la fiche contremarque, ou à remettre en stock
+async function renderSortiesEnAttenteBL(){
+  var el = document.getElementById('sortiesSansBlCard'); if(!el) return;
+  if(!bpColRef){ el.innerHTML = ''; return; }
+  var liste = [];
+  try{
+    var snap = await bpColRef.where('statut','==','sorti').get();
+    snap.forEach(function(d){ var bp = d.data(); var genere = bp.genereBL===true || (bp.genereBL===undefined && bp.destination==='livraison'); if(genere && !bp.blNumero) liste.push(bp); });
+  }catch(e){ console.error('renderSortiesEnAttenteBL', e); el.innerHTML = ''; return; }
+  if(!liste.length){ el.innerHTML = ''; return; }
+  liste.sort(function(a,b){ return (b.numero||'').localeCompare(a.numero||''); });
+  el.innerHTML = '<div class="card"><h2>📦 Sorties en attente de BL ('+liste.length+')</h2>'+
+    '<p class="hint" style="margin:0 0 10px;">Marchandise sortie du dépôt dont le BL n\'est pas encore créé (à créer depuis Gestion Contremarques, fiche du client, Bons de Préparation). Si elle ne part finalement pas, remets-la en stock.</p>'+
+    liste.map(function(bp){
+      return '<div class="base-row" style="flex-wrap:wrap;gap:6px;"><span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.contremarque||'')+' · '+(bp.lignes||[]).length+' commande(s)'+(bp.zoneSortie?' · 📍 '+escapeHtml(bp.zoneSortie):'')+(bp.sortieValidee&&bp.sortieValidee.le?' · sortie le '+fmtDate(String(bp.sortieValidee.le).slice(0,10)):'')+'</span>'+
+        '<button class="btn ghost bp-retour" data-num="'+escapeHtml(bp.numero)+'" style="width:auto;padding:6px 10px;font-size:12px;">↩️ Remettre en stock</button></div>';
+    }).join('')+'</div>';
 }
 
 var globalSecurity = { accounts:{} };
@@ -915,6 +1016,10 @@ function renderBLActions(numero){
   } else if(b.statut==='affecte_tournee'){
     html += '<div class="hint" style="font-weight:600;color:var(--accent);">🚛 Affecté à la tournée '+escapeHtml(b.tourneeId||'')+((b.affectation && b.affectation.date) ? ' du '+escapeHtml(fmtDateLong(b.affectation.date)) : '')+'</div>';
     html += '<div class="btn-row"><button class="btn ghost bl-act" data-act="desaffecter" data-numero="'+numero+'" style="width:100%;">Retirer de la tournée</button></div>';
+  } else if(b.statut==='retourne'){
+    var rd = b.retourDepot || {};
+    html += '<div class="hint" style="font-weight:600;color:#7a7a72;">↩️ BL retourné au dépôt'+(rd.motif?' — '+escapeHtml(rd.motif):'')+(rd.par?' <span style="font-weight:400;">(par '+escapeHtml(rd.par)+(rd.le?' le '+fmtDate(String(rd.le).slice(0,10)):'')+')</span>':'')+'</div>';
+    html += '<div class="hint">La marchandise est repassée par « CDE à Ranger ». Pour la livrer de nouveau, elle devra être préparée dans un nouveau Bon de Préparation, puis un nouveau BL.</div>';
   } else if(b.statut==='annule'){
     var an0 = b.annulation || {};
     html += '<div class="hint" style="font-weight:600;color:#7a7a72;">⛔ BL annulé'+(an0.motif?' — '+escapeHtml(an0.motif):'')+(an0.par?' <span style="font-weight:400;">(par '+escapeHtml(an0.par)+')</span>':'')+'</div>';
@@ -924,7 +1029,10 @@ function renderBLActions(numero){
   } else {
     html += '<div class="hint">Complète les informations manquantes ci-dessus pour avancer.</div>';
   }
-  if(['annule','livre','affecte_tournee'].indexOf(b.statut) < 0){
+  if(['annule','livre','retourne'].indexOf(b.statut) < 0 && (b.commandeIds||[]).length && b.type!=='emporte'){
+    html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost bl-act" data-act="retourdepot" data-numero="'+numero+'" style="width:100%;">↩️ Retour de la marchandise au dépôt</button></div>';
+  }
+  if(['annule','livre','affecte_tournee','retourne'].indexOf(b.statut) < 0){
     html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost bl-act" data-act="annuler" data-numero="'+numero+'" style="width:100%;color:#c0392b;">⛔ Annuler le BL</button></div>';
   }
 
@@ -966,6 +1074,7 @@ function renderBLActions(numero){
         if(motifRet===null) return;
         await retirerBLDeTournee(num, motifRet.trim());
       }
+      else if(act==='retourdepot'){ if(!(await retourBLAuDepot(num))) return; }
       else if(act==='annuler'){
         var motif = prompt('Motif de l\'annulation du BL '+num+' (obligatoire) :');
         if(motif===null) return;
@@ -987,6 +1096,7 @@ function renderBLActions(numero){
 }
 
 function renderLivList(){
+  renderSortiesEnAttenteBL();
   renderBonList({ elId:'livList', searchId:'livSearch', typeFilter: function(t){ return t!=='emporte'; }, checkboxes:true, ficheSortieRowId:'livFicheSortieRow' });
 }
 function renderEmporteList(){
@@ -1312,6 +1422,7 @@ async function startForAgency(code){
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===code; });
   state.agencyName = ag ? ag.name : code;
   blColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('bonsLivraison') : null;
+  bpColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('bonsPreparation') : null;
   tourneesColRef = fsReady() ? db.collection('stls_depot').doc('agency_'+code).collection('tournees') : null;
   configDocRef = agencyDocRef(code);
   collectesColRef = configDocRef ? configDocRef.collection('collectes') : null;
@@ -1355,6 +1466,12 @@ function showAccessGate(){
   document.getElementById('accessGateOverlay').style.display = 'flex';
 }
 
+document.getElementById('sortiesSansBlCard').addEventListener('click', async function(ev){
+  var btn = ev.target.closest('.bp-retour'); if(!btn) return;
+  btn.disabled = true;
+  var ok = await retourBPAuDepot(btn.getAttribute('data-num'));
+  if(!ok) btn.disabled = false; else renderSortiesEnAttenteBL();
+});
 document.getElementById('btnAccessSubmit').addEventListener('click', async function(){
   var email = document.getElementById('accessEmailInput').value.trim();
   var pass = document.getElementById('accessPasswordInput').value;
@@ -1679,6 +1796,7 @@ function eligibiliteBL(b){
   function stop(etape, reasons, prochaine){ r.etape = etape; r.bloquants = reasons; r.prochaine = prochaine || ''; return r; }
   if(b.statut==='annule') return stop('annule', ['BL annulé'+(b.annulation && b.annulation.motif ? ' — '+b.annulation.motif : '')]);
   if(b.statut==='livre') return stop('livre', ['BL déjà livré']);
+  if(b.statut==='retourne') return stop('retourne', ['BL retourné au dépôt'+(b.retourDepot && b.retourDepot.motif ? ' — '+b.retourDepot.motif : '')]);
   if(r.niveaux.affecte) return stop('affecte', ['Déjà affecté à la tournée '+(b.tourneeId || '?')+((b.affectation && b.affectation.date) ? ' du '+fmtDate(b.affectation.date) : '')]);
   if(b.type==='emporte') return stop('emporte', ['Retrait au dépôt (Emporté) : pas de tournée de livraison']);
   var manques = ctrl.checks.filter(function(k){ return !k.ok; }).map(function(k){ return LIBELLES_MANQUE[k.key] || k.label; });
@@ -1705,7 +1823,7 @@ function bonClient(b){
 function statutRdvLabel(b, e){
   var r = b.rdv || {};
   if(r.date) return 'RDV pris : '+fmtDateLong(r.date)+(r.creneauDebut ? ' ('+r.creneauDebut+(r.creneauFin ? '–'+r.creneauFin : '')+')' : '');
-  if(b.statut==='annule' || b.statut==='livre') return '—';
+  if(b.statut==='annule' || b.statut==='livre' || b.statut==='retourne') return '—';
   if(b.estImperative) return 'Sans objet (livraison impérative)';
   if(!e.niveaux.complet) return '—';
   return b.statut==='rdv_en_cours' ? 'Contact en cours' : 'À prendre';
@@ -2045,6 +2163,7 @@ function controleTournee(inst){
     var an = [];
     var ctrl = controlerBL(b);
     if(b.statut==='annule') an.push({ texte: 'BL annulé', derogeable: false });
+    if(b.statut==='retourne') an.push({ texte: 'BL retourné au dépôt', derogeable: false });
     var manques = ctrl.checks.filter(function(k){ return !k.ok; }).map(function(k){ return LIBELLES_MANQUE[k.key] || k.label; });
     if(manques.length) an.push({ texte: 'BL incomplet : '+manques.join(', '), derogeable: false });
     if(!b.estImperative && !(b.rdv && b.rdv.date)) an.push({ texte: 'RDV non réalisé', derogeable: false });
@@ -2317,7 +2436,15 @@ function renderTourneesPlanifiees(){
     if(motif===null) return;
     motif = motif.trim();
     if(!motif){ banner('Un motif est obligatoire'); return; }
-    if(await retirerBLDeTournee(n, 'Non livré : '+motif, { force: true })){ banner('BL '+n+' retiré de la tournée (non livré)'); refreshAllBonLists(); }
+    if(await retirerBLDeTournee(n, 'Non livré : '+motif, { force: true })){
+      banner('BL '+n+' retiré de la tournée (non livré)');
+      // la marchandise est-elle déjà revenue au dépôt ? Si oui, le retour est enregistré tout de suite ; sinon (replanification
+      // le lendemain, par exemple) le bouton « Retour au dépôt » du BL permet de le faire plus tard
+      if(confirm('BL '+n+' retiré de la tournée.\n\nLa marchandise est-elle déjà revenue au dépôt ?\n\nOK : elle repasse par « CDE à Ranger » (retour tracé, BL clos).\nAnnuler : elle reste sortie (replanification).')){
+        await retourBLAuDepot(n, 'Non livré : '+motif);
+      }
+      refreshAllBonLists();
+    }
   });
   on('.pl-terminer', async function(btn){
     var inst = byId(btn.getAttribute('data-id'));
