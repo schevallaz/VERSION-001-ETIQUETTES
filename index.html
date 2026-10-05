@@ -188,7 +188,6 @@
     <button class="tab-btn" data-tab="attente">CDE en attente</button>
     <button class="tab-btn" data-tab="ranger">CDE à Ranger</button>
     <button class="tab-btn" data-tab="hist">CDE en stock</button>
-    <button class="tab-btn" data-tab="exit">Scan sortie</button>
     <button class="tab-btn" data-tab="archive">CDE sortie</button>
     <button class="tab-btn" data-tab="planning">Planning</button>
     <button class="tab-btn" data-tab="base">Base</button>
@@ -500,49 +499,6 @@
         <button class="btn accent" id="btnInventaire">INVENTAIRE (PDF A4)</button>
       </div>
       <div id="histList"></div>
-    </div>
-  </section>
-
-  <!-- ===== TAB: SORTIE (scan) ===== -->
-  <section id="tab-exit" style="display:none;">
-    <div class="card">
-      <h2>Commandes prévues en sortie</h2>
-      <p class="hint" style="margin:0 0 10px;">Commandes en stock dont la date de livraison prévue (onglet Planning) tombe à partir de la date choisie.</p>
-      <div class="field">
-        <label for="exitPlanDate">Date de livraison</label>
-        <input type="date" id="exitPlanDate">
-      </div>
-      <div id="exitPlanList"></div>
-    </div>
-
-    <div class="card">
-      <h2>Scanner une sortie (caméra)</h2>
-      <p class="hint" style="margin:0 0 10px;">Scanne chaque étiquette de la commande. Si un scan caméra n'est pas disponible sur cet appareil, utilise la saisie manuelle plus bas.</p>
-      <div id="scanUnavailable" class="hint" style="display:none;margin-bottom:10px;">Scan caméra indisponible ici (nécessite un hébergement en HTTPS). Utilise la saisie manuelle ci-dessous.</div>
-      <div id="scanWrap" style="display:none;margin-bottom:10px;text-align:center;">
-        <video id="scanVideo" playsinline muted style="width:100%;max-width:420px;border-radius:10px;background:#000;display:inline-block;"></video>
-      </div>
-      <canvas id="scanCanvas" style="display:none;"></canvas>
-      <div class="btn-row">
-        <button class="btn primary" id="btnScanStart">Démarrer le scanner</button>
-        <button class="btn ghost" id="btnScanStop" style="display:none;">Arrêter</button>
-      </div>
-      <div class="hint" id="scanStatus" style="margin-top:8px;"></div>
-    </div>
-
-    <div class="card">
-      <h2>Ajouter une étiquette manuellement</h2>
-      <p class="hint" style="margin:0 0 10px;">Tape le n° étiquette inscrit sur le papier, puis coche les éléments sortis.</p>
-      <div class="addrow" style="margin-top:0;">
-        <input type="text" id="manualLabelNumber" placeholder="N° étiquette (ex. R000123)">
-        <button class="btn primary" id="btnManualLoad" style="width:auto;">Charger</button>
-      </div>
-      <div id="manualChecklist" style="margin-top:12px;"></div>
-    </div>
-
-    <div class="card">
-      <h2>Sorties en cours</h2>
-      <div id="exitSessions"></div>
     </div>
   </section>
 
@@ -1771,7 +1727,6 @@ function watchReceptions(){
   renderToRangeList();
     renderArchiveList();
     renderPlanningList();
-    renderExitSessions();
     renderEmplacementsList();
     repairDuplicateLabelNumbers();
   }, function(err){ console.error('Firestore receptions watch error', err); });
@@ -3704,7 +3659,7 @@ function daysSince(dateISO){
 }
 
 // nombre d'étiquettes à imprimer = 1 par palette + 1 par colis en vrac (mini 1)
-// chaque étiquette porte un itemId unique (P1, P2..., V1, V2...) pour le scan de sortie
+// chaque étiquette porte un itemId unique (P1, P2..., V1, V2...) : c'est le niveau de suivi d'une palette ou d'un colis vrac
 function computeLabels(d){
   var P = parseInt(d.palettes,10)||0;
   var V = parseInt(d.vrac,10)||0;
@@ -4039,60 +3994,6 @@ async function createBonLivraison(contremarque, selection, dateInfo, cmId){
 
 // crée un BL pour une seule commande déjà sortie (depuis "CDE Sortie") — soit avec l'adresse de la
 // contremarque (BL Livraison), soit avec l'adresse du dépôt lui-même quand le client vient récupérer sa
-// marchandise sur place (Emporté Dépôt) ; le nom de la contremarque reste toujours indiqué pour repère
-async function createBonLivraisonForExit(recId, type, dateInfo){
-  dateInfo = dateInfo || {};
-  var rec = await getReceptionRecord(recId);
-  if(!rec) return null;
-  // phase 2 : même verrou que la création depuis Gestion Contremarques — c'est précisément le chemin
-  // qui ne vérifiait jamais rien avant (la faille trouvée dans l'audit). Une commande déjà affectée
-  // ailleurs (même sortie, même BL différent) ne peut plus se voir attribuer un second BL ici.
-  var tousArticles = computeLabels(rec.data).map(function(m){ return m.itemId; });
-  var numeroReserve = await nextBLNumero();
-  var verrou = await reclamerArticles([{ commandeId: recId, itemIds: tousArticles }], { type:'bl', id:numeroReserve });
-  if(!verrou.ok) return { erreur:true, conflits: verrou.conflits||[], motif: verrou.erreur||'' };
-  var numero = numeroReserve;
-  rec = await getReceptionRecord(recId); // relu après le verrou
-  var poids = parseFloat(rec.data.poids)||0;
-  var colis = (parseFloat(rec.data.colis)||0) + (parseFloat(rec.data.palettes)||0);
-  var contremarque = rec.data.contremarque || '';
-  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
-  var adresse, cmProfileId = '', etage = '', ascenseur = false, mail = '';
-  if(type==='emporte'){
-    adresse = { adresse1: (ag&&ag.adresse1)||'', adresse2: (ag&&ag.adresse2)||'', cp: (ag&&ag.cp)||'', ville: (ag&&ag.ville)||'', tel1: (ag&&ag.telephone)||'', tel2: '' };
-  } else {
-    var cmProfile = findContremarqueProfile(contremarque) || {};
-    adresse = { adresse1: cmProfile.adresse1||'', adresse2: cmProfile.adresse2||'', cp: cmProfile.cp||'', ville: cmProfile.ville||'', tel1: cmProfile.tel1||'', tel2: cmProfile.tel2||'' };
-    cmProfileId = cmProfile.id||''; etage = cmProfile.etage||''; ascenseur = !!cmProfile.ascenseur; mail = cmProfile.mail||'';
-  }
-  var bl = {
-    numero: numero, contremarque: contremarque, contremarqueId: cmProfileId, commandeIds: [recId],
-    commandes: [{
-      id: recId, labelNumber: rec.data.labelNumber||'', client: rec.data.client||'',
-      fournisseur: rec.data.fournisseur||'', poids: poids, colis: colis,
-      emplacement: rec.data.emplacement||''
-    }],
-    contremarqueAdresse: adresse,
-    depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
-    poidsTotal: poids, nbColisTotal: colis,
-    dateLivraisonPrevue: dateInfo.dateSouhaitee||dateInfo.dateImperative||'', dateSouhaitee: dateInfo.dateSouhaitee||'', dateImperative: dateInfo.dateImperative||'', estImperative: !!dateInfo.estImperative, creneauSouhaite: '',
-    reprise: !!dateInfo.reprise, montage: !!dateInfo.montage, instructions: dateInfo.instructions||'',
-    contraintes: { etage: etage, ascenseur: ascenseur, accesDifficile: false, contactSurPlace: '' },
-    volume: '', natureMarchandise: '', emailDestinataire: mail,
-    rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
-    validationExploitant: { valide: false, par:'', le:'' },
-    tourneeId: '',
-    type: (type==='emporte'?'emporte':'livraison'), createdAt: new Date().toISOString()
-  };
-  bl.statut = controlerBL(bl).complet ? 'complet' : 'incomplet';
-  var idx = state.historyIndex.findIndex(function(x){ return x.id===recId; });
-  if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); } // itemAffectation déjà posé par le verrou
-  if(fsReady()){
-    try{ await blColRef.doc(numero).set(bl); }
-    catch(e){ console.error('Firestore createBonLivraisonForExit error', e); }
-  }
-  return bl;
-}
 
 // ================= Livreurs et véhicules (référentiel, Paramètres) =================
 function newRefId(prefix){ return prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
@@ -5434,91 +5335,7 @@ function generateSingleLabelPdf(d, meta){
   banner('Étiquette '+(meta && meta.posLabel ? meta.posLabel : suffix)+' réimprimée');
 }
 
-// ---------- PDF "SORTIE DE COMMANDE" ----------
-function qrTextExit(d, stats){
-  return 'SORTIE '+(state.brandName||'STLS')+' '+(d.labelNumber||'')+'\n'+
-    'Client: '+d.client+(d.clientCode?' ('+d.clientCode+')':'')+'\n'+
-    'Date entree: '+fmtDate(d.date)+'\n'+
-    'Date sortie: '+stats.exitDateStr+'\n'+
-    'Jours de stockage: '+stats.daysStored+' j\n'+
-    'Etiquettes sorties: '+stats.totalLabels;
-}
-
-function drawExitLabelPage(doc, d, stats, qrDataUrl){
-  var W = 100, H = 150;
-  doc.setDrawColor(0,0,0);
-  doc.setLineWidth(0.4);
-  doc.rect(2,2,W-4,H-4);
-
-  var y = 2;
-  var stripH = 7;
-  doc.line(2, y+stripH, W-2, y+stripH);
-  doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(0,0,0);
-  doc.text('SORTIE DE COMMANDE', 4, y+4.8);
-  doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  doc.text(d.labelNumber || '-', W-4, y+4.8, { align: 'right' });
-  y += stripH;
-
-  var qrSize = 34, topH = 38;
-  doc.line(2, y+topH, W-2, y+topH);
-  doc.line(2+qrSize+4, y, 2+qrSize+4, y+topH);
-  if(qrDataUrl){ doc.addImage(qrDataUrl, 'PNG', 4, y+2, qrSize, qrSize); }
-
-  doc.setFont('helvetica','bold'); doc.setFontSize(13);
-  var clientLines = doc.splitTextToSize(d.client || '-', W-qrSize-12);
-  doc.text(clientLines, 2+qrSize+8, y+10);
-
-  doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  doc.text('CODE CLIENT', 2+qrSize+8, y+28);
-  doc.setFont('helvetica','bold'); doc.setFontSize(10);
-  doc.text(d.clientCode || '-', 2+qrSize+8, y+32);
-  y += topH;
-
-  var cmH = 22;
-  doc.line(2, y+cmH, W-2, y+cmH);
-  doc.setFont('helvetica','bold'); doc.setFontSize(16);
-  var cmLines = doc.splitTextToSize(d.contremarque || '-', W-16);
-  doc.text(cmLines, W/2, y + cmH/2 + (cmLines.length>1?-2:1.5), { align:'center' });
-  y += cmH;
-
-  var rowH = 16;
-  doc.line(2, y+rowH, W-2, y+rowH); doc.line(W/2, y, W/2, y+rowH);
-  pdfLabelBlock(doc, W, 4, y+5, 'DATE ENTREE', fmtDate(d.date));
-  pdfLabelBlock(doc, W, W/2+4, y+5, 'DATE SORTIE', stats.exitDateStr);
-  y += rowH;
-
-  doc.line(2, y+rowH, W-2, y+rowH); doc.line(W/2, y, W/2, y+rowH);
-  pdfLabelBlock(doc, W, 4, y+5, 'FOURNISSEUR', d.fournisseur || '-');
-  pdfLabelBlock(doc, W, W/2+4, y+5, 'TRANSPORTEUR', d.transporteur || '-');
-  y += rowH;
-
-  doc.line(2, y+rowH, W-2, y+rowH); doc.line(W/2, y, W/2, y+rowH);
-  pdfLabelBlock(doc, W, 4, y+5, 'N. DE RECEP', d.nrecep || '-');
-  pdfLabelBlock(doc, W, W/2+4, y+5, 'POIDS TOTAL', (d.poids?d.poids+' kg':'-'));
-  y += rowH;
-
-  var qY0 = y, qY1 = H-2;
-  doc.line(W/2, qY0, W/2, qY1);
-  pdfLabelBlockBig(doc, W, 4, qY0+9, 'JOURS DE STOCKAGE', stats.daysStored+' j', 20);
-  var sortieParts = [];
-  if(stats.paletteCount) sortieParts.push(stats.paletteCount+' Palette'+(stats.paletteCount>1?'s':''));
-  if(stats.vracCount) sortieParts.push(stats.vracCount+' Colis vrac');
-  var sortieText = sortieParts.length ? sortieParts.join(' / ') : (stats.totalLabels+' étiquette(s)');
-  pdfLabelBlockBig(doc, W, W/2+4, qY0+7, 'SORTIE', sortieText, 15, 8);
-}
-
-function generateExitPdf(d, stats){
-  var qrDataUrl = buildQrImageFromText(qrTextExit(d, stats));
-  var jsPDF = window.jspdf.jsPDF;
-  var doc = new jsPDF({ unit: 'mm', format: [100, 150], orientation: 'portrait' });
-  drawExitLabelPage(doc, d, stats, qrDataUrl);
-  downloadPdf(doc, 'sortie_'+(d.labelNumber||'commande')+'.pdf');
-  banner('Étiquette de sortie téléchargée — '+stats.daysStored+' j de stockage');
-}
-
-
 // ---------- history ----------
-var walkSessions = {}; // labelNumber -> { groupList: [{code,itemIds,qtyLabel}], stepIndex }
 
 // une commande est "en attente" si sa date de réception est vide ou dans le futur (annonce de livraison,
 // pas encore réceptionnée physiquement) — sinon elle est "en stock"
@@ -5552,7 +5369,6 @@ function renderHistory(){
     var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     var blBadge = h.bonLivraisonId ? '<span style="color:var(--accent);font-weight:600;">🚚 BL '+escapeHtml(h.bonLivraisonId)+'</span>' : '';
-    var walkPanel = renderWalkPanel(h.labelNumber);
     var cmLinked = h.contremarqueId ? (state.base.contremarques||[]).find(function(c){ return c.id===h.contremarqueId; }) : findContremarqueProfile(h.contremarque);
     var cmBtnLabel = cmLinked ? 'Mettre en Préparation' : 'Mettre en Préparation (lier d\'abord)';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
@@ -5564,14 +5380,12 @@ function renderHistory(){
         '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
         '<button class="btn '+(cmLinked?'accent':'ghost')+'" data-act="cmlink">'+cmBtnLabel+'</button>'+
         '<button class="btn ghost" data-act="unrange">Remettre à ranger</button>'+
-        '<button class="btn accent" data-act="walk">Sortie de commande</button>'+
         '<button class="btn danger" data-act="del">Supprimer</button>'+
       '</div>'+
       '<div class="reprint-list" id="reprint-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="reserve-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="maildocs-view-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="cmlink-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
-      '<div id="walk-'+h.labelNumber+'">'+walkPanel+'</div>'+
       '</div>';
   }).join('');
 
@@ -5620,9 +5434,6 @@ function renderHistory(){
       });
       container.style.display = 'block';
     });
-    item.querySelector('[data-act="walk"]').addEventListener('click', function(){
-      startCommandExitWalk(labelNumber, id);
-    });
     item.querySelector('[data-act="cmlink"]').addEventListener('click', function(){
       renderCmLinkPanel(id);
     });
@@ -5643,15 +5454,6 @@ function renderHistory(){
       if(!confirm('Envoyer '+(labelNumber||'cette commande')+' à la corbeille ? Tu pourras la restaurer depuis Base → Corbeille.')) return;
       await moveReceptionToTrash(id);
     });
-  });
-  Array.prototype.forEach.call(el.querySelectorAll('[data-walk-next]'), function(btn){
-    btn.addEventListener('click', function(){ walkNextStep(btn.getAttribute('data-walk-next')); });
-  });
-  Array.prototype.forEach.call(el.querySelectorAll('[data-walk-cancel]'), function(btn){
-    btn.addEventListener('click', function(){ cancelCommandExitWalk(btn.getAttribute('data-walk-cancel')); });
-  });
-  Array.prototype.forEach.call(el.querySelectorAll('[data-walk-validate]'), function(btn){
-    btn.addEventListener('click', function(){ validateExit(btn.getAttribute('data-walk-validate')); });
   });
 }
 document.getElementById('histSearch').addEventListener('input', renderHistory);
@@ -5776,54 +5578,6 @@ function renderPendingList(){
 document.getElementById('attenteSearch').addEventListener('input', renderPendingList);
 document.getElementById('attenteWeekFrom').addEventListener('input', renderPendingList);
 document.getElementById('attenteWeekTo').addEventListener('input', renderPendingList);
-
-// ---------- Sortie de commande guidée par emplacement (depuis "CDE en stock") ----------
-function renderWalkPanel(labelNumber){
-  var w = walkSessions[labelNumber];
-  if(!w) return '';
-  if(w.stepIndex >= w.groupList.length){
-    return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">'+
-      '<div class="hint" style="margin-bottom:8px;color:var(--accent);font-weight:600;">Tous les emplacements sont vidés.</div>'+
-      '<button class="btn accent" data-walk-validate="'+labelNumber+'" style="width:100%;">Valider la sortie</button>'+
-    '</div>';
-  }
-  var step = w.groupList[w.stepIndex];
-  return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">'+
-    '<div class="hint" style="margin-bottom:4px;">Étape '+(w.stepIndex+1)+' / '+w.groupList.length+'</div>'+
-    '<div style="font-size:17px;font-weight:700;margin-bottom:4px;">Va chercher à : '+escapeHtml(step.code)+'</div>'+
-    '<div class="hint" style="margin-bottom:10px;">'+escapeHtml(step.qtyLabel)+'</div>'+
-    '<button class="btn primary" data-walk-next="'+labelNumber+'" style="width:100%;">Emplacement vidé → suivant</button>'+
-    '<button class="btn ghost" data-walk-cancel="'+labelNumber+'" style="width:100%;margin-top:6px;">Annuler cette sortie</button>'+
-  '</div>';
-}
-
-async function startCommandExitWalk(labelNumber, recId){
-  if(walkSessions[labelNumber]) return; // déjà en cours, ne pas repartir de zéro
-  var rec = await getReceptionRecord(recId);
-  if(!rec){ banner('Introuvable'); return; }
-  var groupList = groupItemsByEmplacement(rec.data);
-  walkSessions[labelNumber] = { groupList: groupList, stepIndex: 0 };
-  renderHistory();
-}
-
-async function walkNextStep(labelNumber){
-  var w = walkSessions[labelNumber];
-  if(!w) return;
-  var step = w.groupList[w.stepIndex];
-  var total = w.groupList.reduce(function(s,g){ return s+g.itemIds.length; }, 0);
-  for(var i=0;i<step.itemIds.length;i++){
-    await registerScan(labelNumber, step.itemIds[i], total);
-  }
-  w.stepIndex++;
-  renderHistory();
-}
-
-function cancelCommandExitWalk(labelNumber){
-  delete walkSessions[labelNumber];
-  clearExitSession(labelNumber);
-  renderHistory();
-  banner('Sortie annulée');
-}
 
 // ---------- CDE sortie (archive + liste A4) ----------
 // ---------- Planning de livraison (module "Gestion Planning") ----------
@@ -5973,44 +5727,7 @@ function formatContremarqueConstraints(cm){
   return parts.join(' · ');
 }
 
-function resetExitPlanDefault(){
-  var input = document.getElementById('exitPlanDate');
-  if(!input || input.value) return;
-  var d = new Date();
-  d.setDate(d.getDate()+1); // J+1 par défaut
-  input.value = dateToISO(d);
-}
 
-function renderExitPlanList(){
-  var el = document.getElementById('exitPlanList');
-  var dateVal = document.getElementById('exitPlanDate').value;
-  var items = state.historyIndex.filter(function(h){ return isStockEntry(h) && h.deliveryDate && (!dateVal || h.deliveryDate >= dateVal); });
-  items = items.slice().sort(function(a,b){ return (a.deliveryDate||'').localeCompare(b.deliveryDate||''); });
-  if(!items.length){
-    el.innerHTML = '<div class="empty">Aucune commande prévue en sortie à partir de cette date</div>';
-    return;
-  }
-  el.innerHTML = items.map(function(h){
-    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
-    return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'">'+
-      '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">'+fmtDate(h.deliveryDate)+'</span></div>'+
-      '<div class="sub">'+escapeHtml(h.emplacement||'—')+'</div>'+
-      '<div class="actions"><button class="btn accent" data-act="loadexit">Charger cette commande</button></div>'+
-    '</div>';
-  }).join('');
-
-  Array.prototype.forEach.call(el.querySelectorAll('[data-act="loadexit"]'), function(btn){
-    var item = btn.closest('.hist-item');
-    var labelNumber = item.getAttribute('data-labelnumber');
-    btn.addEventListener('click', function(){
-      document.getElementById('manualLabelNumber').value = labelNumber;
-      document.getElementById('btnManualLoad').click();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-  });
-}
-document.getElementById('exitPlanDate').addEventListener('input', renderExitPlanList);
 
 function renderPlanningList(){
   var el = document.getElementById('planningList');
@@ -6037,9 +5754,8 @@ function renderPlanningList(){
     var statut = isPendingEntry(h) ? 'En attente de réception' : (isFullyRanged(h) ? 'En stock — '+(h.emplacement||'—') : 'À ranger');
     var cm = findContremarqueProfile(h.contremarque);
     var cmLine = cm ? '<div class="sub" style="color:var(--accent);">'+escapeHtml(formatContremarqueConstraints(cm))+'</div>' : (h.contremarque ? '<div class="sub" style="color:var(--ink-soft);">Aucune fiche contremarque pour « '+escapeHtml(h.contremarque)+' »</div>' : '');
-    var sortirBtn = isStockEntry(h) ? '<button class="btn ghost planning-sortir-btn" data-label="'+escapeHtml(h.labelNumber||'')+'" style="width:auto;flex-shrink:0;font-size:12px;padding:6px 10px;">Sortir la CDE</button>' : '';
     return '<div class="hist-item" data-id="'+h.id+'">'+
-      '<div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><span class="nom">'+numBadge+nameLine+'</span>'+sortirBtn+'</div>'+
+      '<div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><span class="nom">'+numBadge+nameLine+'</span>'+'</div>'+
       '<div class="sub">'+escapeHtml(statut)+'</div>'+
       cmLine+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
@@ -6049,15 +5765,6 @@ function renderPlanningList(){
     '</div>';
   }).join('');
 
-  Array.prototype.forEach.call(el.querySelectorAll('.planning-sortir-btn'), function(btn){
-    btn.addEventListener('click', function(e){
-      e.stopPropagation();
-      var label = btn.getAttribute('data-label');
-      switchTab('exit');
-      document.getElementById('manualLabelNumber').value = label;
-      document.getElementById('btnManualLoad').click();
-    });
-  });
 
   Array.prototype.forEach.call(el.querySelectorAll('.planning-date-input'), function(input){
     input.addEventListener('change', async function(){
@@ -6153,12 +5860,9 @@ function renderArchiveList(){
       '<div class="sub" style="color:var(--ink-soft);">'+detail+'</div>'+
       ligneSortieHtml(h)+zoneEditHtml(h)+
       '<div class="actions">'+
-        '<button class="btn accent" data-act="pdfexit">PDF sortie</button>'+
         '<button class="btn ghost" data-act="restock">Remettre en stock</button>'+
-        '<button class="btn ghost" data-act="editbl">Editer BL</button>'+
         (state.isAdmin ? '<button class="btn danger" data-act="del">Supprimer</button>' : '')+
       '</div>'+
-      '<div id="editbl-'+h.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '</div>';
   }).join('');
 
@@ -6167,7 +5871,6 @@ function renderArchiveList(){
   Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
     var labelNumber = item.getAttribute('data-labelnumber');
     var id = item.getAttribute('data-id');
-    item.querySelector('[data-act="pdfexit"]').addEventListener('click', function(){ reprintExitPdf(labelNumber); });
     var bpPdf = item.querySelector('.arch-bp-pdf'); if(bpPdf) bpPdf.addEventListener('click', function(){ genererBonPreparationPdf(bpPdf.getAttribute('data-num')); });
     var zoneGo = item.querySelector('.arch-zone-go');
     if(zoneGo) zoneGo.addEventListener('click', async function(){
@@ -6191,53 +5894,6 @@ function renderArchiveList(){
       renderToRangeList();
       renderHistory();
       banner('Commande '+(labelNumber||'')+' remise dans "CDE à Ranger"');
-    });
-    item.querySelector('[data-act="editbl"]').addEventListener('click', function(){
-      var box = document.getElementById('editbl-'+id);
-      if(!box) return;
-      if(box.style.display==='block'){ box.style.display='none'; return; }
-      box.innerHTML =
-        '<div class="hint" style="margin-bottom:8px;">Créer un Bon de Livraison pour cette commande :</div>'+
-        '<div class="row2"><div class="field"><label>Date souhaitée</label><input type="date" id="editblDateSouh-'+id+'"></div>'+
-          '<div class="field"><label>Date impérative</label><input type="date" id="editblDateImp-'+id+'"></div></div>'+
-          '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="editblEstImp-'+id+'" style="width:17px;height:17px;">Date impérative (à respecter)</label>'+
-          '<div style="display:flex;gap:18px;margin-bottom:10px;">'+
-            '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="editblReprise-'+id+'" style="width:17px;height:17px;">Reprise</label>'+
-            '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="editblMontage-'+id+'" style="width:17px;height:17px;">Montage</label>'+
-          '</div>'+
-          '<div class="field"><label>Instruction / Observation</label><textarea id="editblInstr-'+id+'" style="width:100%;min-height:56px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;font-family:inherit;font-size:14px;"></textarea></div>'+
-        '<div class="btn-row"><button class="btn accent" data-bltype="livraison" style="width:100%;">BL Livraison (adresse de la contremarque)</button></div>'+
-        '<div class="btn-row"><button class="btn ghost" data-bltype="emporte" style="width:100%;">Emporté Dépôt (retrait sur place)</button></div>'+
-        '<div id="editblMsg-'+id+'" style="margin-top:8px;font-size:12.5px;"></div>';
-      box.style.display = 'block';
-      Array.prototype.forEach.call(box.querySelectorAll('[data-bltype]'), function(btn){
-        btn.addEventListener('click', async function(){
-          btn.disabled = true;
-          var dateInfo = {
-            dateSouhaitee: document.getElementById('editblDateSouh-'+id).value,
-            dateImperative: document.getElementById('editblDateImp-'+id).value,
-            estImperative: document.getElementById('editblEstImp-'+id).checked,
-            reprise: document.getElementById('editblReprise-'+id).checked,
-            montage: document.getElementById('editblMontage-'+id).checked,
-            instructions: document.getElementById('editblInstr-'+id).value.trim()
-          };
-          var bl = await createBonLivraisonForExit(id, btn.getAttribute('data-bltype'), dateInfo);
-          var msg = document.getElementById('editblMsg-'+id);
-          if(bl && bl.erreur){
-            var detail = bl.conflits.map(function(c){
-              var a = c.affectationActuelle;
-              return c.itemId===null ? 'introuvable' : (a&&a.type==='bl'?'déjà affectée au BL '+a.id:(a?'déjà affectée ('+a.type+' '+a.id+')':'?'));
-            }).join(' — ');
-            if(msg){ msg.textContent = '⚠️ Création refusée — cette commande est '+(detail||bl.motif||'déjà affectée ailleurs'); msg.style.color = 'var(--danger)'; }
-            else banner('Création refusée — '+(detail||bl.motif||'déjà affectée ailleurs'));
-          } else if(bl){
-            if(msg){ msg.textContent = 'Bon de Livraison '+bl.numero+' créé ('+(btn.getAttribute('data-bltype')==='emporte'?'Emporté Dépôt':'BL Livraison')+')'; msg.style.color = 'var(--accent)'; }
-          } else {
-            if(msg){ msg.textContent = 'Erreur lors de la création du BL'; msg.style.color = 'var(--danger)'; }
-          }
-          btn.disabled = false;
-        });
-      });
     });
     var delBtn = item.querySelector('[data-act="del"]');
     if(delBtn){
@@ -7005,7 +6661,7 @@ document.getElementById('btnMoveSave').addEventListener('click', async function(
   renderMoveItems();
 });
 
-// ---- scanner caméra du module "Déplacer" (indépendant de "Ranger" et "Scan sortie") ----
+// ---- scanner caméra du module "Déplacer" (indépendant de "Ranger") ----
 var moveScanStream = null;
 var moveScanRAF = null;
 var moveLastScan = { text: null, time: 0 };
@@ -7348,276 +7004,15 @@ document.getElementById('importFile').addEventListener('change', function(e){
   reader.readAsText(file);
 });
 
-// ---------- SORTIE DE COMMANDE : sessions de scan ----------
-var exitSessions = {}; // labelNumber -> { scanned: [itemId...], total: n }
-
-function loadExitSession(labelNumber){
-  if(exitSessions[labelNumber]) return exitSessions[labelNumber];
-  var raw = lsGet('exit-progress:'+labelNumber);
-  var scannedArr = [];
-  if(raw){ try{ scannedArr = JSON.parse(raw); }catch(e){} }
-  var sess = { scanned: scannedArr.slice() };
-  exitSessions[labelNumber] = sess;
-  return sess;
-}
-function persistExitSession(labelNumber){
-  var sess = exitSessions[labelNumber];
-  if(!sess) return;
-  lsSet('exit-progress:'+labelNumber, JSON.stringify(sess.scanned));
-}
-function clearExitSession(labelNumber){
-  delete exitSessions[labelNumber];
-  lsDelete('exit-progress:'+labelNumber);
-}
-function rehydrateExitSessions(){
-  try{
-    for(var i=0;i<window.localStorage.length;i++){
-      var key = window.localStorage.key(i);
-      var marker = LS_PREFIX+'exit-progress:';
-      if(key && key.indexOf(marker)===0){
-        var labelNumber = key.substring(marker.length);
-        if(!exitSessions[labelNumber]){ loadExitSession(labelNumber); }
-      }
-    }
-  }catch(e){}
-}
-
-async function registerScan(labelNumber, itemId, total){
-  var hEntry = state.historyIndex.find(function(h){ return h.labelNumber === labelNumber; });
-  if(!hEntry){ banner('Réception '+labelNumber+' introuvable dans l\'historique'); return; }
-  if(hEntry.exitedAt){ banner(labelNumber+' est déjà sortie le '+fmtDate(hEntry.exitedAt.slice(0,10))); return; }
-
-  var sess = loadExitSession(labelNumber);
-  if(total) sess.total = total;
-  if(sess.scanned.indexOf(itemId) >= 0){
-    banner(labelNumber+' — '+itemId+' déjà scannée');
-  } else {
-    sess.scanned.push(itemId);
-    persistExitSession(labelNumber);
-    banner('Scannée : '+labelNumber+' — '+itemId+' ('+sess.scanned.length+'/'+(sess.total||'?')+')');
-  }
-  await renderExitSessions();
-}
-
-async function renderExitSessions(){
-  var el = document.getElementById('exitSessions');
-  var keys = Object.keys(exitSessions);
-  for(var i=0;i<keys.length;i++){
-    var labelNumber = keys[i];
-    var sess = exitSessions[labelNumber];
-    if(!sess.total){
-      var hEntry = state.historyIndex.find(function(h){ return h.labelNumber===labelNumber; });
-      if(hEntry){
-        var rec = await getReceptionRecord(hEntry.id);
-        if(rec){
-          sess.total = computeLabels(rec.data).length;
-          sess.itemsMeta = computeLabels(rec.data);
-          sess.emplacements = rec.data.emplacements || {};
-        }
-      }
-    }
-  }
-
-  if(!keys.length){
-    el.innerHTML = '<div class="empty">Aucune sortie en cours — scanne ou charge une étiquette pour commencer.</div>';
-    return;
-  }
-  el.innerHTML = keys.map(function(labelNumber){
-    var sess = exitSessions[labelNumber];
-    var hEntry = state.historyIndex.find(function(h){ return h.labelNumber===labelNumber; });
-    var clientName = hEntry ? hEntry.client : '?';
-    var total = sess.total || '?';
-    var complete = sess.total && sess.scanned.length >= sess.total;
-    var itemsList = (sess.itemsMeta||[]).map(function(meta){
-      var scanned = sess.scanned.indexOf(meta.itemId) >= 0;
-      var loc = (sess.emplacements||{})[meta.itemId];
-      return '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12.5px;">'+
-        '<span>'+(scanned?'✅':'⬜')+' '+(meta.posLabel||meta.itemId)+'</span>'+
-        '<span style="color:var(--ink-soft);font-weight:600;">'+(loc?escapeHtml(loc):'—')+'</span>'+
-      '</div>';
-    }).join('');
-    return '<div class="hist-item" data-labelnumber="'+labelNumber+'">'+
-      '<div class="hd"><span class="nom">'+escapeHtml(labelNumber)+' — '+escapeHtml(clientName||'?')+'</span></div>'+
-      '<div class="sub">Progression : '+sess.scanned.length+' / '+total+' étiquette(s) scannée(s)</div>'+
-      '<div style="margin-top:6px;border-top:1px solid var(--line);padding-top:6px;">'+itemsList+'</div>'+
-      '<div class="actions">'+
-        (complete ? '<button class="btn accent" data-act="validate">Valider la sortie</button>' : '') +
-        '<button class="btn danger" data-act="cancel">Annuler</button>'+
-      '</div></div>';
-  }).join('');
-
-  Array.prototype.forEach.call(el.querySelectorAll('.hist-item'), function(item){
-    var labelNumber = item.getAttribute('data-labelnumber');
-    var validateBtn = item.querySelector('[data-act="validate"]');
-    if(validateBtn) validateBtn.addEventListener('click', function(){ validateExit(labelNumber); });
-    item.querySelector('[data-act="cancel"]').addEventListener('click', function(){
-      clearExitSession(labelNumber);
-      renderExitSessions();
-      banner('Sortie annulée pour '+labelNumber);
-    });
-  });
-}
-
-async function validateExit(labelNumber){
-  var hEntry = state.historyIndex.find(function(h){ return h.labelNumber===labelNumber; });
-  if(!hEntry){ banner('Introuvable'); return; }
-  var rec = await getReceptionRecord(hEntry.id);
-  if(!rec){ banner('Introuvable'); return; }
-  // règle métier : une commande ne devrait sortir du stock qu'une fois rattachée à un Bon de
-  // Livraison — avertissement avec possibilité de passer outre pour les cas exceptionnels, pas un
-  // blocage strict. itemAffectation (phase 2) est la seule source de vérité : au moins un article
-  // de la réception doit être affecté à un BL pour que l'avertissement ne se déclenche pas.
-  var aAuMoinsUnBL = Object.values(rec.data.itemAffectation||{}).some(function(a){ return a && a.type==='bl'; });
-  if(!aAuMoinsUnBL){
-    if(!confirm('⚠️ Cette commande n\'est reliée à aucun Bon de Livraison.\n\n'+(labelNumber||'')+' — '+(rec.data.client||'?')+'\n\nSortir quand même le stock ?')) return;
-  }
-
-  var totalLabels = computeLabels(rec.data).length;
-  var daysStored = daysSince(rec.data.receivedAt || rec.data.date);
-  var exitDateStr = fmtDate(todayISO());
-  var paletteCount = parseInt(rec.data.palettes,10)||0;
-  var vracCount = parseInt(rec.data.vrac,10)||0;
-  var stats = { totalLabels: totalLabels, daysStored: daysStored, exitDateStr: exitDateStr, paletteCount: paletteCount, vracCount: vracCount };
-
-  rec.data.exitedAt = new Date().toISOString();
-  rec.data.exitStats = stats; // conservé pour pouvoir retélécharger le PDF de sortie plus tard
-  await saveReceptionRecord(hEntry.id, rec);
-  hEntry.exitedAt = rec.data.exitedAt;
-  hEntry.exitDaysStored = daysStored;
-  hEntry.exitTotalLabels = totalLabels;
-  await saveHistoryIndex();
-
-  clearExitSession(labelNumber);
-  delete walkSessions[labelNumber];
-  await renderExitSessions();
-  renderHistory();
-  renderArchiveList();
-
-  generateExitPdf(rec.data, stats);
-  banner('Sortie validée pour '+labelNumber+' — déplacée vers CDE sortie');
-}
-
-async function reprintExitPdf(labelNumber){
-  var hEntry = state.historyIndex.find(function(h){ return h.labelNumber===labelNumber; });
-  if(!hEntry){ banner('Introuvable'); return; }
-  var rec = await getReceptionRecord(hEntry.id);
-  if(!rec || !rec.data.exitStats){ banner('Aucune sortie enregistrée pour cette référence'); return; }
-  generateExitPdf(rec.data, rec.data.exitStats);
-}
-
-// ---------- saisie manuelle (sans caméra) ----------
-document.getElementById('btnManualLoad').addEventListener('click', async function(){
-  var ln = document.getElementById('manualLabelNumber').value.trim().toUpperCase();
-  if(!ln) return;
-  var hEntry = state.historyIndex.find(function(h){ return (h.labelNumber||'').toUpperCase()===ln; });
-  if(!hEntry){ banner('Réception '+ln+' introuvable'); return; }
-  if(hEntry.exitedAt){ banner(ln+' est déjà sortie le '+fmtDate(hEntry.exitedAt.slice(0,10))); return; }
-  var rec = await getReceptionRecord(hEntry.id);
-  if(!rec){ banner('Introuvable'); return; }
-  var items = computeLabels(rec.data);
-  var sess = loadExitSession(ln);
-  sess.total = items.length;
-  renderManualChecklist(ln, items, sess);
-});
-
-function renderManualChecklist(labelNumber, items, sess){
-  var el = document.getElementById('manualChecklist');
-  el.innerHTML = items.map(function(meta){
-    var checked = sess.scanned.indexOf(meta.itemId) >= 0;
-    return '<label style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:14px;">'+
-      '<input type="checkbox" data-itemid="'+meta.itemId+'" '+(checked?'checked':'')+' style="width:19px;height:19px;flex-shrink:0;">'+
-      (meta.posLabel || 'Étiquette unique')+
-    '</label>';
-  }).join('');
-  Array.prototype.forEach.call(el.querySelectorAll('input[type=checkbox]'), function(cb){
-    cb.addEventListener('change', async function(){
-      var itemId = cb.getAttribute('data-itemid');
-      if(cb.checked){
-        await registerScan(labelNumber, itemId, sess.total);
-      } else {
-        sess.scanned = sess.scanned.filter(function(x){ return x!==itemId; });
-        persistExitSession(labelNumber);
-        await renderExitSessions();
-      }
-    });
-  });
-}
-
-// ---------- scan caméra (nécessite un contexte sécurisé HTTPS) ----------
-var scanStream = null;
-var scanRAF = null;
-var lastScan = { text: null, time: 0 };
-
+// ---------- caméra : disponibilité (utilisée par le rangement) — nécessite un contexte sécurisé HTTPS ----------
 function cameraAvailable(){
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext && window.jsQR);
 }
 
-async function startScan(){
-  try{
-    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-  }catch(e){
-    banner("Impossible d'accéder à la caméra");
-    return;
-  }
-  var video = document.getElementById('scanVideo');
-  video.srcObject = scanStream;
-  await video.play();
-  document.getElementById('scanWrap').style.display = 'block';
-  document.getElementById('btnScanStart').style.display = 'none';
-  document.getElementById('btnScanStop').style.display = '';
-  document.getElementById('scanStatus').textContent = 'Scanner actif — vise une étiquette';
-  scanLoop();
-}
 
-function stopScan(){
-  if(scanRAF){ cancelAnimationFrame(scanRAF); scanRAF = null; }
-  if(scanStream){ scanStream.getTracks().forEach(function(t){ t.stop(); }); scanStream = null; }
-  document.getElementById('scanWrap').style.display = 'none';
-  document.getElementById('btnScanStart').style.display = '';
-  document.getElementById('btnScanStop').style.display = 'none';
-  document.getElementById('scanStatus').textContent = '';
-}
 
-function scanLoop(){
-  var video = document.getElementById('scanVideo');
-  var canvas = document.getElementById('scanCanvas');
-  if(video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth){
-    var w = 420;
-    var h = Math.round(video.videoHeight * (w/video.videoWidth)) || 320;
-    canvas.width = w; canvas.height = h;
-    var ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, w, h);
-    var imgData = ctx.getImageData(0,0,w,h);
-    var code = null;
-    try{ code = window.jsQR(imgData.data, w, h); }catch(e){}
-    if(code && code.data){
-      var now = Date.now();
-      if(code.data !== lastScan.text || (now - lastScan.time) > 2000){
-        lastScan = { text: code.data, time: now };
-        handleScannedText(code.data);
-      }
-    }
-  }
-  scanRAF = requestAnimationFrame(scanLoop);
-}
 
-function handleScannedText(text){
-  try{
-    var url = new URL(text);
-    var labelNumber = url.searchParams.get('r');
-    var itemId = url.searchParams.get('item');
-    var total = parseInt(url.searchParams.get('total'),10);
-    if(labelNumber && itemId && total){
-      playBeep();
-      registerScan(labelNumber, itemId, total);
-      return;
-    }
-  }catch(e){}
-  banner('QR non reconnu');
-}
 
-document.getElementById('btnScanStart').addEventListener('click', startScan);
-document.getElementById('btnScanStop').addEventListener('click', stopScan);
 
 // ---------- tabs ----------
 // ---------- navigation par tuiles à l'intérieur d'un module (Gestion Clients, Paramètres...) ----------
@@ -7659,25 +7054,14 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), funct
 });
 
 function switchTab(name){
-  ['new','attente','ranger','hist','exit','archive','planning','tms','base','clients','contremarques','parametres'].forEach(function(t){
+  ['new','attente','ranger','hist','archive','planning','tms','base','clients','contremarques','parametres'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
     btn.classList.toggle('active', btn.getAttribute('data-tab')===name);
   });
-  if(name!=='exit'){ stopScan(); }
   if(name!=='ranger'){ stopRangerScan(); }
   if(name!=='hist'){ stopMoveScan(); }
-  if(name==='exit'){
-    if(!cameraAvailable()){
-      document.getElementById('scanUnavailable').style.display = 'block';
-      document.getElementById('btnScanStart').style.display = 'none';
-    }
-    rehydrateExitSessions();
-    renderExitSessions();
-    resetExitPlanDefault();
-    renderExitPlanList();
-  }
   if(name==='attente'){ resetPlanningWeekDefaults(); resetPendingWeekDefaults(); renderPendingList();
   renderToRangeList(); }
   if(name==='ranger'){
@@ -7962,7 +7346,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0072';
+var APP_VERSION = '2026.0073';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -8715,6 +8099,10 @@ async function fixExitDate(){
 document.getElementById('btnFixExitDate').addEventListener('click', fixExitDate);
 
 // ---------- init : la connexion passe avant toute lecture de données ----------
+// reliquats de l'ancien scan de sortie : sessions « en cours » encore stockées dans le navigateur
+function nettoyerAnciennesSessionsSortie(){
+  try{ Object.keys(localStorage).filter(function(k){ return k.indexOf(LS_PREFIX+'exit-progress:')===0; }).forEach(function(k){ localStorage.removeItem(k); }); }catch(e){}
+}
 function clearSessionFlags(){
   lsDelete('access-unlocked'); lsDelete('access-identity'); lsDelete('access-is-admin');
 }
@@ -8758,6 +8146,7 @@ async function resumeSession(user){
 
 (async function init(){
   var user = await restoreSession();
+  nettoyerAnciennesSessionsSortie();
   loadCachedGlobalConfigForDisplay(); // affichage seulement (nom de marque…) : aucune lecture dans la base avant connexion
   updateBrandingUI();
   renderSiegesList();
