@@ -1190,6 +1190,13 @@
   </section>
 </div>
 
+<div id="piecesOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:61;align-items:flex-end;justify-content:center;">
+  <div style="background:#fff;width:100%;max-width:560px;max-height:90vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px 22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;">📎 Pièces de réception</h2><button class="btn ghost" id="btnPiecesClose" style="width:auto;padding:6px 12px;">Fermer</button></div>
+    <div class="hint" id="piecesTitre" style="margin-bottom:10px;"></div>
+    <div id="piecesBody"></div>
+  </div>
+</div>
 <div id="journalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;align-items:flex-end;justify-content:center;">
   <div style="background:#fff;width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px 22px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><h2 style="margin:0;">📜 Journal de la commande</h2><button class="btn ghost" id="btnJournalClose" style="width:auto;padding:6px 12px;">Fermer</button></div>
@@ -1687,6 +1694,7 @@ function recordToIndexEntry(rec){
     soloItemId: items.length===1 ? items[0].itemId : null, // identifiant réel de l'unique article (P1/V1/U1) — jamais supposé
     avarieCount: d.avarieCount || 0,
     receptionMailSent: !!d.receptionMailSent,
+    nbPieces: (d.pieces||[]).length, cmrRecu: (d.pieces||[]).some(function(x){ return x.type==='cmr'; }), legacyPieces: (d.receptionPhotos||[]).length + (d.receptionDocs||[]).length,
     deliveryDate: d.deliveryDate || ''
   };
   // résumé des emplacements : chaque étiquette (palette/colis) peut avoir son propre emplacement
@@ -1787,6 +1795,11 @@ function diffReception(prev, cur){
   if((prev.deliveryDate||'')!==(cur.deliveryDate||'')) ev.push(evenement('planning', { de:prev.deliveryDate||'', vers:cur.deliveryDate||'' }));
   if(!prev.deletedAt && cur.deletedAt) ev.push(evenement('corbeille', {}));
   else if(prev.deletedAt && !cur.deletedAt) ev.push(evenement('restauration', {}));
+  var pp = (prev.pieces||[]).map(function(x){ return x.id; }), cp = (cur.pieces||[]).map(function(x){ return x.id; });
+  var ajoutees = (cur.pieces||[]).filter(function(x){ return pp.indexOf(x.id)<0 && x.par!=='migration'; });
+  var retirees = (prev.pieces||[]).filter(function(x){ return cp.indexOf(x.id)<0; });
+  if(ajoutees.length) ev.push(evenement('piece', { pieces:ajoutees.map(function(x){ return { type:x.type, nom:x.nom }; }) }));
+  if(retirees.length) ev.push(evenement('piece_supprimee', { pieces:retirees.map(function(x){ return { type:x.type, nom:x.nom }; }) }));
   var champs = [];
   CHAMPS_SUIVIS.forEach(function(f){ var a = String(prev[f[0]]==null?'':prev[f[0]]), b = String(cur[f[0]]==null?'':cur[f[0]]); if(a!==b) champs.push({ c:f[1], de:a, vers:b }); });
   if(champs.length) ev.push(evenement('modification', { champs:champs.slice(0,8) }));
@@ -1802,11 +1815,17 @@ async function saveReceptionRecord(id, record){
     }
     if(prev!==undefined && record && record.data) ajouterEvenements(record.data, diffReception(prev, record.data));
   }catch(e){ console.error('journal : comparaison impossible', e); }
+  // Firestore refuse un document de plus de 1 Mo : on le dit tout de suite plutôt que de laisser l'écriture échouer en silence
+  var taille = 0; try{ taille = JSON.stringify(record).length; }catch(e){}
+  if(taille > 1030000){ banner('⚠ Fiche trop volumineuse ('+Math.round(taille/1024)+' Ko) : enregistrement refusé. Les pièces jointes doivent être ajoutées comme pièces de réception.'); return false; }
   lsSet('reception:'+id, JSON.stringify(record));
+  var ok = true;
   if(fsReady()){
-    try{ await receptionsColRef.doc(id).set(record); }catch(e){ console.error('Firestore saveReceptionRecord error', e); }
+    try{ await receptionsColRef.doc(id).set(record); }
+    catch(e){ ok = false; console.error('Firestore saveReceptionRecord error', e); banner('⚠ Enregistrement refusé par la base ('+((e && e.code) || 'erreur')+')'); }
   }
-  if(record && record.data) receptionBase[id] = cloneData(record.data);
+  if(ok && record && record.data) receptionBase[id] = cloneData(record.data);
+  return ok;
 }
 
 async function getReceptionRecord(id){
@@ -1955,19 +1974,9 @@ async function viewReceptionDocs(id, boxId){
   if(box.style.display === 'block'){ box.style.display = 'none'; return; }
   var rec = await getReceptionRecord(id);
   if(!rec){ banner('Introuvable'); return; }
-  var photos = rec.data.receptionPhotos || [];
-  var docs = rec.data.receptionDocs || [];
-  if(!photos.length && !docs.length){ banner('Aucun document retrouvé pour cette commande'); return; }
-  var photosHtml = photos.map(function(p){
-    return '<a href="'+p+'" target="_blank"><img src="'+p+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);margin:2px 4px 2px 0;"></a>';
-  }).join('');
-  var docsHtml = docs.map(function(d){
-    return '<a href="'+d.dataUrl+'" download="'+escapeHtml(d.name||'document.pdf')+'" style="display:block;margin:4px 0;color:var(--accent);">📄 '+escapeHtml(d.name||'document.pdf')+'</a>';
-  }).join('');
-  box.innerHTML =
-    '<div class="hint" style="margin-bottom:8px;font-weight:600;">Documents de réception envoyés</div>'+
-    (photosHtml ? '<div style="display:flex;flex-wrap:wrap;margin-bottom:6px;">'+photosHtml+'</div>' : '')+
-    docsHtml;
+  var pieces = await chargerPieces(id, rec);
+  if(!pieces.length){ banner('Aucun document retrouvé pour cette commande'); return; }
+  box.innerHTML = '<div class="hint" style="margin-bottom:8px;font-weight:600;">Pièces de réception</div>'+piecesHtml(pieces, false);
   box.style.display = 'block';
 }
 
@@ -2598,6 +2607,8 @@ function libelleEvenement(e){
     case 'planning': return ['📅', 'Livraison prévue : '+dateCourte(d.de)+' → '+dateCourte(d.vers)];
     case 'corbeille': return ['🗑️', 'Envoyée à la corbeille'];
     case 'restauration': return ['♻️', 'Restaurée depuis la corbeille'];
+    case 'piece': return ['📎', 'Pièce(s) jointe(s) : '+resumePieces(d.pieces)];
+    case 'piece_supprimee': return ['🗑️', 'Pièce(s) supprimée(s) : '+resumePieces(d.pieces)];
     case 'modification': return ['✏️', 'Modifiée : '+(d.champs||[]).map(function(c){ return c.c+' '+(c.de||'—')+' → '+(c.vers||'—'); }).join(' ; ')];
     // faits lus dans les BP / BL
     case 'bp_cree': return ['📋', 'BP '+d.numero+' créé'+(d.destination?' ('+d.destination+')':'')];
@@ -5163,20 +5174,20 @@ function fileToDataUrl(file){
   });
 }
 
-function compressImageFile(file){
+function compressImageFile(file, maxDimArg, qualiteArg){
   return new Promise(function(resolve){
     var reader = new FileReader();
     reader.onload = function(e){
       var img = new Image();
       img.onload = function(){
-        var maxDim = 900;
+        var maxDim = maxDimArg || 900;
         var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
         var w = Math.round(img.width*scale) || 1, h = Math.round(img.height*scale) || 1;
         var canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
         var ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.6));
+        resolve(canvas.toDataURL('image/jpeg', qualiteArg || 0.6));
       };
       img.onerror = function(){ resolve(null); };
       img.src = e.target.result;
@@ -5224,127 +5235,176 @@ function resolveClientEmailInteractive(clientName, boxEl, onResolved){
 }
 
 // étape "photos + envoi mail" affichée juste après la confirmation "À Quai" (facultative)
-function renderQuaiPhotosStep(box, id, rec, labelNumber){
-  var photos = rec.data.receptionPhotos ? rec.data.receptionPhotos.slice() : [];
-  var docs = rec.data.receptionDocs ? rec.data.receptionDocs.slice() : [];
-  box.innerHTML =
-    '<div class="hint" style="margin-bottom:8px;color:var(--accent);font-weight:600;">✓ Réception confirmée</div>'+
-    '<div class="hint" style="margin-bottom:8px;">Marchandise et documents (facultatif) :</div>'+
-    '<div class="btn-row" style="margin-top:0;">'+
-      '<button class="btn ghost" id="quaiPhotoMarch-'+id+'" style="width:auto;">📷 Photos marchandise</button>'+
-      '<button class="btn ghost" id="quaiPdfDocs-'+id+'" style="width:auto;">📄 Charger un PDF</button>'+
-    '</div>'+
-    '<input type="file" id="quaiPhotoInput-'+id+'" accept="image/*" capture="environment" multiple style="display:none;">'+
-    '<input type="file" id="quaiPdfInput-'+id+'" accept="application/pdf" multiple style="display:none;">'+
-    '<div id="quaiPhotoPreview-'+id+'" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;"></div>'+
-    '<div id="quaiDocsPreview-'+id+'" style="margin:4px 0 8px;"></div>'+
-    '<div class="btn-row">'+
-      '<button class="btn danger" id="quaiSendMail-'+id+'" style="width:100%;">Envoyer par mail au client</button>'+
-    '</div>'+
-    '<div class="btn-row">'+
-      '<button class="btn ghost" id="quaiFinish-'+id+'" style="width:100%;">Terminé</button>'+
-    '</div>';
 
-  function renderPreview(){
-    document.getElementById('quaiPhotoPreview-'+id).innerHTML = photos.map(function(u){
-      return '<img src="'+u+'" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">';
-    }).join('');
-    document.getElementById('quaiDocsPreview-'+id).innerHTML = docs.map(function(d){
-      return '<div class="hint">📄 '+escapeHtml(d.name||'document.pdf')+'</div>';
-    }).join('');
+// ================= Pièces de réception (CMR, photos marchandise, documents) =================
+// Chaque pièce est un document à part (sous-collection de la commande) : la fiche ne porte que des métadonnées légères.
+// Avant, photos et PDF étaient entassés en base64 dans la fiche elle-même : un seul PDF de CMR dépassait la limite de
+// 1 Mo de Firestore, et l'échec de l'écriture passait inaperçu.
+var PIECE_MAX_CHARS = 900000;   // une pièce = un document Firestore (limite 1 Mo, base64 compris)
+var PIECE_TYPES = { cmr:'CMR / bon de livraison', marchandise:'Photo marchandise', document:'Document' };
+function piecesCol(id){ return (fsReady() && receptionsColRef) ? receptionsColRef.doc(id).collection('pieces') : null; }
+function majIndexReception(id, rec){ var ix = state.historyIndex.findIndex(function(h){ return h.id===id; }); if(ix>=0) state.historyIndex[ix] = recordToIndexEntry(rec); }
+function resumePieces(list){
+  var n = {}; (list||[]).forEach(function(p){ n[p.type] = (n[p.type]||0) + 1; });
+  return Object.keys(n).map(function(t){ return n[t]+' '+({ cmr:'CMR', marchandise:'photo(s) marchandise', document:'document(s)' }[t]||t); }).join(' · ') || '—';
+}
+async function compresserSousLimite(file, type){
+  var essais = type==='cmr' ? [[1600,0.75],[1400,0.65],[1200,0.55]] : [[1280,0.7],[1100,0.6],[900,0.5]];
+  for(var i=0;i<essais.length;i++){ var u = await compressImageFile(file, essais[i][0], essais[i][1]); if(u && u.length <= PIECE_MAX_CHARS) return u; }
+  return null;
+}
+async function ajouterFichiersPieces(id, files, type){
+  var col = piecesCol(id); if(!col) return { ok:0, refus:['Connexion indisponible'] };
+  var metas = [], refus = [];
+  for(var i=0;i<files.length;i++){
+    var f = files[i], nom = f.name || 'piece';
+    var estPdf = f.type==='application/pdf' || /\.pdf$/i.test(nom);
+    var dataUrl = estPdf ? await fileToDataUrl(f) : await compresserSousLimite(f, type);
+    if(!dataUrl){ refus.push(nom+' : fichier illisible ou image trop lourde'); continue; }
+    if(dataUrl.length > PIECE_MAX_CHARS){ refus.push(nom+' : '+Math.round(dataUrl.length*0.75/1024)+' Ko, au-delà de la limite (≈ '+Math.round(PIECE_MAX_CHARS*0.75/1024)+' Ko) — photographie la page plutôt que de charger le PDF'); continue; }
+    var pid = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    var piece = { id:pid, type:type, nom:nom, mime:estPdf?'application/pdf':'image/jpeg', taille:dataUrl.length, dataUrl:dataUrl, le:new Date().toISOString(), par:currentIdentity(), parUid:currentUid() };
+    try{ await col.doc(pid).set(piece); metas.push({ id:pid, type:type, nom:nom, mime:piece.mime, le:piece.le, par:piece.par }); }
+    catch(e){ refus.push(nom+' : refusé par la base ('+((e && e.code) || 'erreur')+')'); }
   }
-  renderPreview();
+  if(metas.length){
+    var rec = await getReceptionRecord(id);
+    if(rec){ rec.data.pieces = (rec.data.pieces||[]).concat(metas); await saveReceptionRecord(id, rec); majIndexReception(id, rec); }
+  }
+  return { ok:metas.length, refus:refus };
+}
+async function supprimerPiece(id, pid){
+  var col = piecesCol(id); if(!col) return false;
+  try{ await col.doc(pid).delete(); }catch(e){ banner('⚠ Suppression refusée ('+((e && e.code)||'erreur')+')'); return false; }
+  var rec = await getReceptionRecord(id);
+  if(rec){ rec.data.pieces = (rec.data.pieces||[]).filter(function(p){ return p.id!==pid; }); await saveReceptionRecord(id, rec); majIndexReception(id, rec); }
+  return true;
+}
+// pièces de la commande : sous-collection + anciennes photos/PDF encore dans la fiche (lecture seule tant qu'ils n'ont pas été migrés)
+async function chargerPieces(id, rec){
+  var out = [], col = piecesCol(id);
+  if(col){ try{ var snap = await col.get(); snap.forEach(function(d){ out.push(d.data()); }); }catch(e){ console.error('chargerPieces', e); } }
+  var d = (rec && rec.data) || {};
+  (d.receptionPhotos||[]).forEach(function(u, i){ out.push({ id:'legacy-p'+i, type:'marchandise', nom:'Photo '+(i+1), mime:'image/jpeg', dataUrl:u, legacy:true, le:'' }); });
+  (d.receptionDocs||[]).forEach(function(x, i){ out.push({ id:'legacy-d'+i, type:'document', nom:x.name||'document.pdf', mime:'application/pdf', dataUrl:x.dataUrl, legacy:true, le:'' }); });
+  var ordre = { cmr:0, marchandise:1, document:2 };
+  out.sort(function(a, b){ return (ordre[a.type]-ordre[b.type]) || String(a.le||'').localeCompare(String(b.le||'')); });
+  return out;
+}
+// déplace les anciennes photos/PDF de la fiche vers des pièces à part, puis allège la fiche
+async function migrerPiecesHeritees(id){
+  var rec = await getReceptionRecord(id); if(!rec) return 0;
+  var ph = rec.data.receptionPhotos || [], dc = rec.data.receptionDocs || [];
+  if(!ph.length && !dc.length) return 0;
+  var col = piecesCol(id); if(!col) return 0;
+  var metas = [], gardePhotos = [], gardeDocs = [], maintenant = new Date().toISOString();
+  async function mettre(type, nom, mime, dataUrl){
+    if(!dataUrl || dataUrl.length > PIECE_MAX_CHARS) return false;   // trop gros pour une pièce : on le laisse en place plutôt que de le perdre
+    var pid = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    try{ await col.doc(pid).set({ id:pid, type:type, nom:nom, mime:mime, taille:dataUrl.length, dataUrl:dataUrl, le:maintenant, par:'migration', parUid:'' }); }catch(e){ return false; }
+    metas.push({ id:pid, type:type, nom:nom, mime:mime, le:maintenant, par:'migration' });
+    return true;
+  }
+  for(var i=0;i<ph.length;i++){ if(!(await mettre('marchandise', 'Photo '+(i+1), 'image/jpeg', ph[i]))) gardePhotos.push(ph[i]); }
+  for(var j=0;j<dc.length;j++){ if(!(await mettre('document', dc[j].name||'document.pdf', 'application/pdf', dc[j].dataUrl))) gardeDocs.push(dc[j]); }
+  if(!metas.length) return 0;
+  if(gardePhotos.length) rec.data.receptionPhotos = gardePhotos; else delete rec.data.receptionPhotos;
+  if(gardeDocs.length) rec.data.receptionDocs = gardeDocs; else delete rec.data.receptionDocs;
+  rec.data.pieces = (rec.data.pieces||[]).concat(metas);
+  await saveReceptionRecord(id, rec); majIndexReception(id, rec);
+  return metas.length;
+}
+async function piecesPourMail(id){
+  var rec = await getReceptionRecord(id); var p = await chargerPieces(id, rec);
+  return { photos:p.filter(function(x){ return String(x.mime).indexOf('image')===0; }).map(function(x){ return x.dataUrl; }),
+           docs:p.filter(function(x){ return x.mime==='application/pdf'; }).map(function(x){ return { name:x.nom, dataUrl:x.dataUrl }; }), nb:p.length };
+}
+function piecesHtml(pieces, avecSuppression){
+  return pieces.map(function(p){
+    var est = String(p.mime).indexOf('image')===0;
+    var tag = '<div style="font-size:10.5px;color:var(--ink-soft);">'+escapeHtml(PIECE_TYPES[p.type]||p.type)+'</div>';
+    var suppr = (avecSuppression && !p.legacy) ? ' <button class="btn ghost pc-suppr" data-pid="'+escapeHtml(p.id)+'" style="width:auto;padding:1px 7px;font-size:11px;">🗑</button>' : '';
+    if(est) return '<div style="display:inline-block;margin:2px 6px 6px 0;text-align:center;"><a href="'+p.dataUrl+'" target="_blank"><img src="'+p.dataUrl+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);"></a>'+tag+suppr+'</div>';
+    return '<div style="margin:4px 0;"><a href="'+p.dataUrl+'" download="'+escapeHtml(p.nom||'document.pdf')+'" style="color:var(--accent);">📄 '+escapeHtml(p.nom||'document.pdf')+'</a> '+tag+suppr+'</div>';
+  }).join('');
+}
+// gestionnaire de pièces d'une commande (utilisé à l'arrivée « À Quai » et depuis « CDE à Ranger »)
+async function renderGestionPieces(box, id){
+  box.innerHTML = '<div class="hint">Chargement…</div>';
+  var migrees = await migrerPiecesHeritees(id);
+  if(migrees) banner(migrees+' ancienne(s) photo(s)/PDF déplacé(s) vers les pièces de la commande');
+  box.innerHTML =
+    '<div class="hint" style="margin-bottom:8px;font-weight:600;">Pièces de réception</div>'+
+    '<div class="btn-row" style="margin-top:0;"><button class="btn accent" id="pcCmrPhoto-'+id+'" style="width:auto;">📄 CMR : photographier</button><button class="btn ghost" id="pcCmrPdf-'+id+'" style="width:auto;">📎 CMR : PDF</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" id="pcMarch-'+id+'" style="width:auto;">📷 Photos marchandise</button><button class="btn ghost" id="pcDoc-'+id+'" style="width:auto;">📄 Autre document</button></div>'+
+    '<input type="file" id="pcCmrPhotoIn-'+id+'" accept="image/*" capture="environment" multiple style="display:none;">'+
+    '<input type="file" id="pcCmrPdfIn-'+id+'" accept="application/pdf" multiple style="display:none;">'+
+    '<input type="file" id="pcMarchIn-'+id+'" accept="image/*" capture="environment" multiple style="display:none;">'+
+    '<input type="file" id="pcDocIn-'+id+'" accept="application/pdf,image/*" multiple style="display:none;">'+
+    '<div id="pcListe-'+id+'" style="margin:8px 0;"></div><div id="pcMsg-'+id+'" style="font-size:12.5px;"></div>';
+  async function rafraichir(){
+    var rec = await getReceptionRecord(id); var pieces = await chargerPieces(id, rec);
+    var el = document.getElementById('pcListe-'+id); if(!el) return;
+    el.innerHTML = pieces.length ? piecesHtml(pieces, true) : '<div class="hint">Aucune pièce pour l\'instant.</div>';
+    Array.prototype.forEach.call(el.querySelectorAll('.pc-suppr'), function(b){
+      b.addEventListener('click', async function(){ if(!confirm('Supprimer cette pièce ?')) return; if(await supprimerPiece(id, b.getAttribute('data-pid'))) rafraichir(); });
+    });
+  }
+  function brancher(btnId, inId, type){
+    var input = document.getElementById(inId);
+    document.getElementById(btnId).addEventListener('click', function(){ input.click(); });
+    input.addEventListener('change', async function(e){
+      var files = Array.prototype.slice.call(e.target.files || []); if(!files.length) return;
+      var msg = document.getElementById('pcMsg-'+id); msg.style.color = 'var(--ink-soft)'; msg.textContent = 'Enregistrement…';
+      var res = await ajouterFichiersPieces(id, files, type);
+      msg.style.color = res.refus.length ? 'var(--danger)' : 'var(--accent)';
+      msg.innerHTML = (res.ok ? res.ok+' pièce(s) enregistrée(s). ' : '') + res.refus.map(function(r){ return '⚠️ '+escapeHtml(r); }).join('<br>');
+      input.value = ''; rafraichir();
+    });
+  }
+  brancher('pcCmrPhoto-'+id, 'pcCmrPhotoIn-'+id, 'cmr'); brancher('pcCmrPdf-'+id, 'pcCmrPdfIn-'+id, 'cmr');
+  brancher('pcMarch-'+id, 'pcMarchIn-'+id, 'marchandise'); brancher('pcDoc-'+id, 'pcDocIn-'+id, 'document');
+  await rafraichir();
+}
 
-  var fileInput = document.getElementById('quaiPhotoInput-'+id);
-  fileInput.addEventListener('change', async function(e){
-    var files = Array.prototype.slice.call(e.target.files || []);
-    for(var i=0;i<files.length;i++){
-      var dataUrl = await compressImageFile(files[i]);
-      if(dataUrl) photos.push(dataUrl);
-    }
-    rec.data.receptionPhotos = photos;
-    await saveReceptionRecord(id, rec);
-    renderPreview();
-    banner(photos.length+' photo(s) enregistrée(s)');
-  });
-  document.getElementById('quaiPhotoMarch-'+id).addEventListener('click', function(){ fileInput.click(); });
-
-  var pdfInput = document.getElementById('quaiPdfInput-'+id);
-  pdfInput.addEventListener('change', async function(e){
-    var files = Array.prototype.slice.call(e.target.files || []);
-    for(var i=0;i<files.length;i++){
-      var dataUrl = await fileToDataUrl(files[i]);
-      if(dataUrl) docs.push({ name: files[i].name, dataUrl: dataUrl });
-    }
-    rec.data.receptionDocs = docs;
-    await saveReceptionRecord(id, rec);
-    renderPreview();
-    banner(docs.length+' document(s) PDF enregistré(s)');
-  });
-  document.getElementById('quaiPdfDocs-'+id).addEventListener('click', function(){ pdfInput.click(); });
-
-  document.getElementById('quaiSendMail-'+id).addEventListener('click', function(){
-    resolveClientEmailInteractive(rec.data.client, box, async function(toEmail){
+// Le panneau est indépendant des listes : l'écoute temps réel reconstruit les listes à chaque écriture, ce qui détruisait
+// les zones intégrées aux lignes (l'étape photos s'écrivait dans un élément détaché dès que la réception était confirmée).
+async function ouvrirPiecesOverlay(id, opts){
+  opts = opts || {};
+  var rec = await getReceptionRecord(id); if(!rec){ banner('Introuvable'); return; }
+  var ov = document.getElementById('piecesOverlay'), body = document.getElementById('piecesBody');
+  document.getElementById('piecesTitre').textContent = (rec.data.labelNumber||'')+' — '+(rec.data.client||'—');
+  ov.style.display = 'flex';
+  body.innerHTML = (opts.apresReception ? '<div class="hint" style="margin-bottom:8px;color:var(--accent);font-weight:600;">✓ Réception confirmée</div>' : '')+
+    '<div id="piecesGest"></div>'+
+    '<div class="btn-row"><button class="btn danger" id="piecesMail" style="width:100%;">Envoyer par mail au client</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" id="piecesTermine" style="width:100%;">Terminé</button></div>';
+  await renderGestionPieces(document.getElementById('piecesGest'), id);
+  document.getElementById('piecesMail').addEventListener('click', async function(){
+    var pm = await piecesPourMail(id);
+    if(!pm.nb){ banner('Ajoute d\'abord le CMR ou des photos de réception'); return; }
+    var r1 = await getReceptionRecord(id);
+    resolveClientEmailInteractive(r1.data.client, body, async function(toEmail){
       var ccEmail = currentAgencyEmail();
-      var body = buildEmailBody(state.base.emailTemplateReception || DEFAULT_EMAIL_RECEPTION);
-      await shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(rec.data.labelNumber||''), body, photos, docs);
-      rec.data.receptionMailSent = true;
-      await saveReceptionRecord(id, rec);
-      var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
-      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      var corps = buildEmailBody(state.base.emailTemplateReception || DEFAULT_EMAIL_RECEPTION);
+      await shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(r1.data.labelNumber||''), corps, pm.photos, pm.docs);
+      var r2 = await getReceptionRecord(id);
+      if(r2){ r2.data.receptionMailSent = true; await saveReceptionRecord(id, r2); majIndexReception(id, r2); }
       banner('Mail envoyé');
     });
   });
-
-  document.getElementById('quaiFinish-'+id).addEventListener('click', function(){
-    box.style.display = 'none';
-    renderPendingList();
-    renderToRangeList();
-    renderHistory();
+  document.getElementById('piecesTermine').addEventListener('click', async function(){
+    // le CMR est la preuve de ce qui a été remis par le transporteur : on le rappelle, sans bloquer
+    var r = await getReceptionRecord(id);
+    var aCmr = !!(r && (r.data.pieces||[]).some(function(p){ return p.type==='cmr'; }));
+    if(!aCmr && !confirm('Aucun CMR / bon de livraison n\'est joint à cette réception.\n\nTerminer quand même ?')) return;
+    ov.style.display = 'none';
   });
 }
+document.getElementById('btnPiecesClose').addEventListener('click', function(){ document.getElementById('piecesOverlay').style.display = 'none'; });
+function renderQuaiPhotosStep(box, id, rec, labelNumber){ ouvrirPiecesOverlay(id, { apresReception:true }); }
 
-function openReceptionPhotosBox(id){
-  var box = document.getElementById('recphotos-'+id);
-  if(!box) return;
-  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
-  getReceptionRecord(id).then(function(rec){
-    var existing = (rec && rec.data && rec.data.receptionPhotos) || [];
-    var photoDataUrls = existing.slice();
-    box.innerHTML =
-      '<div class="hint" style="margin-bottom:8px;">Photos des documents de réception et de la marchandise.</div>'+
-      '<input type="file" id="recPhotosInput-'+id+'" accept="image/*" capture="environment" multiple style="display:block;margin-bottom:10px;">'+
-      '<div id="recPhotosPreview-'+id+'" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>'+
-      '<div class="btn-row">'+
-        '<button class="btn accent" id="recPhotosSave-'+id+'" style="width:100%;">Enregistrer les photos</button>'+
-      '</div>';
-    document.getElementById('recPhotosPreview-'+id).innerHTML = photoDataUrls.map(function(u){
-      return '<img src="'+u+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">';
-    }).join('');
-    box.style.display = 'block';
-
-    document.getElementById('recPhotosInput-'+id).addEventListener('change', async function(e){
-      var files = Array.prototype.slice.call(e.target.files || []);
-      for(var i=0;i<files.length;i++){
-        var dataUrl = await compressImageFile(files[i]);
-        if(dataUrl) photoDataUrls.push(dataUrl);
-      }
-      document.getElementById('recPhotosPreview-'+id).innerHTML = photoDataUrls.map(function(u){
-        return '<img src="'+u+'" style="width:70px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line);">';
-      }).join('');
-    });
-
-    document.getElementById('recPhotosSave-'+id).addEventListener('click', async function(){
-      if(!photoDataUrls.length){ banner('Ajoute au moins une photo'); return; }
-      var r = await getReceptionRecord(id);
-      if(!r){ banner('Introuvable'); return; }
-      r.data.receptionPhotos = photoDataUrls;
-      await saveReceptionRecord(id, r);
-      box.style.display = 'none';
-      banner(photoDataUrls.length+' photo(s) de réception enregistrée(s)');
-    });
-  });
-}
+function openReceptionPhotosBox(id){ ouvrirPiecesOverlay(id); }
 
 function openReserveBox(id, labelNumber){
   var box = document.getElementById('reserve-'+id);
@@ -5375,7 +5435,8 @@ function openReserveBox(id, labelNumber){
   document.getElementById('reserveSave-'+id).addEventListener('click', async function(){
     var comment = document.getElementById('reserveComment-'+id).value.trim();
     if(!photoDataUrls.length && !comment){ banner('Ajoute au moins une photo ou un commentaire'); return; }
-    await saveAvarie(id, labelNumber, photoDataUrls, comment);
+    var okAv = await saveAvarie(id, labelNumber, photoDataUrls, comment);
+    if(okAv===false) return;   // le message d'erreur est déjà affiché ; on garde la saisie pour pouvoir corriger
     box.style.display = 'none';
     banner('Réserve enregistrée');
     renderPendingList();
@@ -5395,9 +5456,12 @@ async function saveAvarie(receptionId, labelNumber, photos, comment){
     reportedAt: new Date().toISOString(),
     reportedBy: currentIdentity()
   };
+  // une réserve = un document Firestore (limite 1 Mo) : trop de photos et l'écriture échouait sans qu'on le sache
+  var tailleAv = 0; try{ tailleAv = JSON.stringify(avarie).length; }catch(e){}
+  if(tailleAv > 1030000){ banner('⚠ Trop de photos pour une seule réserve ('+Math.round(tailleAv/1024)+' Ko, limite ≈ 1 Mo) : retire des photos ou enregistre-en deux.'); return false; }
   if(fsReady()){
     try{ await configDocRef.collection('avaries').doc(avarieId).set(avarie); }
-    catch(e){ console.error('Firestore saveAvarie error', e); }
+    catch(e){ console.error('Firestore saveAvarie error', e); banner('⚠ Réserve non enregistrée : refusée par la base ('+((e && e.code) || 'erreur')+')'); return false; }
   }
   lsSet('avarie:'+avarieId, JSON.stringify(avarie));
 
@@ -5410,6 +5474,7 @@ async function saveAvarie(receptionId, labelNumber, photos, comment){
     var idx = state.historyIndex.findIndex(function(h){ return h.id===receptionId; });
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
   }
+  return true;
 }
 
 async function getAvarie(avarieId){
@@ -5699,7 +5764,7 @@ function renderHistory(){
     var days = daysSince(h.receivedAt || h.date);
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
-    var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
+    var avarieBadge = (h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '') + (h.cmrRecu ? ' <span style="color:#1e8e3e;font-weight:600;font-size:12px;">📎 CMR</span>' : '');
     var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
     var blBadge = h.bonLivraisonId ? '<span style="color:var(--accent);font-weight:600;">🚚 BL '+escapeHtml(h.bonLivraisonId)+'</span>' : '';
@@ -5842,7 +5907,7 @@ function renderPendingList(){
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
     var dateLine = h.date ? ('Réception prévue : '+fmtDate(h.date)) : 'Date de réception non communiquée';
     var weekLine = h.weekNumber ? (' · Semaine '+escapeHtml(String(h.weekNumber))) : '';
-    var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
+    var avarieBadge = (h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '') + (h.cmrRecu ? ' <span style="color:#1e8e3e;font-weight:600;font-size:12px;">📎 CMR</span>' : '');
     var mailBadge = h.receptionMailSent ? mailStatusBadge(true, h.id) : '';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span></div>'+
@@ -6578,7 +6643,7 @@ function renderToRangeList(){
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
-    var avarieBadge = h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '';
+    var avarieBadge = (h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '') + (h.cmrRecu ? ' <span style="color:#1e8e3e;font-weight:600;font-size:12px;">📎 CMR</span>' : '');
     var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var progress = (h.itemsRanged||0)+' / '+(h.itemsTotal||0)+' étiquette(s) rangée(s)';
     return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'" data-id="'+h.id+'">'+
@@ -6639,17 +6704,9 @@ function renderToRangeList(){
     input.addEventListener('change', async function(e){
       var files = Array.prototype.slice.call(e.target.files || []);
       if(!files.length) return;
-      var rec = await getReceptionRecord(id);
-      if(!rec){ banner('Introuvable'); return; }
-      var docs = rec.data.receptionDocs || [];
-      for(var i=0;i<files.length;i++){
-        var dataUrl = await fileToDataUrl(files[i]);
-        if(dataUrl) docs.push({ name: files[i].name, dataUrl: dataUrl });
-      }
-      rec.data.receptionDocs = docs;
-      await saveReceptionRecord(id, rec);
-      banner(docs.length+' document(s) PDF enregistré(s)');
-      input.value = '';
+      var res = await ajouterFichiersPieces(id, files, 'document');
+        banner(res.ok ? res.ok+' document(s) enregistré(s)'+(res.refus.length ? ' — ⚠ '+res.refus.join(' ; ') : '') : '⚠ '+(res.refus.join(' ; ') || 'Rien enregistré'));
+        input.value = '';
     });
   });
 
@@ -6659,20 +6716,17 @@ function renderToRangeList(){
     btn.addEventListener('click', async function(){
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
-      var photos = rec.data.receptionPhotos || [];
-      var docs = rec.data.receptionDocs || [];
-      if(!photos.length && !docs.length){ banner('Prends d\'abord des photos ou charge un PDF de réception'); return; }
+      var pm = await piecesPourMail(id);
+        if(!pm.nb){ banner('Ajoute d\'abord le CMR ou des photos de réception'); return; }
       var promptBox = document.getElementById('recphotos-'+id);
       promptBox.innerHTML = '';
       promptBox.style.display = 'block';
       resolveClientEmailInteractive(rec.data.client, promptBox, async function(toEmail){
         var ccEmail = currentAgencyEmail();
         var body = buildEmailBody(state.base.emailTemplateReception || DEFAULT_EMAIL_RECEPTION);
-        await shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(rec.data.labelNumber||''), body, photos, docs);
-        rec.data.receptionMailSent = true;
-        await saveReceptionRecord(id, rec);
-        var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
-        if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+        await shareOrEmailWithPhotos(toEmail, ccEmail, 'Documents de réception — '+(rec.data.labelNumber||''), body, pm.photos, pm.docs);
+          var r3 = await getReceptionRecord(id);
+          if(r3){ r3.data.receptionMailSent = true; await saveReceptionRecord(id, r3); majIndexReception(id, r3); }
         renderToRangeList();
         banner('Mail envoyé');
       });
@@ -7687,7 +7741,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0076';
+var APP_VERSION = '2026.0077';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
