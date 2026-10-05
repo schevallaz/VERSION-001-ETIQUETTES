@@ -405,7 +405,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0024';
+var APP_VERSION = '2026.0025';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -645,6 +645,8 @@ async function saveBonPatch(numero, patch){
 // « retour » jusqu'à son rangement réel (qui lève le verrou, côté Gestion Dépôt). La date d'entrée d'origine ne
 // change jamais, et l'historique de la sortie (date, BP, zone) est conservé dans historiqueSorties au lieu d'être effacé.
 var bpColRef = null;
+// journal d'événements d'une commande (même format que Gestion Dépôt) : qui, quand, quoi
+function evenementJournal(k, d){ return { t:new Date().toISOString(), k:k, par:currentIdentity(), parUid:currentUid(), d:d||{} }; }
 function receptionsCol(){ return (fsReady() && configDocRef) ? configDocRef.collection('receptions') : null; }
 // transaction unique : tout est vérifié et écrit d'un bloc, ou rien (jamais de retour à moitié enregistré)
 async function retourMarchandiseAuDepot(commandeIds, depuis, motif){
@@ -678,6 +680,7 @@ async function retourMarchandiseAuDepot(commandeIds, depuis, motif){
           ['sortieBP','sortieDestination','sortieDestinationLibelle','sortieFacturable','zoneSortie','zoneSortieLe'].forEach(function(k){ delete d[k]; });
           d.emplacements = {}; d.emplacement = '';
         }
+        d.journal = (d.journal||[]).concat([evenementJournal('retour', { depuis:{ type:depuis.type, id:depuis.id }, motif:motif||'', items:r.mine })]).slice(-400);
         tx.set(r.ref, r.record);
       });
       return { ok:true, nb:cibles.length };
@@ -3285,6 +3288,7 @@ document.getElementById('btnSaveCollecte').addEventListener('click', async funct
       nrecep: '', poids: String(poidsEstime), colis: String(colisEstime), palettes: '0', vrac: '', support: '',
       emplacement: '', receivedAt: new Date().toISOString(), origineCollecte: numero
     };
+    recData.journal = [evenementJournal('creation', { client:client, fournisseur:sourceNom, contremarque:'', origine:'collecte '+numero }), evenementJournal('reception', { date:recData.receivedAt })];
     var receptionsColRefLocal = configDocRef ? configDocRef.collection('receptions') : null;
     if(fsReady() && receptionsColRefLocal){
       try{ await receptionsColRefLocal.add({ data: recData, savedAt: new Date().toISOString() }); }

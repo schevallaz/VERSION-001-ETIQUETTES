@@ -1190,6 +1190,12 @@
   </section>
 </div>
 
+<div id="journalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;align-items:flex-end;justify-content:center;">
+  <div style="background:#fff;width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px 22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><h2 style="margin:0;">📜 Journal de la commande</h2><button class="btn ghost" id="btnJournalClose" style="width:auto;padding:6px 12px;">Fermer</button></div>
+    <div id="journalBody"></div>
+  </div>
+</div>
 <div class="save-banner" id="saveBanner"></div>
 
 <script>
@@ -1741,18 +1747,73 @@ function watchReceptions(){
   }, function(err){ console.error('Firestore receptions watch error', err); });
 }
 
+// ================= Journal d'événements par commande =================
+// Chaque changement d'une commande est enregistré (qui, quand, quoi) DANS la même écriture que le changement lui-même :
+// le journal ne peut donc jamais diverger de l'état réel. Il est calculé en comparant la commande telle qu'elle a été lue
+// à la commande telle qu'elle est enregistrée ; les verrous (affectations) l'alimentent directement, dans leur transaction.
+var JOURNAL_MAX = 400;
+var receptionBase = {};   // id -> copie de la commande telle qu'elle a été lue (point de comparaison à l'enregistrement)
+function cloneData(d){ return d ? JSON.parse(JSON.stringify(d)) : d; }
+function evenement(k, d){ return { t:new Date().toISOString(), k:k, par:currentIdentity(), parUid:currentUid(), d:d||{} }; }
+function ajouterEvenements(data, evs){
+  if(!evs || !evs.length) return;
+  data.journal = (data.journal||[]).concat(evs);
+  if(data.journal.length > JOURNAL_MAX) data.journal = data.journal.slice(-JOURNAL_MAX);
+}
+var CHAMPS_SUIVIS = [['client','client'],['fournisseur','fournisseur'],['transporteur','transporteur'],['poids','poids'],['colis','colis'],['palettes','palettes'],['vrac','colis vrac'],['support','support'],['nrecep','n° de réception'],['date','date de réception prévue'],['weekNumber','semaine']];
+function diffReception(prev, cur){
+  var ev = [];
+  if(!prev){
+    ev.push(evenement('creation', { client:cur.client||'', fournisseur:cur.fournisseur||'', contremarque:cur.contremarque||'', origine: cur.origineCollecte ? 'collecte '+cur.origineCollecte : '' }));
+    if(cur.receivedAt) ev.push(evenement('reception', { date:cur.receivedAt }));
+    return ev;
+  }
+  if((prev.receivedAt||'') !== (cur.receivedAt||'')){
+    if(!prev.receivedAt && cur.receivedAt) ev.push(evenement('reception', { date:cur.receivedAt }));
+    else if(prev.receivedAt && !cur.receivedAt) ev.push(evenement('reception_annulee', {}));
+    else ev.push(evenement('modification', { champs:[{ c:'date de réception effective', de:String(prev.receivedAt), vers:String(cur.receivedAt) }] }));
+  }
+  var pe = prev.emplacements||{}, ce = cur.emplacements||{}, sortieChange = (prev.exitedAt||'')!==(cur.exitedAt||'');
+  var ranges = {}, depl = [], des = [];
+  Object.keys(ce).forEach(function(it){ if(!(it in pe)) ranges[it] = ce[it]; else if(pe[it]!==ce[it]) depl.push({ item:it, de:pe[it], vers:ce[it] }); });
+  Object.keys(pe).forEach(function(it){ if(!(it in ce)) des.push(it); });
+  if(Object.keys(ranges).length) ev.push(evenement('rangement', { items:ranges }));
+  if(depl.length) ev.push(evenement('deplacement', { mouvements:depl }));
+  if(des.length && !sortieChange) ev.push(evenement('derangement', { items:des })); // lors d'une sortie ou d'un retour, c'est l'événement de sortie/retour qui l'explique
+  if(!prev.exitedAt && cur.exitedAt) ev.push(evenement('sortie', { bp:cur.sortieBP||'', destination:cur.sortieDestinationLibelle||'', zone:cur.zoneSortie||'', facturable:cur.sortieFacturable!==false }));
+  else if(prev.exitedAt && !cur.exitedAt){ var h = (cur.historiqueSorties||[]).slice(-1)[0] || {}; ev.push(evenement('retour', { depuis:h.depuis||null, motif:h.motif||'' })); }
+  else if(prev.exitedAt && cur.exitedAt && (prev.zoneSortie||'')!==(cur.zoneSortie||'')) ev.push(evenement('zone', { de:prev.zoneSortie||'', vers:cur.zoneSortie||'' }));
+  if((prev.contremarqueId||'')!==(cur.contremarqueId||'') || (prev.contremarque||'')!==(cur.contremarque||'')) ev.push(evenement('contremarque', { de:prev.contremarque||'', vers:cur.contremarque||'' }));
+  if((prev.deliveryDate||'')!==(cur.deliveryDate||'')) ev.push(evenement('planning', { de:prev.deliveryDate||'', vers:cur.deliveryDate||'' }));
+  if(!prev.deletedAt && cur.deletedAt) ev.push(evenement('corbeille', {}));
+  else if(prev.deletedAt && !cur.deletedAt) ev.push(evenement('restauration', {}));
+  var champs = [];
+  CHAMPS_SUIVIS.forEach(function(f){ var a = String(prev[f[0]]==null?'':prev[f[0]]), b = String(cur[f[0]]==null?'':cur[f[0]]); if(a!==b) champs.push({ c:f[1], de:a, vers:b }); });
+  if(champs.length) ev.push(evenement('modification', { champs:champs.slice(0,8) }));
+  return ev;
+}
+
 async function saveReceptionRecord(id, record){
+  // journal : on compare à la commande telle qu'elle a été lue (ou, à défaut, telle qu'elle est en base)
+  try{
+    var prev = (id in receptionBase) ? receptionBase[id] : undefined;
+    if(prev===undefined && fsReady() && receptionsColRef){
+      try{ var ps = await receptionsColRef.doc(id).get(); prev = ps.exists ? (ps.data().data || null) : null; }catch(e){ prev = undefined; }
+    }
+    if(prev!==undefined && record && record.data) ajouterEvenements(record.data, diffReception(prev, record.data));
+  }catch(e){ console.error('journal : comparaison impossible', e); }
   lsSet('reception:'+id, JSON.stringify(record));
   if(fsReady()){
     try{ await receptionsColRef.doc(id).set(record); }catch(e){ console.error('Firestore saveReceptionRecord error', e); }
   }
+  if(record && record.data) receptionBase[id] = cloneData(record.data);
 }
 
 async function getReceptionRecord(id){
   if(fsReady()){
     try{
       var snap = await receptionsColRef.doc(id).get();
-      if(snap.exists){ lsSet('reception:'+id, JSON.stringify(snap.data())); return snap.data(); }
+      if(snap.exists){ lsSet('reception:'+id, JSON.stringify(snap.data())); receptionBase[id] = cloneData(snap.data().data); return snap.data(); }
     }catch(e){ console.error('Firestore getReceptionRecord error', e); }
   }
   var raw = lsGet('reception:'+id);
@@ -2486,6 +2547,164 @@ document.getElementById('nettoyageBLList').addEventListener('click', async funct
   banner('BL '+num+' annulé'+(res.echecs.length ? ' — à terminer depuis la fiche contremarque (« Traiter ») : '+res.echecs.join(', ') : ' — marchandise traitée ('+res.traitees+' commande(s))'));
 });
 
+
+// ================= Fiche « Journal » d'une commande =================
+function dateHeureCourte(iso){
+  if(!iso) return '—';
+  var v = String(iso);
+  if(v.length <= 10) return fmtDate(v);
+  var d = new Date(v); if(isNaN(d.getTime())) return v;
+  return fmtDate(dateToISO(d))+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function itemsTexte(o){ return Object.keys(o||{}).map(function(k){ return k+' → '+o[k]; }).join(', '); }
+// clé de déduplication : un même fait peut être à la fois enregistré (journal) et lisible dans un BP / un BL
+// une sortie ou un retour se reconnaît à son BP / BL ; à défaut (anciennes sorties), à sa date
+function cleSortie(bp, t){ return bp ? 'sortie:'+bp : 'sortie-sans-bp:'+String(t||'').slice(0,10); }
+function cleRetour(depuis, t){ return (depuis && depuis.id) ? 'retour:'+depuis.id : 'retour-sans-ref:'+String(t||'').slice(0,10); }
+function cleEvenement(e){
+  var d = e.d || {};
+  if(e.k==='affectation' && d.type) return d.type+':'+d.id;
+  if(e.k==='transfert' && d.vers) return d.vers.type+':'+d.vers.id;
+  if(e.k==='sortie') return cleSortie(d.bp, e.t);
+  if(e.k==='retour') return cleRetour(d.depuis, e.t);
+  if(e.k==='reception') return 'reception';
+  return '';
+}
+function libelleEvenement(e){
+  var d = e.d || {};
+  switch(e.k){
+    case 'creation': return ['🆕', 'Commande créée'+(d.origine?' ('+d.origine+')':'')+(d.client?' — '+d.client:'')+(d.fournisseur?' · '+d.fournisseur:'')];
+    case 'reception': return ['📥', 'Marchandise réceptionnée le '+dateCourte(d.date)];
+    case 'reception_annulee': return ['↩️', 'Réception annulée : retour en « CDE en attente »'];
+    case 'rangement': return ['📍', 'Rangée : '+itemsTexte(d.items)];
+    case 'deplacement': return ['🔀', 'Déplacée : '+(d.mouvements||[]).map(function(m){ return m.item+' '+m.de+' → '+m.vers; }).join(', ')];
+    case 'derangement': return ['↩️', 'Remise à ranger : '+(d.items||[]).join(', ')];
+    case 'affectation':
+      if(d.type==='bp') return ['📋', 'Mise en préparation — BP '+d.id];
+      if(d.type==='bl') return ['🧾', 'Affectée au BL '+d.id];
+      if(d.type==='retour') return ['↩️', 'Marquée « retour » ('+d.id+')'];
+      return ['🔒', 'Affectée : '+d.type+' '+d.id];
+    case 'transfert':
+      if(d.de && d.vers && d.de.type==='bp' && d.vers.type==='bl') return ['🧾', 'BL '+d.vers.id+' créé à partir du BP '+d.de.id];
+      if(d.de && d.vers && d.vers.type==='retour') return ['↩️', 'Passée en « retour » (suite à '+d.de.type.toUpperCase()+' '+d.de.id+')'];
+      if(d.de && !d.vers && d.de.type==='retour') return ['✅', 'Rangée : le verrou « retour » est levé, la marchandise est de nouveau disponible'];
+      if(d.de && !d.vers) return ['🔓', 'Libérée de '+d.de.type.toUpperCase()+' '+d.de.id];
+      return ['🔁', 'Affectation transférée'+(d.de?' de '+d.de.type+' '+d.de.id:'')+(d.vers?' vers '+d.vers.type+' '+d.vers.id:'')];
+    case 'liberation': return ['🔓', 'Libérée de son affectation'];
+    case 'sortie': return ['🚚', 'Sortie validée'+(d.destination?' — '+d.destination:'')+(d.bp?' (BP '+d.bp+')':'')+(d.zone?' · zone : '+d.zone:'')+(d.facturable===false?' · non facturable':'')];
+    case 'retour': return ['↩️', 'Retour au dépôt'+(d.depuis?' (depuis '+d.depuis.type.toUpperCase()+' '+d.depuis.id+')':'')+(d.motif?' — '+d.motif:'')];
+    case 'zone': return ['📍', 'Zone de sortie : « '+(d.de||'—')+' » → « '+(d.vers||'—')+' »'];
+    case 'contremarque': return ['🔗', 'Contremarque : « '+(d.de||'—')+' » → « '+(d.vers||'—')+' »'];
+    case 'planning': return ['📅', 'Livraison prévue : '+dateCourte(d.de)+' → '+dateCourte(d.vers)];
+    case 'corbeille': return ['🗑️', 'Envoyée à la corbeille'];
+    case 'restauration': return ['♻️', 'Restaurée depuis la corbeille'];
+    case 'modification': return ['✏️', 'Modifiée : '+(d.champs||[]).map(function(c){ return c.c+' '+(c.de||'—')+' → '+(c.vers||'—'); }).join(' ; ')];
+    // faits lus dans les BP / BL
+    case 'bp_cree': return ['📋', 'BP '+d.numero+' créé'+(d.destination?' ('+d.destination+')':'')];
+    case 'bp_statut': return ['📋', 'BP '+d.numero+' : '+({ pret:'marqué prêt', brouillon:'repassé à « créé »' }[d.statut]||d.statut)];
+    case 'bl_cree': return ['🧾', 'BL '+d.numero+' créé'];
+    case 'rdv': return ['📞', 'RDV pris pour le '+dateCourte(d.date)+(d.creneau?' ('+d.creneau+')':'')+' — BL '+d.numero];
+    case 'validation': return ['✅', 'BL '+d.numero+' validé par l\'exploitant pour une tournée'];
+    case 'tournee_affectation': return ['🚛', 'BL '+d.numero+' affecté à la tournée '+(d.tourneeId||'?')+(d.date?' du '+dateCourte(d.date):'')];
+    case 'tournee_retrait': return ['↩️', 'BL '+d.numero+' retiré de la tournée '+(d.tourneeId||'?')+(d.motif?' — '+d.motif:'')];
+    case 'livraison': return ['📦', 'BL '+d.numero+' livré'+(d.source==='livreur'?' (confirmé par le livreur)':'')];
+    case 'bl_annule': return ['⛔', 'BL '+d.numero+' annulé'+(d.motif?' — '+d.motif:'')];
+  }
+  return ['•', e.k];
+}
+// séjours au dépôt : de l'entrée à la sortie, puis de chaque retour à la sortie suivante (la période hors dépôt n'est pas du stockage)
+function periodesStockage(d){
+  var out = [], debut = String(d.receivedAt||'').slice(0,10);
+  if(!debut) return out;
+  (d.historiqueSorties||[]).forEach(function(h){
+    var fin = String(h.sortieLe||'').slice(0,10);
+    out.push({ debut:debut, fin:fin, jours:joursEntreDates(debut, fin), enCours:false });
+    debut = String(h.retourLe||'').slice(0,10);
+  });
+  if(d.exitedAt){ var f = String(d.exitedAt).slice(0,10); out.push({ debut:debut, fin:f, jours:joursEntreDates(debut, f), enCours:false }); }
+  else out.push({ debut:debut, fin:'', jours:joursEntreDates(debut, todayISO()), enCours:true });
+  return out;
+}
+async function construireJournalCommande(id){
+  var rec = await getReceptionRecord(id); if(!rec) return null;
+  var d = rec.data;
+  var stockes = (d.journal||[]).map(function(e){ return Object.assign({}, e); });
+  var cles = {}; stockes.forEach(function(e){ var c = cleEvenement(e); if(c) cles[c] = true; });
+  var derives = [];
+  function add(t, k, dd, par, cle, source){ if(!t || isNaN(Date.parse(String(t).length<=10 ? t+'T00:00:00' : t))) return; /* date illisible : on n'invente rien */ if(cle && cles[cle]) return; if(cle) cles[cle] = true; /* un même fait lu à deux endroits ne s'affiche qu'une fois */ derives.push({ t:t, k:k, d:dd||{}, par:par||'', derive:true, source:source||'' }); }
+  // faits portés par la commande elle-même
+  if(d.receivedAt) add(d.receivedAt, 'reception', { date:d.receivedAt }, '', 'reception', 'commande');
+  (d.historiqueSorties||[]).forEach(function(h){
+    add(h.sortieLe, 'sortie', { bp:h.bp||'', destination:h.destination||'', zone:h.zone||'' }, '', cleSortie(h.bp, h.sortieLe), 'commande');
+    add(h.retourLe, 'retour', { depuis:h.depuis||null, motif:h.motif||'' }, h.par||'', cleRetour(h.depuis, h.retourLe), 'commande');
+  });
+  if(d.exitedAt) add(d.exitedAt, 'sortie', { bp:d.sortieBP||'', destination:d.sortieDestinationLibelle||'', zone:d.zoneSortie||'', facturable:d.sortieFacturable!==false }, '', cleSortie(d.sortieBP, d.exitedAt), 'commande');
+  // BP et BL qui contiennent cette commande
+  var peutChercher = !!(d.contremarqueId || d.contremarque);
+  if(peutChercher && fsReady()){
+    try{
+      (await loadBonsLivraisonForContremarque(d.contremarque, d.contremarqueId)).filter(function(b){ return (b.commandeIds||[]).indexOf(id)>=0; }).forEach(function(bl){
+        var src = 'd\'après le BL '+bl.numero;
+        add(bl.createdAt, 'bl_cree', { numero:bl.numero }, bl.createdPar||'', 'bl:'+bl.numero, src);
+        if(bl.rdv && bl.rdv.dateHeurePrise) add(bl.rdv.dateHeurePrise, 'rdv', { numero:bl.numero, date:bl.rdv.date, creneau:(bl.rdv.creneauDebut?bl.rdv.creneauDebut+(bl.rdv.creneauFin?'–'+bl.rdv.creneauFin:''):'') }, bl.rdv.prisPar, '', src);
+        if(bl.validationExploitant && bl.validationExploitant.valide && bl.validationExploitant.le) add(bl.validationExploitant.le, 'validation', { numero:bl.numero }, bl.validationExploitant.par, '', src);
+        (bl.historiqueAffectations||[]).forEach(function(h){
+          if(h.action==='affectation') add(h.le, 'tournee_affectation', { numero:bl.numero, tourneeId:h.tourneeId, date:h.date }, h.par, '', src);
+          else if(h.action==='retrait') add(h.le, 'tournee_retrait', { numero:bl.numero, tourneeId:h.tourneeId, motif:h.motif }, h.par, '', src);
+        });
+        if(bl.livraison && bl.livraison.le) add(bl.livraison.le, 'livraison', { numero:bl.numero, source:bl.livraison.source }, bl.livraison.par, '', src);
+        if(bl.annulation && bl.annulation.le) add(bl.annulation.le, 'bl_annule', { numero:bl.numero, motif:bl.annulation.motif }, bl.annulation.par, '', src);
+        if(bl.retourDepot && bl.retourDepot.le) add(bl.retourDepot.le, 'retour', { depuis:{ type:'bl', id:bl.numero }, motif:bl.retourDepot.motif }, bl.retourDepot.par, cleRetour({ id:bl.numero }, bl.retourDepot.le), src);
+      });
+    }catch(e){ console.error('journal : BL', e); }
+    if(d.contremarqueId){
+      try{
+        (await loadBonsPreparationForContremarque(d.contremarqueId)).filter(function(bp){ return (bp.lignes||[]).some(function(l){ return l.commandeId===id; }); }).forEach(function(bp){
+          var src = 'd\'après le BP '+bp.numero;
+          add(bp.createdAt, 'bp_cree', { numero:bp.numero, destination:bp.destinationLibelle||libelleDestination(bp.destination) }, bp.createdPar, 'bp:'+bp.numero, src);
+          (bp.historique||[]).forEach(function(h){ add(h.le, 'bp_statut', { numero:bp.numero, statut:h.statut }, h.par, '', src); });
+          if(bp.retourDepot && bp.retourDepot.le) add(bp.retourDepot.le, 'retour', { depuis:{ type:'bp', id:bp.numero }, motif:bp.retourDepot.motif }, bp.retourDepot.par, cleRetour({ id:bp.numero }, bp.retourDepot.le), src);
+        });
+      }catch(e){ console.error('journal : BP', e); }
+    }
+  }
+  var tous = stockes.concat(derives).map(function(e, i){ e._i = i; e._ts = Date.parse(String(e.t).length<=10 ? e.t+'T00:00:00' : e.t) || 0; return e; });
+  tous.sort(function(a, b){ return a._ts - b._ts || a._i - b._i; });
+  return { data:d, evenements:tous, periodes:periodesStockage(d) };
+}
+async function ouvrirJournalCommande(id){
+  var ov = document.getElementById('journalOverlay'), corps = document.getElementById('journalBody');
+  ov.style.display = 'flex'; corps.innerHTML = '<div class="hint">Chargement…</div>';
+  var j = await construireJournalCommande(id);
+  if(!j){ corps.innerHTML = '<div class="hint">Commande introuvable.</div>'; return; }
+  var d = j.data;
+  var html = '<div style="font-weight:700;font-size:16px;color:var(--accent);">'+escapeHtml(d.labelNumber||'')+'</div>'+
+    '<div class="hint" style="margin-bottom:10px;">'+escapeHtml(d.client||'—')+(d.contremarque?' · '+escapeHtml(d.contremarque):'')+' · '+escapeHtml(d.fournisseur||'—')+'</div>';
+  if(j.periodes.length){
+    var total = j.periodes.reduce(function(s, p){ return s + (p.jours||0); }, 0);
+    html += '<div class="hint" style="font-weight:600;margin:6px 0;">Périodes de stockage — '+total+' jour(s) au total</div>'+
+      j.periodes.map(function(p, i){
+        return '<div class="sub" style="display:flex;justify-content:space-between;gap:8px;"><span>Séjour '+(i+1)+' : '+fmtDate(p.debut)+' → '+(p.enCours ? '<strong>en cours</strong>' : fmtDate(p.fin))+'</span><strong>'+(p.jours==null?'—':p.jours+' j')+'</strong></div>';
+      }).join('');
+  }
+  html += '<div class="hint" style="font-weight:600;margin:14px 0 6px;">Historique</div>';
+  html += j.evenements.length ? j.evenements.map(function(e){
+    var l = libelleEvenement(e);
+    return '<div class="sub" style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px;">'+
+      '<span style="flex-shrink:0;width:22px;text-align:center;">'+l[0]+'</span>'+
+      '<span style="flex:1;"><span style="color:var(--ink-soft);font-size:12px;">'+escapeHtml(dateHeureCourte(e.t))+(e.par?' · '+escapeHtml(e.par):'')+'</span><br>'+escapeHtml(l[1])+
+      (e.derive && e.source ? ' <span style="color:var(--ink-soft);font-size:11.5px;">('+escapeHtml(e.source)+')</span>' : '')+'</span></div>';
+  }).join('') : '<div class="hint">Aucun événement enregistré.</div>';
+  html += '<div class="hint" style="margin-top:12px;font-size:12px;">Les événements enregistrés le sont automatiquement, avec leur auteur. Ceux marqués « d\'après … » sont lus dans les BP, les BL ou les données de la commande (y compris avant la mise en service du journal).</div>';
+  corps.innerHTML = html;
+}
+document.getElementById('btnJournalClose').addEventListener('click', function(){ document.getElementById('journalOverlay').style.display = 'none'; });
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest && ev.target.closest('[data-act="journal"]'); if(!b) return;
+  var item = b.closest('.hist-item'); var id = item && item.getAttribute('data-id');
+  if(id) ouvrirJournalCommande(id);
+});
+
 // ================= PHASE 5 — Annulation d'un BL : retour à ranger, jamais une disparition silencieuse =================
 // traite une anomalie « BL annulé » détectée dans le dossier contremarque : la marchandise ne doit
 // jamais redevenir disponible instantanément si elle a physiquement quitté le dépôt — elle repasse
@@ -2555,6 +2774,7 @@ async function transfererArticles(selections, depuisAttendu, versAffectation){
           if(versAffectation===null) delete r.record.data.itemAffectation[itemId];
           else r.record.data.itemAffectation[itemId] = Object.assign({ par:par, parUid:currentUid(), le:le }, versAffectation);
         });
+        ajouterEvenements(r.record.data, [evenement('transfert', { de:{ type:depuisAttendu.type, id:depuisAttendu.id }, vers: versAffectation ? { type:versAffectation.type, id:versAffectation.id } : null, items:sel.itemIds })]);
         tx.set(r.ref, r.record);
       });
       return { ok:true };
@@ -2809,7 +3029,11 @@ async function createBonPreparation(cmId, cmNom, selection, destination, extra){
 
 async function passerStatutBP(numero, nouveauStatut){
   if(!fsReady() || !bpColRef) return false;
-  try{ await bpColRef.doc(numero).set({ statut: nouveauStatut }, { merge:true }); return true; }
+  try{
+    var sn = await bpColRef.doc(numero).get();
+    var hist = ((sn.exists && sn.data().historique) || []).concat([{ statut:nouveauStatut, par:currentIdentity(), parUid:currentUid(), le:new Date().toISOString() }]);
+    await bpColRef.doc(numero).set({ statut: nouveauStatut, historique: hist }, { merge:true }); return true;
+  }
   catch(e){ console.error('Firestore passerStatutBP error', e); return false; }
 }
 
@@ -5485,6 +5709,7 @@ function renderHistory(){
       '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span><span class="date">'+fmtDate(h.receivedAt||h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+(blBadge?' · '+blBadge:'')+'</div>'+
       '<div class="actions">'+
+        '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
         '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
@@ -5624,6 +5849,7 @@ function renderPendingList(){
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
       '<div class="sub" style="color:var(--ink-soft);">'+dateLine+weekLine+'</div>'+
       '<div class="actions">'+
+        '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn primary" data-act="quai">À Quai</button>'+
         '<button class="btn ghost" data-act="reserve">Réserve</button>'+
@@ -5971,6 +6197,7 @@ function renderArchiveList(){
       '<div class="sub" style="color:var(--ink-soft);">'+detail+'</div>'+
       ligneSortieHtml(h)+zoneEditHtml(h)+
       '<div class="actions">'+
+        '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
         (!h.sortieBP && !h.bonLivraisonId && state.isAdmin ? '<button class="btn ghost" data-act="restock">Remettre en stock (ancienne sortie)</button>' : '')+
         (state.isAdmin ? '<button class="btn danger" data-act="del">Supprimer</button>' : '')+
       '</div>'+
@@ -6359,6 +6586,7 @@ function renderToRangeList(){
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
       '<div class="sub" style="color:var(--accent);font-weight:600;">'+progress+'</div>'+
       '<div class="actions">'+
+        '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
         '<button class="btn accent" data-act="load">Ranger cette commande</button>'+
         '<button class="btn ghost" data-act="unreceive">Remettre en attente</button>'+
         '<button class="btn ghost" data-act="photos">📷 Photos réception</button>'+
@@ -7459,7 +7687,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0075';
+var APP_VERSION = '2026.0076';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -8078,6 +8306,7 @@ async function reclamerArticles(selections, nouvelleAffectation){
         var r = recs[sel.commandeId];
         if(!r.record.data.itemAffectation) r.record.data.itemAffectation = {};
         sel.itemIds.forEach(function(itemId){ r.record.data.itemAffectation[itemId] = Object.assign({ par:par, parUid:currentUid(), le:le }, nouvelleAffectation); });
+        ajouterEvenements(r.record.data, [evenement('affectation', { type:nouvelleAffectation.type, id:nouvelleAffectation.id, items:sel.itemIds })]);
         tx.set(r.ref, r.record);
       });
       return { ok:true };
@@ -8104,6 +8333,7 @@ async function libererArticles(selections){
         if(!r) return;
         if(!r.record.data.itemAffectation) r.record.data.itemAffectation = {};
         sel.itemIds.forEach(function(itemId){ delete r.record.data.itemAffectation[itemId]; });
+        ajouterEvenements(r.record.data, [evenement('liberation', { items:sel.itemIds })]);
         tx.set(r.ref, r.record);
       });
     });
