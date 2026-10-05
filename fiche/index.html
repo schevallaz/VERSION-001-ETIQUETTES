@@ -72,8 +72,40 @@ var JOURS = [['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi
 var ACCES = [['ascenseur','Ascenseur'],['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['escalier','Escalier'],['accesDifficile','Accès difficile'],['accesAutre','Autre']];
 var OPTIONS = [['optDeballage','Déballage *'],['optRepriseEmballages','Reprise des emballages *'],['optMontageSimple','Montage simple *'],['optMiseEnPlace','Mise en place *'],['optEvacuation','Évacuation ancien matériel *']];
 function cb(id, lib){ return '<label class="case"><input type="checkbox" id="'+id+'"> '+lib+'</label>'; }
-function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+'><div class="msgerr" id="e-'+id+'"></div></div>'; }
+function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+(o.attrs?' '+o.attrs:'')+'><div class="msgerr" id="e-'+id+'"></div></div>'; }
 function zone(id, lib, max){ return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+'</label><textarea id="'+id+'" maxlength="'+max+'"></textarea></div>'; }
+
+
+var MAX_ENL = 10;
+var MODES = [['depot','La marchandise est livrée directement au dépôt STLS (aucun enlèvement à prévoir)'],['enlevement','STLS doit effectuer un ou plusieurs enlèvements chez les fournisseurs'],['mixte','Mixte : une partie est livrée au dépôt, une partie doit être enlevée']];
+function radioMode(v, lib){ return '<label class="case"><input type="radio" name="modeReception" value="'+v+'"> '+lib+'</label>'; }
+function blocEnlevement(i){
+  var p = 'enl'+i+'-';
+  return '<div class="enl" data-i="'+i+'" style="border:1px solid var(--line-strong);border-radius:10px;padding:12px;margin:10px 0;">'+
+    '<label class="l" style="color:var(--dark);">Point d\'enlèvement n° '+(i+1)+'</label>'+
+    champ(p+'fournisseur','Nom / enseigne du fournisseur',{req:1,max:80})+
+    champ(p+'adresse','Adresse complète du point d\'enlèvement',{req:1,max:200})+
+    '<div class="row2">'+champ(p+'colis','Nombre de colis à enlever',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+champ(p+'poids','Poids total à enlever (kg)',{req:1,max:8,inputmode:'decimal'})+'</div>'+
+    zone(p+'horaires','Horaires d\'ouverture et contraintes éventuelles',200)+
+  '</div>';
+}
+function modeChoisi(){ var r = document.querySelector('input[name="modeReception"]:checked'); return r ? r.value : ''; }
+// autant de blocs que de points d'enlèvement déclarés ; les saisies déjà faites sont conservées
+function majEnlevements(){
+  var n = parseInt(valeur('nbPointsEnlevement'), 10); if(!(n >= 1)) n = 0; if(n > MAX_ENL) n = MAX_ENL;
+  var conteneur = el('listeEnlevements'), saisies = {};
+  conteneur.querySelectorAll('input, textarea').forEach(function(x){ saisies[x.id] = x.value; });
+  var html = ''; for(var i=0;i<n;i++) html += blocEnlevement(i);
+  conteneur.innerHTML = html;
+  conteneur.querySelectorAll('input, textarea').forEach(function(x){ if(saisies[x.id]!=null) x.value = saisies[x.id]; });
+}
+function majModeReception(){
+  var enl = modeChoisi()==='enlevement' || modeChoisi()==='mixte';
+  el('blocEnlevements').style.display = enl ? 'block' : 'none';
+  if(enl) majEnlevements();
+}
+function nombre(id){ var v = valeur(id).replace(',', '.'); return v==='' ? NaN : Number(v); }
+var NUM_RE = /^\d+([.,]\d{1,2})?$/;
 
 function afficherFormulaire(){
   var aujourdhui = new Date().toISOString().slice(0,10);
@@ -104,9 +136,23 @@ function afficherFormulaire(){
     '</div>'+
     '<h2>4. Jours de livraison possibles</h2><div class="card"><div class="cases">'+cb('joursTous','Tous')+JOURS.map(function(j){ return cb(j[0], j[1]); }).join('')+'</div></div>'+
     '<h2>5. Informations complémentaires / contraintes</h2><div class="card">'+zone('contraintes','',1500)+'</div>'+
-    '<h2>6. Confirmation</h2><div class="card">'+
+    '<h2>6. Marchandise &amp; enlèvements</h2><div class="card">'+
+      champ('nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+
+      '<div class="field" id="f-modeReception"><label class="l">Mode de réception de la marchandise *</label><div class="cases" style="flex-direction:column;gap:10px;">'+MODES.map(function(m){ return radioMode(m[0], m[1]); }).join('')+'</div><div class="msgerr" id="e-modeReception"></div></div>'+
+      '<div id="blocEnlevements" style="display:none;">'+
+        champ('nbPointsEnlevement','Nombre de points d\'enlèvement distincts',{req:1,type:'number',attrs:'min="1" max="'+MAX_ENL+'" step="1"',inputmode:'numeric'})+
+        '<div id="listeEnlevements"></div>'+
+      '</div>'+
+      '<label class="l" style="margin-top:6px;">Colis le plus long</label>'+
+      '<div class="row2">'+champ('colisLongLongueurCm','Longueur (cm)',{req:1,max:8,inputmode:'decimal'})+champ('colisLongLargeurCm','Largeur (cm)',{max:8,inputmode:'decimal'})+'</div>'+
+      '<div class="row2">'+champ('colisLongHauteurCm','Hauteur (cm)',{max:8,inputmode:'decimal'})+champ('colisLongDescription','Description ou référence',{max:200})+'</div>'+
+      '<label class="l" style="margin-top:6px;">Colis le plus lourd</label>'+
+      '<div class="row2">'+champ('colisLourdPoidsKg','Poids (kg)',{req:1,max:8,inputmode:'decimal'})+champ('colisLourdDescription','Description ou référence',{max:200})+'</div>'+
+    '</div>'+
+    '<h2>7. Confirmation</h2><div class="card">'+
       '<div class="certif">Je certifie que les informations communiquées sont exactes et permettent d\'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu\'une nouvelle facturation.</div>'+
       '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> J\'ai vérifié les informations de livraison</label><div class="msgerr" id="e-certifie"></div></div>'+
+      '<div class="field" id="f-certifieMarchandise"><label class="case"><input type="checkbox" id="certifieMarchandise"> J\'ai vérifié les informations de marchandise et d\'enlèvements</label><div class="msgerr" id="e-certifieMarchandise"></div></div>'+
       champ('demandeur','Nom du demandeur',{req:1,max:80})+
       '<div class="field"><label class="l">Date</label><div>'+aujourdhui.split('-').reverse().join('/')+'</div></div>'+
     '</div>'+
@@ -118,6 +164,8 @@ function afficherFormulaire(){
   // « Tous » coche / décoche les jours
   el('joursTous').addEventListener('change', function(){ JOURS.forEach(function(j){ el(j[0]).checked = el('joursTous').checked; }); });
   JOURS.forEach(function(j){ el(j[0]).addEventListener('change', function(){ if(!el(j[0]).checked) el('joursTous').checked = false; }); });
+  document.querySelectorAll('input[name="modeReception"]').forEach(function(r){ r.addEventListener('change', majModeReception); });
+  el('nbPointsEnlevement').addEventListener('input', majEnlevements);
   el('fiche').addEventListener('submit', function(ev){ ev.preventDefault(); envoyer(); });
 }
 
@@ -138,7 +186,28 @@ function validerSaisie(){
   if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide');
   if(valeur('etage') && !/^\d{1,3}$/.test(valeur('etage'))) ko('etage','Nombre invalide');
   if(valeur('datePose') && !/^\d{4}-\d{2}-\d{2}$/.test(valeur('datePose'))) ko('datePose','Date invalide');
+  // section 6 : marchandise et enlèvements
+  var nf = nombre('nbFournisseurs');
+  if(valeur('nbFournisseurs')==='') ko('nbFournisseurs','Champ obligatoire'); else if(!(Number.isInteger(nf) && nf >= 1 && nf <= 99)) ko('nbFournisseurs','Nombre entier de 1 à 99');
+  var mode = modeChoisi();
+  if(!mode) ko('modeReception','Merci de choisir un mode de réception');
+  var nbEnl = 0;
+  if(mode==='enlevement' || mode==='mixte'){   // le détail des enlèvements n'est exigé que s'il y en a
+    var np = nombre('nbPointsEnlevement'); nbEnl = np;
+    if(valeur('nbPointsEnlevement')==='') ko('nbPointsEnlevement','Champ obligatoire'); else if(!(Number.isInteger(np) && np >= 1 && np <= MAX_ENL)) ko('nbPointsEnlevement','Nombre entier de 1 à '+MAX_ENL);
+    else for(var i=0;i<np;i++){
+      var p = 'enl'+i+'-';
+      if(!valeur(p+'fournisseur')) ko(p+'fournisseur','Champ obligatoire');
+      if(!valeur(p+'adresse')) ko(p+'adresse','Champ obligatoire');
+      var cn = nombre(p+'colis'); if(valeur(p+'colis')==='') ko(p+'colis','Champ obligatoire'); else if(!(Number.isInteger(cn) && cn >= 1 && cn <= 9999)) ko(p+'colis','Nombre entier ≥ 1');
+      if(valeur(p+'poids')==='') ko(p+'poids','Champ obligatoire'); else if(!(NUM_RE.test(valeur(p+'poids')) && nombre(p+'poids') > 0 && nombre(p+'poids') <= 99999)) ko(p+'poids','Poids invalide (ex. 120 ou 85,5)');
+    }
+  }
+  if(valeur('colisLongLongueurCm')==='') ko('colisLongLongueurCm','Champ obligatoire'); else if(!(NUM_RE.test(valeur('colisLongLongueurCm')) && nombre('colisLongLongueurCm') > 0 && nombre('colisLongLongueurCm') <= 2000)) ko('colisLongLongueurCm','Longueur invalide (cm)');
+  ['colisLongLargeurCm','colisLongHauteurCm'].forEach(function(id){ if(valeur(id) && !(NUM_RE.test(valeur(id)) && nombre(id) > 0 && nombre(id) <= 1000)) ko(id,'Dimension invalide (cm)'); });
+  if(valeur('colisLourdPoidsKg')==='') ko('colisLourdPoidsKg','Champ obligatoire'); else if(!(NUM_RE.test(valeur('colisLourdPoidsKg')) && nombre('colisLourdPoidsKg') > 0 && nombre('colisLourdPoidsKg') <= 5000)) ko('colisLourdPoidsKg','Poids invalide (kg)');
   if(!coche('certifie')) ko('certifie','Merci de confirmer avoir vérifié les informations');
+  if(!coche('certifieMarchandise')) ko('certifieMarchandise','Merci de confirmer avoir vérifié les informations de marchandise et d\'enlèvements');
   return { n:n, premier:premier, tel1:tel, tel2:tel2 };
 }
 function numeroFiche(){
@@ -160,7 +229,23 @@ async function envoyer(){
     nom:valeur('nom'), prenom:valeur('prenom'), tel1:v.tel1, tel2:v.tel2, adresse1:valeur('adresse1'), adresse2:valeur('adresse2'),
     departement:valeur('departement').toUpperCase(), cp:valeur('cp'), ville:valeur('ville'), mail:valeur('mail'), etage:valeur('etage'),
     accesPrecisions:valeur('accesPrecisions'), datePose:valeur('datePose'), contraintes:valeur('contraintes'), demandeur:valeur('demandeur'),
-    joursTous:coche('joursTous'), certifie:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
+    joursTous:coche('joursTous'), certifie:true, certifieMarchandise:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
+  var arrondi = function(x){ return Math.round(x*100)/100; };
+  doc.nbFournisseurs = nombre('nbFournisseurs'); doc.modeReception = modeChoisi();
+  if(doc.modeReception !== 'depot'){
+    doc.nbPointsEnlevement = nombre('nbPointsEnlevement'); doc.enlevements = [];
+    for(var i=0;i<doc.nbPointsEnlevement;i++){
+      var p = 'enl'+i+'-', e = { fournisseur:valeur(p+'fournisseur'), adresse:valeur(p+'adresse'), colis:nombre(p+'colis'), poidsKg:arrondi(nombre(p+'poids')) };
+      if(valeur(p+'horaires')) e.horaires = valeur(p+'horaires');
+      doc.enlevements.push(e);
+    }
+  }
+  doc.colisLongLongueurCm = arrondi(nombre('colisLongLongueurCm'));
+  if(valeur('colisLongLargeurCm')) doc.colisLongLargeurCm = arrondi(nombre('colisLongLargeurCm'));
+  if(valeur('colisLongHauteurCm')) doc.colisLongHauteurCm = arrondi(nombre('colisLongHauteurCm'));
+  if(valeur('colisLongDescription')) doc.colisLongDescription = valeur('colisLongDescription');
+  doc.colisLourdPoidsKg = arrondi(nombre('colisLourdPoidsKg'));
+  if(valeur('colisLourdDescription')) doc.colisLourdDescription = valeur('colisLourdDescription');
   ACCES.forEach(function(a){ doc[a[0]] = coche(a[0]); }); OPTIONS.forEach(function(o){ doc[o[0]] = coche(o[0]); }); JOURS.forEach(function(j){ doc[j[0]] = coche(j[0]); });
   // les champs facultatifs vides ne sont pas envoyés
   ['ref','enseigne','tel2','adresse2','mail','etage','accesPrecisions','datePose','contraintes'].forEach(function(k){ if(!doc[k]) delete doc[k]; });
@@ -183,7 +268,12 @@ function afficherConfirmation(numero, d){
     recap = '<div class="recap"><h3>Récapitulatif</h3>'+
       ln('Nom', d.nom+' '+d.prenom)+ln('Téléphone', d.tel1+(d.tel2?' / '+d.tel2:''))+ln('Adresse', d.adresse1+(d.adresse2?', '+d.adresse2:'')+' — '+d.cp+' '+d.ville)+ln('Mail', d.mail)+
       ln('Accès', oui(ACCES))+ln('Précisions', d.accesPrecisions)+ln('Étages', d.etage)+ln('Options', oui(OPTIONS))+ln('Date de la pose', d.datePose ? d.datePose.split('-').reverse().join('/') : '')+
-      ln('Jours possibles', jours)+ln('Contraintes', d.contraintes)+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
+      ln('Jours possibles', jours)+ln('Contraintes', d.contraintes)+
+      '<h3>Marchandise &amp; enlèvements</h3>'+ln('Fournisseurs', String(d.nbFournisseurs))+ln('Mode de réception', (MODES.filter(function(m){ return m[0]===d.modeReception; })[0]||['',''])[1])+
+      (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
+      ln('Colis le plus long', d.colisLongLongueurCm+' cm'+(d.colisLongLargeurCm?' × '+d.colisLongLargeurCm+' cm':'')+(d.colisLongHauteurCm?' × '+d.colisLongHauteurCm+' cm':'')+(d.colisLongDescription?' — '+d.colisLongDescription:''))+
+      ln('Colis le plus lourd', d.colisLourdPoidsKg+' kg'+(d.colisLourdDescription?' — '+d.colisLourdDescription:''))+
+      '<h3>Confirmation</h3>'+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
   }
   aff('<div class="msg"><h1 style="font-size:24px;text-align:center;">✅ Fiche envoyée</h1><p class="sous">Numéro : <strong>'+esc(numero)+'</strong></p>'+
     '<p>Votre fiche de livraison a bien été transmise à STLS'+(nomAgence?' — '+esc(nomAgence):'')+'. Nous vous recontacterons pour organiser la livraison.</p></div>'+recap+
