@@ -759,6 +759,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="parcagence" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚐</div><div style="font-weight:700;color:var(--ink);">Gestion du Parc Agence</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="integrite" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔍</div><div style="font-weight:700;color:var(--ink);">Contrôle Intégrité Stock</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="destinations" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚪</div><div style="font-weight:700;color:var(--ink);">Destinations de sortie</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="nettoyagebl" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧹</div><div style="font-weight:700;color:var(--ink);">Nettoyage des BL</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1095,6 +1096,14 @@
         <textarea id="zonesSortieInput" rows="3" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>
       <div class="btn-row"><button class="btn primary" id="btnSaveDestinations" style="width:100%;">Enregistrer</button></div>
       <div id="destAdminMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-nettoyagebl" style="display:none;">
+    <div class="card">
+      <h2>🧹 Nettoyage des BL (administrateur)</h2>
+      <p class="hint" style="margin:0 0 10px;">L'annulation d'un BL est exceptionnelle et réservée aux administrateurs : elle est tracée (motif, auteur, date) et la marchandise est traitée proprement. Si la marchandise est simplement revenue sans être livrée, utilise plutôt « Retour au dépôt » dans Gestion Livraisons.</p>
+      <div class="field"><input type="text" id="nettoyageBLSearch" placeholder="Rechercher : n° BL, contremarque..."></div>
+      <div id="nettoyageBLList"></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
@@ -2379,6 +2388,102 @@ document.getElementById('btnSaveDestinations').addEventListener('click', async f
   state.zonesSortie = zones.length ? zones : ZONES_SORTIE_PAR_DEFAUT.slice(); // champ vidé : on écrit les valeurs par défaut (jamais de null)
   await saveGlobalConfig();
   msg.textContent = 'Destinations enregistrées.'; msg.style.color = 'var(--accent)';
+});
+
+
+// ================= Paramètres : nettoyage des BL (administrateur) =================
+// Annuler un BL est la seule opération qui peut défaire un lien marchandise <-> BL : elle est réservée à un administrateur,
+// exige un motif, est tracée, et traite la marchandise (retour au rangement si elle est sortie, libération sinon).
+var STATUT_BL_LIBELLE = { incomplet:'incomplet', complet:'complet', a_prendre_rdv:'RDV à prendre', rdv_en_cours:'RDV en cours', rdv_valide:'RDV validé', a_valider_exploitant:'à valider par l\'exploitant', valide_pour_tournee:'validé pour tournée', affecte_tournee:'affecté à une tournée', livre:'livré', annule:'annulé', retourne:'retourné au dépôt' };
+var nettoyageBLCache = [];
+async function annulerBLParAdmin(num, motif){
+  if(!state.isAdmin) return { ok:false, motif:'Réservé aux administrateurs' };
+  motif = (motif||'').trim();
+  if(motif.length < 5) return { ok:false, motif:'Motif obligatoire (5 caractères minimum)' };
+  if(!(fsReady() && blColRef)) return { ok:false, motif:'Connexion indisponible' };
+  var snap = await blColRef.doc(num).get();
+  if(!snap.exists) return { ok:false, motif:'BL introuvable' };
+  var bl = snap.data();
+  if(['livre','annule','retourne'].indexOf(bl.statut) >= 0) return { ok:false, motif:'Ce BL ne peut plus être annulé (« '+(STATUT_BL_LIBELLE[bl.statut]||bl.statut)+' »)' };
+  if(bl.statut==='affecte_tournee') return { ok:false, motif:'Ce BL est affecté à une tournée : retire-le d\'abord de sa tournée dans Gestion Livraisons' };
+  var par = currentIdentity(), parUid = currentUid(), le = new Date().toISOString();
+  // 1) le BL est clos EN PREMIER : si le traitement d'une commande échouait ensuite, l'anomalie « BL annulé — Traiter » du dossier contremarque permet de terminer
+  await blColRef.doc(num).set({ statut:'annule', annulation:{ motif:motif, par:par, parUid:parUid, le:le, parAdministrateur:true } }, { merge:true });
+  // 2) marchandise : pour chaque commande du BL, les articles encore affectés à ce BL
+  var traitees = 0, echecs = [];
+  var ids = (bl.commandeIds||[]).filter(function(v,i,a){ return a.indexOf(v)===i; });
+  for(var i=0;i<ids.length;i++){
+    var rec = await getReceptionRecord(ids[i]);
+    if(!rec){ echecs.push(ids[i]); continue; }
+    var aff = rec.data.itemAffectation || {};
+    var items = Object.keys(aff).filter(function(it){ return aff[it] && aff[it].type==='bl' && aff[it].id===num; });
+    if(!items.length) continue;
+    var r = await traiterAnnulationBL(ids[i], items, num);
+    if(r && r.ok) traitees++; else echecs.push(rec.data.labelNumber || ids[i]);
+  }
+  // 3) Bon de Préparation d'origine : la marchandise est revenue, il n'est plus « sorti avec BL »
+  if(bpColRef && !echecs.length){
+    try{
+      var bps = await bpColRef.where('blNumero','==',num).get();
+      var maj = [];
+      bps.forEach(function(d){ maj.push(d.id); });
+      for(var k=0;k<maj.length;k++) await bpColRef.doc(maj[k]).set({ statut:'retourne', retourDepot:{ motif:'BL '+num+' annulé par un administrateur : '+motif, par:par, parUid:parUid, le:le } }, { merge:true });
+    }catch(e){ console.error('annulerBLParAdmin BP', e); }
+  }
+  return { ok:true, traitees:traitees, echecs:echecs };
+}
+async function renderNettoyageBL(){
+  var el = document.getElementById('nettoyageBLList');
+  if(!state.isAdmin){ el.innerHTML = '<div class="hint">Réservé aux administrateurs.</div>'; return; }
+  el.innerHTML = '<div class="hint">Chargement…</div>';
+  nettoyageBLCache = [];
+  if(fsReady() && blColRef){ try{ var snap = await blColRef.get(); snap.forEach(function(d){ nettoyageBLCache.push(d.data()); }); }catch(e){ console.error('renderNettoyageBL', e); } }
+  dessinerNettoyageBL();
+}
+function dessinerNettoyageBL(){
+  var el = document.getElementById('nettoyageBLList');
+  var q = (document.getElementById('nettoyageBLSearch').value || '').trim().toLowerCase();
+  var liste = nettoyageBLCache.filter(function(b){ return !q || (b.numero||'').toLowerCase().indexOf(q)>=0 || (b.contremarque||'').toLowerCase().indexOf(q)>=0; })
+    .sort(function(a,b){ return (b.numero||'').localeCompare(a.numero||''); });
+  var total = liste.length; liste = liste.slice(0, 60);
+  if(!liste.length){ el.innerHTML = '<div class="empty">Aucun BL'+(q?' pour cette recherche':'')+'</div>'; return; }
+  el.innerHTML = liste.map(function(b){
+    var raison = '';
+    if(b.statut==='livre') raison = 'Livré : ne peut pas être annulé.';
+    else if(b.statut==='annule'){ var a = b.annulation||{}; raison = 'Déjà annulé'+(a.motif?' — '+a.motif:'')+(a.par?' (par '+a.par+')':''); }
+    else if(b.statut==='retourne') raison = 'Déjà retourné au dépôt'+((b.retourDepot&&b.retourDepot.motif)?' — '+b.retourDepot.motif:'');
+    else if(b.statut==='affecte_tournee') raison = 'Affecté à la tournée '+(b.tourneeId||'?')+' : à retirer d\'abord dans Gestion Livraisons.';
+    return '<div class="hist-item" data-num="'+escapeHtml(b.numero)+'">'+
+      '<div class="hd"><span class="nom">BL '+escapeHtml(b.numero)+' — '+escapeHtml(b.contremarque||'—')+'</span><span class="date">'+escapeHtml(STATUT_BL_LIBELLE[b.statut]||b.statut||'')+'</span></div>'+
+      '<div class="sub">'+(b.commandeIds||[]).length+' commande(s) · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
+      (raison ? '<div class="sub" style="color:var(--ink-soft);">'+escapeHtml(raison)+'</div>' :
+        '<div class="actions"><button class="btn danger nbl-ouvrir">⛔ Annuler ce BL…</button></div>'+
+        '<div class="nbl-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);">'+
+          '<div class="field"><label>Motif de l\'annulation (obligatoire, tracé)</label><textarea class="nbl-motif" rows="2" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>'+
+          '<div class="hint" style="margin-bottom:6px;">La marchandise de ce BL repasse par « CDE à Ranger » si elle est sortie, ou est libérée si elle est encore en stock.</div>'+
+          '<button class="btn danger nbl-confirmer" style="width:100%;">Confirmer l\'annulation</button><div class="nbl-msg" style="margin-top:6px;font-size:12.5px;"></div></div>')+
+      '</div>';
+  }).join('') + (total>liste.length ? '<div class="hint">'+(total-liste.length)+' autre(s) BL : affine la recherche.</div>' : '');
+}
+document.getElementById('nettoyageBLSearch').addEventListener('input', dessinerNettoyageBL);
+document.getElementById('nettoyageBLList').addEventListener('click', async function(ev){
+  var item = ev.target.closest('.hist-item'); if(!item) return;
+  var num = item.getAttribute('data-num');
+  if(ev.target.classList.contains('nbl-ouvrir')){
+    var f = item.querySelector('.nbl-form'); f.style.display = (f.style.display==='block' ? 'none' : 'block'); return;
+  }
+  if(!ev.target.classList.contains('nbl-confirmer')) return;
+  var msg = item.querySelector('.nbl-msg'), btn = ev.target;
+  function ko(t){ msg.textContent = '⚠️ '+t; msg.style.color = 'var(--danger)'; }
+  var motif = item.querySelector('.nbl-motif').value.trim();
+  if(motif.length < 5){ ko('Motif obligatoire (5 caractères minimum).'); return; }
+  if(!confirm('Annuler définitivement le BL '+num+' ?\n\nMotif : '+motif+'\n\nLa marchandise sera traitée (retour au rangement si elle est sortie, libération sinon). Cette opération est tracée et irréversible.')) return;
+  btn.disabled = true;
+  var res = await annulerBLParAdmin(num, motif);
+  if(!res.ok){ ko(res.motif); btn.disabled = false; return; }
+  renderHistory(); renderArchiveList(); renderToRangeList();
+  await renderNettoyageBL();
+  banner('BL '+num+' annulé'+(res.echecs.length ? ' — à terminer depuis la fiche contremarque (« Traiter ») : '+res.echecs.join(', ') : ' — marchandise traitée ('+res.traitees+' commande(s))'));
 });
 
 // ================= PHASE 5 — Annulation d'un BL : retour à ranger, jamais une disparition silencieuse =================
@@ -7051,6 +7156,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='livreurs'){ renderLivreursList(); }
     if(btn.getAttribute('data-key')==='parcagence'){ renderParcVehiculesList(); }
     if(btn.getAttribute('data-key')==='destinations'){ renderDestinationsAdmin(); }
+    if(btn.getAttribute('data-key')==='nettoyagebl'){ renderNettoyageBL(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
   });
 });
@@ -7353,7 +7459,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0074';
+var APP_VERSION = '2026.0075';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';

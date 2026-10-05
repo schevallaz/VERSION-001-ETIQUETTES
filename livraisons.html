@@ -405,7 +405,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0023';
+var APP_VERSION = '2026.0024';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -1022,8 +1022,8 @@ function renderBLActions(numero){
     html += '<div class="hint">La marchandise est repassée par « CDE à Ranger ». Pour la livrer de nouveau, elle devra être préparée dans un nouveau Bon de Préparation, puis un nouveau BL.</div>';
   } else if(b.statut==='annule'){
     var an0 = b.annulation || {};
-    html += '<div class="hint" style="font-weight:600;color:#7a7a72;">⛔ BL annulé'+(an0.motif?' — '+escapeHtml(an0.motif):'')+(an0.par?' <span style="font-weight:400;">(par '+escapeHtml(an0.par)+')</span>':'')+'</div>';
-    html += '<div class="btn-row"><button class="btn ghost bl-act" data-act="reactiver" data-numero="'+numero+'" style="width:100%;">↩ Réactiver le BL</button></div>';
+    html += '<div class="hint" style="font-weight:600;color:#7a7a72;">⛔ BL annulé'+(an0.motif?' — '+escapeHtml(an0.motif):'')+(an0.par?' <span style="font-weight:400;">(par '+escapeHtml(an0.par)+(an0.le?' le '+fmtDate(String(an0.le).slice(0,10)):'')+')</span>':'')+'</div>';
+    html += '<div class="hint">Un BL annulé ne se réactive pas : la marchandise a été libérée ou renvoyée au rangement. Pour livrer de nouveau, elle doit repasser par un Bon de Préparation puis un nouveau BL.</div>';
   } else if(b.statut==='livre'){
     html += '<div class="hint" style="font-weight:600;color:#7a7a72;">📦 BL livré</div>';
   } else {
@@ -1031,9 +1031,6 @@ function renderBLActions(numero){
   }
   if(['annule','livre','retourne'].indexOf(b.statut) < 0 && (b.commandeIds||[]).length && b.type!=='emporte'){
     html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost bl-act" data-act="retourdepot" data-numero="'+numero+'" style="width:100%;">↩️ Retour de la marchandise au dépôt</button></div>';
-  }
-  if(['annule','livre','affecte_tournee','retourne'].indexOf(b.statut) < 0){
-    html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost bl-act" data-act="annuler" data-numero="'+numero+'" style="width:100%;color:#c0392b;">⛔ Annuler le BL</button></div>';
   }
 
   el.innerHTML = html;
@@ -1075,18 +1072,6 @@ function renderBLActions(numero){
         await retirerBLDeTournee(num, motifRet.trim());
       }
       else if(act==='retourdepot'){ if(!(await retourBLAuDepot(num))) return; }
-      else if(act==='annuler'){
-        var motif = prompt('Motif de l\'annulation du BL '+num+' (obligatoire) :');
-        if(motif===null) return;
-        motif = motif.trim();
-        if(!motif){ banner('Un motif est obligatoire pour annuler un BL'); return; }
-        await saveBonPatch(num, { statut: 'annule', annulation: { motif: motif, par: currentIdentity(), le: new Date().toISOString() } });
-      }
-      else if(act==='reactiver'){
-        if(!confirm('Réactiver le BL '+num+' ? Il devra être de nouveau validé par l\'exploitant avant d\'entrer dans une tournée.')) return;
-        var bReact = state.bons.find(function(x){ return x.numero===num; });
-        await saveBonPatch(num, { statut: (controlerBL(bReact).complet ? 'complet' : 'incomplet'), validationExploitant: { valide: false, par: '', le: '' }, reactivation: { par: currentIdentity(), le: new Date().toISOString() } });
-      }
       // la liste est réaffichée (badges de statut à jour) puis le panneau du BL est rouvert sur son nouvel état
       refreshAllBonLists();
       if(document.getElementById('bl-panel-'+num)) renderBLManagePanel(num, 'bl-panel-'+num);
