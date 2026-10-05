@@ -467,7 +467,7 @@ var globalDocRef = null;
 function agencyDocRef(code){ return fsReady() ? db.collection('stls_depot').doc('agency_'+code) : null; }
 var fichesColRef = null;
 
-var APP_VERSION = '2026.0016';
+var APP_VERSION = '2026.0017';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -1178,9 +1178,26 @@ document.getElementById('btnSendReset').addEventListener('click', async function
   msg.style.display = 'block';
   if(!email){ msg.textContent = 'Saisis ton email'; msg.style.color = 'var(--danger)'; return; }
   if(!(window.firebase && firebase.auth)){ msg.textContent = 'Connexion indisponible pour le moment'; msg.style.color = 'var(--danger)'; return; }
-  try{ await firebase.auth().sendPasswordResetEmail(email); }catch(e){}
-  msg.textContent = 'Email envoyé si ce compte existe — vérifie ta boîte de réception';
-  msg.style.color = 'var(--accent)';
+  var btnR = document.getElementById('btnSendReset'); btnR.disabled = true;
+  var okTxt = 'Email envoyé si ce compte existe — vérifie ta boîte de réception et tes courriers indésirables. Le lien est valable environ une heure.';
+  try{
+    await firebase.auth().sendPasswordResetEmail(email);
+    msg.textContent = okTxt; msg.style.color = 'var(--accent)';
+  }catch(e){
+    var code = (e && e.code) || '';
+    if(code==='auth/user-not-found'){
+      // même message que le compte existe ou non (évite de révéler les comptes existants)
+      msg.textContent = okTxt; msg.style.color = 'var(--accent)';
+    } else {
+      // une vraie panne d'envoi ne doit plus se cacher derrière un message de réussite
+      msg.textContent = code==='auth/invalid-email' ? 'Email invalide'
+        : code==='auth/too-many-requests' ? 'Trop de demandes — réessaie dans quelques minutes'
+        : code==='auth/network-request-failed' ? 'Connexion réseau indisponible'
+        : 'Envoi impossible (' + (code || 'erreur inconnue') + ') — contacte l\'administrateur';
+      msg.style.color = 'var(--danger)';
+    }
+  }
+  btnR.disabled = false;
 });
 
 function goToAgencyStep(preselectCode){

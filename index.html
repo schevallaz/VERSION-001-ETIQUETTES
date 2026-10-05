@@ -7546,7 +7546,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0068';
+var APP_VERSION = '2026.0069';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -7986,10 +7986,26 @@ document.getElementById('btnSendReset').addEventListener('click', async function
   msg.style.display = 'block';
   if(!email){ msg.textContent = 'Saisis ton email'; msg.style.color = 'var(--danger)'; return; }
   if(!(window.firebase && firebase.auth)){ msg.textContent = 'Connexion indisponible pour le moment'; msg.style.color = 'var(--danger)'; return; }
-  var confirmation = 'Email envoyé si ce compte existe — vérifie ta boîte de réception';
-  try{ await firebase.auth().sendPasswordResetEmail(email); }catch(e){}
-  msg.textContent = confirmation; // même message que le compte existe ou non (évite de révéler les comptes existants)
-  msg.style.color = 'var(--accent)';
+  var btnR = document.getElementById('btnSendReset'); btnR.disabled = true;
+  var okTxt = 'Email envoyé si ce compte existe — vérifie ta boîte de réception et tes courriers indésirables. Le lien est valable environ une heure.';
+  try{
+    await firebase.auth().sendPasswordResetEmail(email);
+    msg.textContent = okTxt; msg.style.color = 'var(--accent)';
+  }catch(e){
+    var code = (e && e.code) || '';
+    if(code==='auth/user-not-found'){
+      // même message que le compte existe ou non (évite de révéler les comptes existants)
+      msg.textContent = okTxt; msg.style.color = 'var(--accent)';
+    } else {
+      // une vraie panne d'envoi ne doit plus se cacher derrière un message de réussite
+      msg.textContent = code==='auth/invalid-email' ? 'Email invalide'
+        : code==='auth/too-many-requests' ? 'Trop de demandes — réessaie dans quelques minutes'
+        : code==='auth/network-request-failed' ? 'Connexion réseau indisponible'
+        : 'Envoi impossible (' + (code || 'erreur inconnue') + ') — contacte l\'administrateur';
+      msg.style.color = 'var(--danger)';
+    }
+  }
+  btnR.disabled = false;
 });
 
 document.getElementById('btnAccessAgencySubmit').addEventListener('click', async function(){
