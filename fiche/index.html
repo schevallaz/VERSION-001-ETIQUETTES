@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fiche de livraison – Contremarque | STLS</title>
+<style>
+  :root{ --bg:#f5f4ee; --card:#fff; --ink:#1c1c1a; --soft:#6b6a63; --line:#e2e0d6; --line-strong:#cfccbe; --accent:#0f6b57; --dark:#1f2937; --red:#c0392b; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:16px; line-height:1.4; }
+  #app{ max-width:680px; margin:0 auto; padding:calc(14px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom)); }
+  .entete{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:6px 0 4px; }
+  .logo{ font-weight:900; font-size:34px; letter-spacing:2px; line-height:1; color:var(--dark); }
+  .logo small{ display:block; font-size:8.5px; letter-spacing:.5px; color:var(--soft); font-weight:700; margin-top:5px; }
+  h1{ font-size:18px; margin:0; text-transform:uppercase; letter-spacing:.4px; text-align:right; }
+  .sous{ color:var(--soft); margin:6px 0 4px; font-size:14px; }
+  .ref{ background:#e1f5ee; border:1px solid #b9e2d3; border-radius:10px; padding:8px 12px; margin:10px 0; font-size:14px; }
+  h2{ font-size:13px; text-transform:uppercase; background:var(--dark); color:#fff; padding:8px 12px; border-radius:6px; margin:20px 0 10px; letter-spacing:.3px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  .field{ margin-bottom:12px; }
+  .field label.l{ display:block; font-size:12.5px; color:var(--soft); margin-bottom:4px; font-weight:700; }
+  .field input[type=text], .field input[type=tel], .field input[type=email], .field input[type=date], .field input[type=number], .field textarea{ width:100%; padding:11px; border:1px solid var(--line-strong); border-radius:9px; font-size:16px; background:#fff; font-family:inherit; }
+  .field textarea{ min-height:84px; resize:vertical; }
+  .field.err input, .field.err textarea{ border-color:var(--red); background:#fdf2f0; }
+  .msgerr{ color:var(--red); font-size:12.5px; margin-top:3px; display:none; }
+  .field.err .msgerr{ display:block; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:480px){ .row2{ grid-template-columns:1fr; } }
+  .cases{ display:flex; flex-wrap:wrap; gap:10px 18px; margin:4px 0 8px; }
+  .case{ display:inline-flex; align-items:center; gap:8px; font-size:15px; cursor:pointer; }
+  .case input{ width:20px; height:20px; accent-color:var(--dark); }
+  .note{ font-size:12.5px; color:#4b5563; line-height:1.5; margin:4px 0 8px; }
+  .certif{ font-size:13px; color:#374151; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; margin-bottom:10px; }
+  .btn{ padding:15px; border-radius:12px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-size:16px; font-weight:700; font-family:inherit; width:100%; cursor:pointer; }
+  .btn:disabled{ opacity:.55; }
+  .btn.ghost{ background:#fff; color:var(--accent); }
+  .alerte{ background:#fdf2f0; border:1px solid #f0c9c3; color:#8a2c20; border-radius:10px; padding:10px 12px; margin:12px 0; font-size:14px; display:none; }
+  .msg{ text-align:center; padding:30px 10px; }
+  .recap h3{ font-size:13px; text-transform:uppercase; margin:16px 0 6px; color:var(--dark); border-bottom:1px solid var(--line); padding-bottom:4px; }
+  .recap .ln{ display:flex; gap:10px; font-size:14px; padding:2px 0; } .recap .ln b{ min-width:150px; color:var(--soft); font-weight:600; }
+  .piege{ position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+  .pied{ text-align:center; font-size:11px; color:var(--soft); margin-top:22px; line-height:1.6; border-top:1px solid var(--line); padding-top:12px; }
+  @media print{ body{ background:#fff; } .noprint{ display:none !important; } .card{ border:none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="entete"><div class="logo">STLS<small>SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE</small></div><h1>Fiche de livraison<br>Contremarque</h1></div>
+  <div id="contenu"><div class="msg"><p class="sous">Chargement…</p></div></div>
+  <div class="pied"><strong>SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS)</strong> – EURL au capital de 5 000 €<br>RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A<br>938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume<br>Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c"
+};
+var db = null, agence = '', nomAgence = '', refCommande = '', enseigne = '', envoye = false;
+function qs(n){ try{ return (new URLSearchParams(location.search).get(n) || '').trim(); }catch(e){ return ''; } }
+function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+function el(id){ return document.getElementById(id); }
+function aff(html){ el('contenu').innerHTML = html; }
+function msgPage(titre, texte){ aff('<div class="msg"><h1 style="text-align:center;font-size:22px;">'+esc(titre)+'</h1><p class="sous">'+texte+'</p></div>'); }
+
+var JOURS = [['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi','Jeudi'],['vendredi','Vendredi'],['samedi','Samedi'],['dimanche','Dimanche']];
+var ACCES = [['ascenseur','Ascenseur'],['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['escalier','Escalier'],['accesDifficile','Accès difficile'],['accesAutre','Autre']];
+var OPTIONS = [['optDeballage','Déballage *'],['optRepriseEmballages','Reprise des emballages *'],['optMontageSimple','Montage simple *'],['optMiseEnPlace','Mise en place *'],['optEvacuation','Évacuation ancien matériel *']];
+function cb(id, lib){ return '<label class="case"><input type="checkbox" id="'+id+'"> '+lib+'</label>'; }
+function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+'><div class="msgerr" id="e-'+id+'"></div></div>'; }
+function zone(id, lib, max){ return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+'</label><textarea id="'+id+'" maxlength="'+max+'"></textarea></div>'; }
+
+function afficherFormulaire(){
+  var aujourdhui = new Date().toISOString().slice(0,10);
+  aff(
+    '<p class="sous">Merci de renseigner les informations nécessaires à la bonne organisation de votre livraison.'+(nomAgence?' ('+esc(nomAgence)+')':'')+'</p>'+
+    ((refCommande||enseigne) ? '<div class="ref">'+(enseigne?'<div><strong>'+esc(enseigne)+'</strong></div>':'')+(refCommande?'<div>Référence de commande : <strong>'+esc(refCommande)+'</strong></div>':'')+'</div>' : '')+
+    '<form id="fiche" novalidate autocomplete="on">'+
+    '<h2>1. Informations de la contremarque</h2><div class="card">'+
+      '<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+      '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel'})+'</div>'+
+      '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
+      '<div class="row2">'+champ('departement','Département',{req:1,max:3,inputmode:'numeric'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code'})+'</div>'+
+      '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email'})+'</div>'+
+    '</div>'+
+    '<h2>2. Accès à l\'adresse</h2><div class="card">'+
+      '<div class="cases">'+ACCES.map(function(a){ return cb(a[0], a[1]); }).join('')+'</div>'+
+      zone('accesPrecisions','Précisions utiles (interphone, stationnement, ascenseur…)',600)+
+      champ('etage','Nombre d\'étages',{max:3,inputmode:'numeric'})+
+    '</div>'+
+    '<h2>3. Options souhaitées</h2><div class="card">'+
+      '<div class="cases">'+OPTIONS.map(function(o){ return cb(o[0], o[1]); }).join('')+'</div>'+
+      '<div class="note"><strong>* Informations importantes concernant les options :</strong><br>'+
+        '<strong>Montage simple :</strong> durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.<br>'+
+        '<strong>Mise en place :</strong> positionnement du mobilier ou de l\'équipement <strong>sans aucune fixation</strong>.<br>'+
+        '<strong>Évacuation ancien matériel :</strong> uniquement si le matériel est <strong>transportable et préalablement emballé</strong>.<br>'+
+        'Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires.</div>'+
+      champ('datePose','Date de la pose',{type:'date'})+
+    '</div>'+
+    '<h2>4. Jours de livraison possibles</h2><div class="card"><div class="cases">'+cb('joursTous','Tous')+JOURS.map(function(j){ return cb(j[0], j[1]); }).join('')+'</div></div>'+
+    '<h2>5. Informations complémentaires / contraintes</h2><div class="card">'+zone('contraintes','',1500)+'</div>'+
+    '<h2>6. Confirmation</h2><div class="card">'+
+      '<div class="certif">Je certifie que les informations communiquées sont exactes et permettent d\'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu\'une nouvelle facturation.</div>'+
+      '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> J\'ai vérifié les informations de livraison</label><div class="msgerr" id="e-certifie"></div></div>'+
+      champ('demandeur','Nom du demandeur',{req:1,max:80})+
+      '<div class="field"><label class="l">Date</label><div>'+aujourdhui.split('-').reverse().join('/')+'</div></div>'+
+    '</div>'+
+    '<div class="piege" aria-hidden="true"><label>Ne pas remplir <input type="text" id="siteweb" tabindex="-1" autocomplete="off"></label></div>'+
+    '<div class="alerte" id="alerte"></div>'+
+    '<button class="btn" id="btnEnvoyer" type="submit">ENVOYER MA FICHE</button>'+
+    '</form>'
+  );
+  // « Tous » coche / décoche les jours
+  el('joursTous').addEventListener('change', function(){ JOURS.forEach(function(j){ el(j[0]).checked = el('joursTous').checked; }); });
+  JOURS.forEach(function(j){ el(j[0]).addEventListener('change', function(){ if(!el(j[0]).checked) el('joursTous').checked = false; }); });
+  el('fiche').addEventListener('submit', function(ev){ ev.preventDefault(); envoyer(); });
+}
+
+function valeur(id){ var e = el(id); return e ? String(e.value||'').trim() : ''; }
+function coche(id){ var e = el(id); return !!(e && e.checked); }
+function erreur(id, texte){ var f = el('f-'+id); if(!f) return; f.classList.add('err'); var m = el('e-'+id); if(m) m.textContent = texte; }
+function validerSaisie(){
+  document.querySelectorAll('.field.err').forEach(function(f){ f.classList.remove('err'); });
+  var n = 0, premier = '';
+  function ko(id, t){ erreur(id, t); n++; if(!premier) premier = id; }
+  ['nom','prenom','adresse1','ville','demandeur'].forEach(function(id){ if(!valeur(id)) ko(id, 'Champ obligatoire'); });
+  var tel = valeur('tel1').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
+  if(!valeur('tel1')) ko('tel1','Champ obligatoire'); else if(!/^0[1-9]\d{8}$/.test(tel)) ko('tel1','Numéro invalide (10 chiffres, ex. 06 12 34 56 78)');
+  var tel2 = valeur('tel2').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
+  if(valeur('tel2') && !/^0[1-9]\d{8}$/.test(tel2)) ko('tel2','Numéro invalide');
+  if(!valeur('departement')) ko('departement','Champ obligatoire'); else if(!/^(2A|2B|\d{2,3})$/i.test(valeur('departement'))) ko('departement','Département invalide (ex. 83)');
+  if(!valeur('cp')) ko('cp','Champ obligatoire'); else if(!/^\d{5}$/.test(valeur('cp'))) ko('cp','Code postal invalide (5 chiffres)');
+  if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide');
+  if(valeur('etage') && !/^\d{1,3}$/.test(valeur('etage'))) ko('etage','Nombre invalide');
+  if(valeur('datePose') && !/^\d{4}-\d{2}-\d{2}$/.test(valeur('datePose'))) ko('datePose','Date invalide');
+  if(!coche('certifie')) ko('certifie','Merci de confirmer avoir vérifié les informations');
+  return { n:n, premier:premier, tel1:tel, tel2:tel2 };
+}
+function numeroFiche(){
+  var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); };
+  var alea = '';
+  try{ var a = new Uint32Array(2); (window.crypto||window.msCrypto).getRandomValues(a); alea = (a[0].toString(36)+a[1].toString(36)).toUpperCase().slice(0,6); }catch(e){ alea = Math.random().toString(36).slice(2,8).toUpperCase(); }
+  return 'FL'+String(d.getFullYear()).slice(2)+p(d.getMonth()+1)+p(d.getDate())+'-'+alea;
+}
+async function envoyer(){
+  if(envoye) return;
+  var v = validerSaisie(), al = el('alerte');
+  if(v.n){ al.style.display = 'block'; al.textContent = 'Merci de corriger '+v.n+' champ(s) signalé(s) en rouge.'; var f = el('f-'+v.premier); if(f) f.scrollIntoView({ behavior:'smooth', block:'center' }); return; }
+  al.style.display = 'none';
+  // piège à robots : un champ invisible rempli = envoi automatique ; on fait semblant d'accepter
+  if(valeur('siteweb')){ envoye = true; afficherConfirmation('FL000000-X', null); return; }
+  var btn = el('btnEnvoyer'); btn.disabled = true; btn.textContent = 'Envoi en cours…';
+  var numero = numeroFiche();
+  var doc = { numero:numero, agence:agence, ref:refCommande, enseigne:enseigne,
+    nom:valeur('nom'), prenom:valeur('prenom'), tel1:v.tel1, tel2:v.tel2, adresse1:valeur('adresse1'), adresse2:valeur('adresse2'),
+    departement:valeur('departement').toUpperCase(), cp:valeur('cp'), ville:valeur('ville'), mail:valeur('mail'), etage:valeur('etage'),
+    accesPrecisions:valeur('accesPrecisions'), datePose:valeur('datePose'), contraintes:valeur('contraintes'), demandeur:valeur('demandeur'),
+    joursTous:coche('joursTous'), certifie:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
+  ACCES.forEach(function(a){ doc[a[0]] = coche(a[0]); }); OPTIONS.forEach(function(o){ doc[o[0]] = coche(o[0]); }); JOURS.forEach(function(j){ doc[j[0]] = coche(j[0]); });
+  // les champs facultatifs vides ne sont pas envoyés
+  ['ref','enseigne','tel2','adresse2','mail','etage','accesPrecisions','datePose','contraintes'].forEach(function(k){ if(!doc[k]) delete doc[k]; });
+  try{
+    await db.collection('stls_fiches_soumissions').doc(numero).set(doc);
+    envoye = true; afficherConfirmation(numero, doc);
+  }catch(e){
+    console.error('envoi fiche', e);
+    btn.disabled = false; btn.textContent = 'ENVOYER MA FICHE';
+    al.style.display = 'block';
+    al.textContent = (e && e.code==='permission-denied') ? 'Ce formulaire n\'accepte plus de réponses pour le moment. Merci de contacter STLS au 06 58 30 16 87.' : 'Votre fiche n\'a pas pu être envoyée. Vérifiez votre connexion et réessayez, ou contactez STLS au 06 58 30 16 87.';
+  }
+}
+function afficherConfirmation(numero, d){
+  var ln = function(l, v){ return v ? '<div class="ln"><b>'+esc(l)+'</b><span>'+esc(v)+'</span></div>' : ''; };
+  var oui = function(list){ return list.filter(function(x){ return d[x[0]]; }).map(function(x){ return x[1].replace(' *',''); }).join(', '); };
+  var recap = '';
+  if(d){
+    var jours = d.joursTous ? 'Tous' : oui(JOURS);
+    recap = '<div class="recap"><h3>Récapitulatif</h3>'+
+      ln('Nom', d.nom+' '+d.prenom)+ln('Téléphone', d.tel1+(d.tel2?' / '+d.tel2:''))+ln('Adresse', d.adresse1+(d.adresse2?', '+d.adresse2:'')+' — '+d.cp+' '+d.ville)+ln('Mail', d.mail)+
+      ln('Accès', oui(ACCES))+ln('Précisions', d.accesPrecisions)+ln('Étages', d.etage)+ln('Options', oui(OPTIONS))+ln('Date de la pose', d.datePose ? d.datePose.split('-').reverse().join('/') : '')+
+      ln('Jours possibles', jours)+ln('Contraintes', d.contraintes)+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
+  }
+  aff('<div class="msg"><h1 style="font-size:24px;text-align:center;">✅ Fiche envoyée</h1><p class="sous">Numéro : <strong>'+esc(numero)+'</strong></p>'+
+    '<p>Votre fiche de livraison a bien été transmise à STLS'+(nomAgence?' — '+esc(nomAgence):'')+'. Nous vous recontacterons pour organiser la livraison.</p></div>'+recap+
+    '<button class="btn ghost noprint" id="btnImprimer" style="margin-top:14px;">Imprimer / enregistrer en PDF</button>');
+  el('btnImprimer').addEventListener('click', function(){ window.print(); });
+}
+async function demarrer(){
+  agence = qs('a'); refCommande = qs('ref').slice(0,60); enseigne = qs('e').slice(0,60);
+  if(!agence){ msgPage('Lien incomplet', 'Utilisez le lien transmis par STLS pour accéder à la fiche de livraison.'); return; }
+  try{ firebase.initializeApp(firebaseConfig); db = firebase.firestore(); }
+  catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+  try{
+    var snap = await db.collection('stls_fiches_public').doc(agence).get();
+    if(!snap.exists || snap.data().actif !== true){ msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez STLS pour en obtenir un nouveau.'); return; }
+    nomAgence = snap.data().agencyName || '';
+  }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+  afficherFormulaire();
+}
+demarrer();
+</script>
+</body>
+</html>
