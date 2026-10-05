@@ -577,6 +577,10 @@
       <div class="field" style="margin-bottom:12px;">
         <input type="text" id="archiveSearch" placeholder="Rechercher : n° étiquette, client...">
       </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label for="archDest">Destination</label>
+        <select id="archDest"></select>
+      </div>
       <div id="archiveList"></div>
     </div>
   </section>
@@ -1131,6 +1135,8 @@
       <div class="btn-row"><button class="btn ghost" id="btnAddDestination" style="width:100%;">+ Ajouter une destination</button></div>
       <div class="field" style="margin-top:12px;"><label>Motifs proposés pour les sorties à justifier (un par ligne)</label>
         <textarea id="motifsServiceInput" rows="4" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>
+      <div class="field"><label>Zones de sortie proposées quand la marchandise reste au dépôt après la sortie (une par ligne)</label>
+        <textarea id="zonesSortieInput" rows="3" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>
       <div class="btn-row"><button class="btn primary" id="btnSaveDestinations" style="width:100%;">Enregistrer</button></div>
       <div id="destAdminMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
@@ -1247,6 +1253,7 @@ var state = {
   moduleAccess: { tarifs: 'admin', livraisons: 'admin', depot: 'all', contremarques: 'all', clients: 'all', planning: 'all', parametres: 'admin' },
   destinationsSortie: null, // destinations de sortie paramétrables (null = valeurs par défaut)
   motifsService: null,
+  zonesSortie: null,
   tournees: []
 };
 
@@ -1382,7 +1389,7 @@ async function loadGlobalConfig(){
       state.siegesList = d.siegesList || [];
       state.brandName = d.brandName || 'STLS';
       state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
-      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null;
+      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null; state.zonesSortie = d.zonesSortie || null;
       cacheGlobalConfig();
       return;
     }
@@ -1399,6 +1406,7 @@ async function saveGlobalConfig(){
       var payload = { globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess };
       if(state.destinationsSortie) payload.destinationsSortie = state.destinationsSortie; // jamais de null qui effacerait la config
       if(state.motifsService) payload.motifsService = state.motifsService;
+      if(state.zonesSortie) payload.zonesSortie = state.zonesSortie;
       await globalDocRef.set(payload, { merge: true });
     }
     catch(e){ console.error('Firestore saveGlobalConfig error', e); }
@@ -1424,7 +1432,7 @@ function watchGlobalConfig(){
     state.siegesList = d.siegesList || [];
     state.brandName = d.brandName || 'STLS';
     state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
-      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null;
+      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null; state.zonesSortie = d.zonesSortie || null;
     cacheGlobalConfig();
     renderSiegesList();
     renderDepotsList();
@@ -1716,6 +1724,8 @@ function recordToIndexEntry(rec){
   if(uniqueEmps.length){ entry.emplacement = uniqueEmps.sort().join(', '); }
   else if(d.emplacement){ entry.emplacement = d.emplacement; }
   if(d.exitedAt) entry.exitedAt = d.exitedAt;
+  if(d.sortieBP){ entry.sortieBP = d.sortieBP; entry.sortieDestination = d.sortieDestination || ''; entry.sortieDestinationLibelle = d.sortieDestinationLibelle || ''; entry.sortieFacturable = d.sortieFacturable!==false; }
+  if(d.zoneSortie) entry.zoneSortie = d.zoneSortie;
   if(d.exitStats){ entry.exitDaysStored = d.exitStats.daysStored; entry.exitTotalLabels = d.exitStats.totalLabels; }
   if(d.deletedAt){ entry.deletedAt = d.deletedAt; entry.deletedBy = d.deletedBy; }
   // affectation BL par article (palette/colis vrac) : une réception peut être partagée entre plusieurs
@@ -2354,6 +2364,7 @@ function renderDestinationsAdmin(){
   destAdminBrouillon = JSON.parse(JSON.stringify(getDestinations()));
   dessinerDestinationsAdmin();
   document.getElementById('motifsServiceInput').value = getMotifsService().join('\n');
+  document.getElementById('zonesSortieInput').value = getZonesSortie().join('\n');
   document.getElementById('destAdminMsg').textContent = state.isAdmin ? '' : 'Lecture seule : seul un administrateur peut modifier les destinations.';
 }
 function dessinerDestinationsAdmin(){
@@ -2408,7 +2419,9 @@ document.getElementById('btnSaveDestinations').addEventListener('click', async f
   var motifs = document.getElementById('motifsServiceInput').value.split('\n').map(function(m){ return m.trim(); }).filter(Boolean);
   if(destAdminBrouillon.some(function(d){ return d.motifObligatoire; }) && !motifs.length){ ko('Indique au moins un motif.'); return; }
   state.destinationsSortie = destAdminBrouillon.map(function(d){ return Object.assign({}, d, { libelle:(d.libelle||'').trim() }); });
-  state.motifsService = motifs.length ? motifs : null;
+  state.motifsService = motifs.length ? motifs : MOTIFS_SERVICE_PAR_DEFAUT.slice();
+  var zones = document.getElementById('zonesSortieInput').value.split('\n').map(function(z){ return z.trim(); }).filter(Boolean);
+  state.zonesSortie = zones.length ? zones : ZONES_SORTIE_PAR_DEFAUT.slice(); // champ vidé : on écrit les valeurs par défaut (jamais de null)
   await saveGlobalConfig();
   msg.textContent = 'Destinations enregistrées.'; msg.style.color = 'var(--accent)';
 });
@@ -2430,7 +2443,7 @@ async function traiterAnnulationBL(commandeId, itemIds, ancienBLNumero){
     rec = await getReceptionRecord(commandeId); // relu après le transfert
     itemIds.forEach(function(it){ if(rec.data.emplacements) delete rec.data.emplacements[it]; });
     var autresEmplaces = Object.keys(rec.data.emplacements||{}).length>0;
-    if(!autresEmplaces) rec.data.exitedAt = ''; // seulement si plus aucun article de la réception n'est encore noté sorti
+    if(!autresEmplaces) effacerInfosSortie(rec.data); // seulement si plus aucun article de la réception n'est encore noté sorti
     await saveReceptionRecord(commandeId, rec);
   } else {
     // jamais physiquement sortie (BL annulé avant la sortie) : rien à faire physiquement — libération
@@ -2494,13 +2507,15 @@ async function transfererArticles(selections, depuisAttendu, versAffectation){
 // exitedAt sur toute la réception sortirait à tort des articles qui n'appartiennent pas à ce BP et
 // qui restent physiquement au dépôt. Dans ce cas, on refuse avec un message clair plutôt que de
 // risquer de perdre la marchandise de vue.
-async function validerSortieBP(numero){
+async function validerSortieBP(numero, zone){
   if(!fsReady() || !bpColRef) return { ok:false, motif:'Connexion indisponible' };
   var bpSnap = await bpColRef.doc(numero).get();
   if(!bpSnap.exists) return { ok:false, motif:'Bon de Préparation introuvable' };
   var bp = bpSnap.data();
   if(bp.statut!=='pret') return { ok:false, motif:'Le BP doit être marqué « Prêt » avant de valider la sortie' };
   if(sortieExigeAdmin(bp) && !state.isAdmin) return { ok:false, motif:'Cette sortie (« '+(bp.destinationLibelle||libelleDestination(bp.destination))+' ») doit être validée par un administrateur.' };
+  var zoneUtilisee = sortieDemandeZone(bp) ? (zone || '') : '';
+  if(sortieDemandeZone(bp) && !zoneUtilisee) return { ok:false, motif:'Choisis la zone où la marchandise est déposée' };
 
   for(var i=0;i<bp.lignes.length;i++){
     var ligne = bp.lignes[i];
@@ -2518,11 +2533,15 @@ async function validerSortieBP(numero){
     var rec2 = await getReceptionRecord(bp.lignes[j].commandeId);
     if(!rec2) continue;
     rec2.data.exitedAt = le;
+    rec2.data.sortieBP = numero; rec2.data.sortieDestination = bp.destination;
+    rec2.data.sortieDestinationLibelle = bp.destinationLibelle || libelleDestination(bp.destination);
+    rec2.data.sortieFacturable = bp.facturable!==false;
+    if(zoneUtilisee){ rec2.data.zoneSortie = zoneUtilisee; rec2.data.zoneSortieLe = le; } else { delete rec2.data.zoneSortie; delete rec2.data.zoneSortieLe; }
     await saveReceptionRecord(bp.lignes[j].commandeId, rec2);
     var idx = state.historyIndex.findIndex(function(x){ return x.id===bp.lignes[j].commandeId; });
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec2); }
   }
-  await bpColRef.doc(numero).set({ statut:'sorti', sortieValidee:{ par:par, parUid:currentUid(), le:le } }, { merge:true });
+  await bpColRef.doc(numero).set({ statut:'sorti', zoneSortie: zoneUtilisee, sortieValidee:{ par:par, parUid:currentUid(), le:le } }, { merge:true });
   return { ok:true };
 }
 
@@ -2656,6 +2675,16 @@ function lireChampsService(prefix, destCode){
   if(!motif) return { ok:false, message:'Choisis un motif' };
   if(desc.length < 5) return { ok:false, message:'Décris brièvement ce qui s\'est passé (5 caractères minimum)' };
   return { ok:true, service:{ motif:motif, description:desc, refRemplacement:remp } };
+}
+var ZONES_SORTIE_PAR_DEFAUT = ['Quai de chargement', 'Zone de casse / retours'];
+function getZonesSortie(){ return (state.zonesSortie && state.zonesSortie.length) ? state.zonesSortie : ZONES_SORTIE_PAR_DEFAUT; }
+// une zone n'est demandée que si la marchandise reste au dépôt après la sortie (en attente de chargement, ou mise de côté) :
+// un emporté client quitte le dépôt à l'instant même
+function sortieDemandeZone(bp){ return sortieGenereBL(bp) || bp.facturable===false; }
+// efface toutes les informations de sortie quand la marchandise revient au dépôt (elles seraient fausses)
+function effacerInfosSortie(d){
+  d.exitedAt = '';
+  ['sortieBP','sortieDestination','sortieDestinationLibelle','sortieFacturable','zoneSortie','zoneSortieLe'].forEach(function(k){ delete d[k]; });
 }
 function sortieExigeAdmin(bp){
   return bp.validationAdmin===true || (bp.validationAdmin===undefined && !!getDestination(bp.destination).validationAdmin);
@@ -2895,6 +2924,11 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
       '<span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+nb+' commande(s) · '+lbl+'</span>'+
       '<span style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn ghost bp-imprimer" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">🖨️ PDF</button>'+actions+'</span>'+
       (bp.service ? '<div style="width:100%;font-size:12px;color:var(--ink-soft);">🛠️ '+escapeHtml(bp.service.motif)+' — '+escapeHtml(bp.service.description)+(bp.service.refRemplacement?' · remplacement : '+escapeHtml(bp.service.refRemplacement):'')+(bp.facturable===false?' · non facturable':'')+'</div>' : '')+
+      (bp.statut==='pret' && !(sortieExigeAdmin(bp) && !state.isAdmin) ?
+        '<div id="bpZoneForm-'+escapeHtml(bp.numero)+'" style="display:none;width:100%;margin-top:6px;padding:8px;border:1px solid var(--line-strong);border-radius:9px;background:#fff;">'+
+          '<div class="hint" style="margin-bottom:6px;">La marchandise doit avoir réellement quitté son emplacement de stock.</div>'+
+          (sortieDemandeZone(bp) ? '<div class="field"><label>Zone où la marchandise est déposée</label><select id="bpZone-'+escapeHtml(bp.numero)+'">'+getZonesSortie().map(function(z){ return '<option value="'+escapeHtml(z)+'">'+escapeHtml(z)+'</option>'; }).join('')+'</select></div>' : '')+
+          '<button class="btn accent bp-confirmer-sortie" data-num="'+escapeHtml(bp.numero)+'" style="width:100%;">Confirmer la sortie</button></div>' : '')+
       '<div id="bpMsgLigne-'+escapeHtml(bp.numero)+'" style="width:100%;font-size:12px;"></div></div>';
   }).join('') : '<div class="hint">Aucun Bon de Préparation pour l\'instant.</div>';
 
@@ -2991,11 +3025,17 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
     btn.addEventListener('click', function(){ genererBonPreparationPdf(btn.getAttribute('data-num')); });
   });
   Array.prototype.forEach.call(box.querySelectorAll('.bp-valider-sortie'), function(btn){
+    btn.addEventListener('click', function(){
+      var f = document.getElementById('bpZoneForm-'+btn.getAttribute('data-num'));
+      if(f) f.style.display = (f.style.display==='block' ? 'none' : 'block');
+    });
+  });
+  Array.prototype.forEach.call(box.querySelectorAll('.bp-confirmer-sortie'), function(btn){
     btn.addEventListener('click', async function(){
       var num = btn.getAttribute('data-num');
-      if(!confirm('Valider la sortie physique du Bon de Préparation '+num+' ?\n\nLa marchandise doit avoir réellement quitté son emplacement de stock.')) return;
+      var zsel = document.getElementById('bpZone-'+num);
       btn.disabled = true;
-      var res = await validerSortieBP(num);
+      var res = await validerSortieBP(num, zsel ? zsel.value : '');
       var ligneMsg = document.getElementById('bpMsgLigne-'+num);
       if(!res.ok){
         if(ligneMsg){ ligneMsg.textContent = '⚠️ '+res.motif; ligneMsg.style.color = 'var(--danger)'; }
@@ -3006,6 +3046,7 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
       renderBPPanel(idx, contremarqueNom, true, cmId);
     });
   });
+
   Array.prototype.forEach.call(box.querySelectorAll('.bp-creer-bl'), function(btn){
     btn.addEventListener('click', async function(){
       var num = btn.getAttribute('data-num');
@@ -3050,7 +3091,11 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
   existingBLs.forEach(function(bl){ blStatutParNumero[bl.numero] = bl.statut; });
   var bpParNumero = {};
   if(cmId){ (await loadBonsPreparationForContremarque(cmId)).forEach(function(bp){ bpParNumero[bp.numero] = bp; }); }
-  var lignesDossier = toutesLesCommandes.map(function(h){ return Object.assign({ h:h }, statutLigneReception(h, blStatutParNumero, bpParNumero)); });
+  var lignesDossier = toutesLesCommandes.map(function(h){
+    var r = Object.assign({ h:h }, statutLigneReception(h, blStatutParNumero, bpParNumero));
+    if(h.exitedAt && h.zoneSortie && (r.niveau==='bp_cree' || r.niveau==='bl_cree' || r.niveau==='livraison' || r.niveau==='service')) r.label += ' · zone : '+h.zoneSortie;
+    return r;
+  });
   var badge = badgeDossierContremarque(lignesDossier);
 
   var html = dossierSectionHtml(lignesDossier, badge);
@@ -6030,14 +6075,51 @@ function renderPlanningList(){
 document.getElementById('planningSearch').addEventListener('input', renderPlanningList);
 document.getElementById('planningHideUnplanned').addEventListener('change', renderPlanningList);
 
+// liste déroulante « Destination » de l'écran CDE sortie (suit la configuration, garde le choix en cours)
+function majFiltreDestinations(){
+  var sel = document.getElementById('archDest'); if(!sel) return;
+  var courant = sel.value;
+  sel.innerHTML = '<option value="">Toutes les sorties</option>' +
+    getDestinations().map(function(d){ return '<option value="'+escapeHtml(d.code)+'">'+escapeHtml(d.libelle)+'</option>'; }).join('') +
+    '<option value="_hors">Hors Bon de Préparation (ancien circuit)</option>';
+  sel.value = courant;
+}
+// informations de sortie d'une ligne : destination, BP imprimable, BL, zone — ou « ancien circuit » pour les sorties d'avant le BP
+function ligneSortieHtml(h){
+  var parts = [];
+  var lienBL = (h.bonLivraisonId && h.bonLivraisonId!=='partiel') ? '<a href="livraisons.html?bl='+encodeURIComponent(h.bonLivraisonId)+'" style="color:var(--accent);font-weight:600;">→ BL '+escapeHtml(h.bonLivraisonId)+'</a>' : '';
+  if(h.sortieBP){
+    var nf = h.sortieFacturable===false;
+    parts.push('<span style="font-weight:700;color:'+(nf?'var(--danger)':'var(--accent)')+';">'+escapeHtml(h.sortieDestinationLibelle || libelleDestination(h.sortieDestination))+(nf?' · non facturable':'')+'</span>');
+    parts.push('<button class="btn ghost arch-bp-pdf" data-num="'+escapeHtml(h.sortieBP)+'" style="padding:2px 8px;font-size:12px;">🖨️ '+escapeHtml(h.sortieBP)+'</button>');
+    if(lienBL) parts.push(lienBL);
+    else if(getDestination(h.sortieDestination).genereBL) parts.push('<span style="color:var(--ink-soft);">BL à créer depuis la fiche contremarque</span>');
+    if(h.zoneSortie) parts.push('<span>📍 '+escapeHtml(h.zoneSortie)+'</span>');
+  } else {
+    parts.push('<span style="color:var(--ink-soft);">Sortie hors Bon de Préparation (ancien circuit)</span>');
+    if(lienBL) parts.push(lienBL);
+  }
+  return '<div class="sub" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'+parts.join('')+'</div>';
+}
+// déplacement de la marchandise d'une zone à l'autre, tant qu'elle est au dépôt
+function zoneEditHtml(h){
+  if(!(h.sortieBP && (h.zoneSortie || (sortieDemandeZone({ genereBL:getDestination(h.sortieDestination).genereBL, facturable:h.sortieFacturable }))))) return '';
+  var zones = getZonesSortie().slice(); if(h.zoneSortie && zones.indexOf(h.zoneSortie)<0) zones.unshift(h.zoneSortie);
+  return '<div class="sub" style="display:flex;gap:6px;align-items:center;"><select class="arch-zone" style="flex:1;padding:6px;border:1px solid var(--line-strong);border-radius:8px;">'+
+    zones.map(function(z){ return '<option value="'+escapeHtml(z)+'"'+(z===h.zoneSortie?' selected':'')+'>'+escapeHtml(z)+'</option>'; }).join('')+
+    '</select><button class="btn ghost arch-zone-go" style="padding:6px 10px;font-size:12px;">📍 Déplacer</button></div>';
+}
 function renderArchiveList(){
   var el = document.getElementById('archiveList');
   if(!el) return;
   var q = (document.getElementById('archiveSearch').value || '').trim().toLowerCase();
   var from = document.getElementById('archFrom').value;
   var to = document.getElementById('archTo').value;
+  majFiltreDestinations();
   var items = state.historyIndex.filter(function(h){ return !!h.exitedAt; });
   var totalExited = items.length;
+  var filtreDest = (document.getElementById('archDest')||{}).value || '';
+  if(filtreDest){ items = items.filter(function(h){ return filtreDest==='_hors' ? !h.sortieBP : h.sortieDestination===filtreDest; }); }
   if(from || to){
     items = items.filter(function(h){
       var exitDate = h.exitedAt.slice(0,10);
@@ -6063,11 +6145,13 @@ function renderArchiveList(){
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
-    var detail = 'Entrée '+fmtDate(h.receivedAt||h.date)+(h.exitDaysStored!=null?' · '+h.exitDaysStored+' j de stockage':'')+(h.exitTotalLabels?' · '+h.exitTotalLabels+' étiquette(s)':'');
+    var jours = h.exitDaysStored!=null ? h.exitDaysStored : joursEntreDates(h.receivedAt||h.date, h.exitedAt);
+    var detail = 'Entrée '+dateCourte(h.receivedAt||h.date)+(jours!=null?' · '+jours+' j de stockage':'')+(h.exitTotalLabels?' · '+h.exitTotalLabels+' étiquette(s)':'');
     return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'" data-id="'+h.id+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span><span class="date">Sortie '+fmtDate(h.exitedAt.slice(0,10))+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+'</div>'+
       '<div class="sub" style="color:var(--ink-soft);">'+detail+'</div>'+
+      ligneSortieHtml(h)+zoneEditHtml(h)+
       '<div class="actions">'+
         '<button class="btn accent" data-act="pdfexit">PDF sortie</button>'+
         '<button class="btn ghost" data-act="restock">Remettre en stock</button>'+
@@ -6084,11 +6168,20 @@ function renderArchiveList(){
     var labelNumber = item.getAttribute('data-labelnumber');
     var id = item.getAttribute('data-id');
     item.querySelector('[data-act="pdfexit"]').addEventListener('click', function(){ reprintExitPdf(labelNumber); });
+    var bpPdf = item.querySelector('.arch-bp-pdf'); if(bpPdf) bpPdf.addEventListener('click', function(){ genererBonPreparationPdf(bpPdf.getAttribute('data-num')); });
+    var zoneGo = item.querySelector('.arch-zone-go');
+    if(zoneGo) zoneGo.addEventListener('click', async function(){
+      var recZ = await getReceptionRecord(id); if(!recZ){ banner('Introuvable'); return; }
+      recZ.data.zoneSortie = item.querySelector('.arch-zone').value; recZ.data.zoneSortieLe = new Date().toISOString();
+      await saveReceptionRecord(id, recZ);
+      var ix = state.historyIndex.findIndex(function(x){ return x.id===id; }); if(ix>=0) state.historyIndex[ix] = recordToIndexEntry(recZ);
+      renderArchiveList(); banner('Marchandise déplacée vers « '+recZ.data.zoneSortie+' »');
+    });
     item.querySelector('[data-act="restock"]').addEventListener('click', async function(){
       if(!confirm('Remettre '+(labelNumber||'cette commande')+' dans "CDE à Ranger" ? Elle devra être rangée à nouveau.')) return;
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
-      rec.data.exitedAt = '';
+      effacerInfosSortie(rec.data);
       rec.data.emplacements = {};
       rec.data.emplacement = '';
       await saveReceptionRecord(id, rec);
@@ -6160,6 +6253,7 @@ function renderArchiveList(){
     }
   });
 }
+document.getElementById('archDest').addEventListener('change', function(){ renderArchiveList(); });
 document.getElementById('archiveSearch').addEventListener('input', renderArchiveList);
 document.getElementById('archFrom').addEventListener('input', renderArchiveList);
 document.getElementById('archTo').addEventListener('input', renderArchiveList);
@@ -7868,7 +7962,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0071';
+var APP_VERSION = '2026.0072';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -8348,7 +8442,7 @@ async function refreshGlobalConfigFromServer(){
       state.siegesList = d.siegesList || state.siegesList;
       state.brandName = d.brandName || state.brandName;
       state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
-      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null;
+      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null; state.zonesSortie = d.zonesSortie || null;
       cacheGlobalConfig();
       return true;
     }
