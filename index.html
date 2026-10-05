@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0081">
+<meta name="app-version" content="2026.0082">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -3115,6 +3115,118 @@ async function renderFichesRecues(){
       '<div class="fr-panel" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div></div>';
   }).join('');
 }
+
+// ================= Enlèvements et CDE en attente créés à partir d'une fiche de livraison =================
+// Une fiche qui annonce des enlèvements doit les rendre PLANIFIABLES (collecte + BL de type collecte, comme dans
+// Gestion Livraisons > Collecte marchandise) ; une fiche qui annonce des livraisons de fournisseurs au dépôt doit
+// créer les CDE en attente correspondantes.
+function collectesCol(){ return (fsReady() && configDocRef) ? configDocRef.collection('collectes') : null; }
+async function nextCollecteNumeroDepot(){
+  var d = new Date(), yymm = String(d.getFullYear()).slice(2)+String(d.getMonth()+1).padStart(2,'0');
+  if(fsReady() && configDocRef){
+    try{
+      var n = await db.runTransaction(async function(tx){
+        var snap = await tx.get(configDocRef);
+        var counters = (snap.exists && snap.data().collecteCounters) || {};
+        var next = (counters[yymm] || 0) + 1; counters[yymm] = next;
+        tx.set(configDocRef, { collecteCounters: counters }, { merge:true });
+        return next;
+      });
+      return 'C'+yymm+String(n).padStart(4,'0');
+    }catch(e){ console.error('nextCollecteNumeroDepot', e); }
+  }
+  var raw = lsGet('collecte-counter-'+yymm), n2 = (raw ? parseInt(raw,10) : 0) + 1; lsSet('collecte-counter-'+yymm, String(n2));
+  return 'C'+yymm+String(n2).padStart(4,'0');
+}
+// « 12 rue de l'Industrie, 13400 Aubagne » -> rue / code postal / ville ; à défaut, tout va dans la première ligne d'adresse
+function decouperAdresse(adr){
+  adr = String(adr||'').trim();
+  var m = /^(.*?)[,\s]+(\d{5})\s+(.+)$/.exec(adr);
+  if(m) return { adresse1:m[1].trim().replace(/[,\s]+$/,''), cp:m[2], ville:m[3].trim() };
+  return { adresse1:adr, cp:'', ville:'' };
+}
+function fournisseursDistincts(f){
+  var vus = {}; (f.enlevements||[]).forEach(function(e){ vus[normNom(e.fournisseur)] = true; }); return Object.keys(vus).length;
+}
+// combien de fournisseurs livrent eux-mêmes au dépôt
+function nbLivraisonsAuDepot(f){
+  if(!f.modeReception || f.modeReception==='enlevement') return 0;
+  if(f.modeReception==='depot') return f.nbFournisseurs || 0;
+  return Math.max(0, (f.nbFournisseurs || 0) - fournisseursDistincts(f));
+}
+function creationFicheHtml(f){
+  var enl = f.enlevements || [], nbDepot = nbLivraisonsAuDepot(f);
+  if(!enl.length && !nbDepot) return '';
+  var h = '<div class="fr-creer" style="margin-top:10px;padding:10px;border:1px solid var(--line-strong);border-radius:10px;background:#f9f8f3;"><div class="hint" style="font-weight:600;margin-bottom:6px;">À créer en même temps</div>';
+  if(enl.length){
+    h += '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:600;margin:4px 0;"><input type="checkbox" class="fr-chk-enl" checked style="width:18px;height:18px;margin-top:2px;"> <span>'+enl.length+' enlèvement(s) à planifier</span></label>'+
+         '<div class="hint" style="margin:0 0 6px 26px;">Une collecte et un BL de type collecte par point, vers cette contremarque. Le BL reste « incomplet » jusqu\'à ce que tu fixes la date de livraison.</div>'+
+         enl.map(function(e, i){ return '<div class="sub" style="margin-left:26px;">'+(i+1)+'. '+escapeHtml(e.fournisseur)+' — '+escapeHtml(e.adresse)+' — '+e.colis+' colis, '+nbFr(e.poidsKg)+' kg'+(e.horaires?' ('+escapeHtml(e.horaires)+')':'')+'</div>'; }).join('');
+  }
+  if(nbDepot){
+    h += '<label style="display:flex;gap:8px;align-items:flex-start;font-weight:600;margin:10px 0 4px;"><input type="checkbox" class="fr-chk-cde" checked style="width:18px;height:18px;margin-top:2px;"> <span>'+nbDepot+' CDE en attente (livraison au dépôt par le fournisseur)</span></label>'+
+         '<div class="hint" style="margin:0 0 6px 26px;">La fiche ne nomme pas ces fournisseurs : saisis-les si tu les connais, sinon complète-les plus tard dans « CDE en attente ».</div>';
+    for(var i=0;i<nbDepot;i++) h += '<div style="margin:0 0 6px 26px;"><input type="text" class="fr-cde-nom" maxlength="80" placeholder="Fournisseur n° '+(i+1)+' (facultatif)" style="width:calc(100% - 26px);padding:8px;border:1px solid var(--line-strong);border-radius:8px;"></div>';
+  }
+  return h + '</div>';
+}
+// collecte en livraison directe vers la contremarque : même structure que dans Gestion Livraisons
+async function creerEnlevementDepuisFiche(f, cm, e){
+  var numero = await nextCollecteNumeroDepot(), blNumero = await nextBLNumero();
+  var adr = decouperAdresse(e.adresse), now = new Date().toISOString();
+  var desc = 'Fiche '+f.numero+(f.ref?' — réf. '+f.ref:'')+(f.enseigne?' — '+f.enseigne:'');
+  var collecte = { numero:numero, sourceType:'occasionnel', sourceNom:e.fournisseur, sourceAdresse:{ adresse1:adr.adresse1, adresse2:'', cp:adr.cp, ville:adr.ville, tel1:'', tel2:'' },
+    sourceDepotCode:'', sourcePartenaireId:'', destination:'livraison_directe', poidsEstime:e.poidsKg, colisEstime:e.colis, descriptionMarchandise:desc,
+    dateCollecte:'', creneauCollecte:e.horaires||'', depotCode:state.currentAgencyCode||'', createdAt:now, resultBlNumero:blNumero, resultReceptionLabel:'', origineFiche:f.numero };
+  var bl = { numero:blNumero, contremarque:cm.nom||'', contremarqueId:cm.id||'', commandeIds:[],
+    commandes:[{ id:'', labelNumber:numero, client:e.fournisseur, fournisseur:e.fournisseur, poids:e.poidsKg, colis:e.colis, emplacement:'' }],
+    contremarqueAdresse:{ adresse1:cm.adresse1||'', adresse2:cm.adresse2||'', cp:cm.cp||'', ville:cm.ville||'', tel1:cm.tel1||'', tel2:cm.tel2||'' },
+    depotCode:state.currentAgencyCode||'', depotNom:(function(){ var a = (state.agenciesList||[]).find(function(x){ return x.code===state.currentAgencyCode; }); return (a && a.name) || ''; })(),
+    poidsTotal:e.poidsKg, nbColisTotal:e.colis, dateLivraisonPrevue:'', dateSouhaitee:'', dateImperative:'', estImperative:false, creneauSouhaite:'',
+    contraintes:{ etage:cm.etage||'', ascenseur:!!cm.ascenseur, accesDifficile:!!cm.accesDifficile, contactSurPlace:'' },
+    volume:'', natureMarchandise:desc, emailDestinataire:cm.mail||'',
+    rdv:{ date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' }, validationExploitant:{ valide:false, par:'', le:'' },
+    reprise:!!cm.optRepriseEmballages, montage:!!cm.optMontageSimple, instructions:[cm.accesPrecisions, cm.contraintes].filter(Boolean).join(' — '),
+    tourneeId:'', type:'collecte', origineCollecte:numero, origineFiche:f.numero, statut:'incomplet', createdAt:now };
+  await blColRef.doc(blNumero).set(bl);
+  var col = collectesCol(); if(col) await col.doc(numero).set(collecte);
+  return numero;
+}
+// CDE en attente : même chemin que l'import en lot (numérotation, base clients/fournisseurs, index)
+async function creerCdeAttenteDepuisFiche(f, cm, fournisseur){
+  var client = f.enseigne || ((cm.nom||'')+' '+(cm.prenom||'')).trim() || 'Client à préciser';
+  await ensureBaseEntry('client', client);
+  if(fournisseur) await ensureBaseEntry('fournisseur', fournisseur);
+  var clientMatch = state.base.clients.find(function(c){ return c.nom.toLowerCase()===client.toLowerCase(); });
+  var labelNumber = await nextLabelNumber();
+  var id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  var d = { labelNumber:labelNumber, date:'', weekNumber:'', client:client, clientCode:clientMatch ? clientMatch.code : '', fournisseur:fournisseur||'', transporteur:'',
+    contremarque:cm.nom||'', contremarqueId:cm.id||'', nrecep:'Fiche '+f.numero+(f.ref?' · réf. '+f.ref:''), poids:'0', colis:'0', palettes:'', vrac:'', support:'', emplacement:'', origineFiche:f.numero };
+  var record = { id:id, savedAt:new Date().toISOString(), data:d };
+  await saveReceptionRecord(id, record);
+  state.historyIndex.unshift(recordToIndexEntry(record));
+  return labelNumber;
+}
+async function creerDepuisFiche(f, cm, panel){
+  var res = { enlevementsCrees:[], cdeAttenteCrees:[], erreurs:[] };
+  var chkEnl = panel.querySelector('.fr-chk-enl'), chkCde = panel.querySelector('.fr-chk-cde');
+  if(chkEnl && chkEnl.checked && blColRef){
+    for(var i=0;i<(f.enlevements||[]).length;i++){
+      try{ res.enlevementsCrees.push(await creerEnlevementDepuisFiche(f, cm, f.enlevements[i])); }
+      catch(e){ console.error('enlèvement', e); res.erreurs.push('enlèvement '+(i+1)+' ('+((e && e.code)||'erreur')+')'); }
+    }
+  }
+  if(chkCde && chkCde.checked){
+    var noms = Array.prototype.map.call(panel.querySelectorAll('.fr-cde-nom'), function(x){ return x.value.trim(); });
+    for(var j=0;j<noms.length;j++){
+      try{ res.cdeAttenteCrees.push(await creerCdeAttenteDepuisFiche(f, cm, noms[j])); }
+      catch(e){ console.error('CDE en attente', e); res.erreurs.push('CDE en attente '+(j+1)+' ('+((e && e.code)||'erreur')+')'); }
+    }
+    if(res.cdeAttenteCrees.length){ await saveBase(); await saveHistoryIndex(); refreshDatalists(); renderPendingList(); renderHistory(); renderToRangeList(); }
+  }
+  return res;
+}
+
 function ouvrirTraitementFiche(item){
   var f = fichesRecues.find(function(x){ return x.numero===item.getAttribute('data-num'); }); if(!f) return;
   var panel = item.querySelector('.fr-panel');
@@ -3124,7 +3236,7 @@ function ouvrirTraitementFiche(item){
   panel.innerHTML = resumeFicheHtml(f)+
     '<div class="field" style="margin-top:10px;"><label>Appliquer à</label><select class="fr-cible"><option value="">➕ Nouvelle fiche contremarque</option>'+
       cms.map(function(c, i){ return '<option value="'+i+'"'+(i===pre?' selected':'')+'>'+escapeHtml((c.nom||'')+' '+(c.prenom||''))+(c.cp?' — '+escapeHtml(c.cp+' '+(c.ville||'')):'')+'</option>'; }).join('')+'</select></div>'+
-    '<div class="fr-diff"></div>'+
+    '<div class="fr-diff"></div>'+creationFicheHtml(f)+
     '<div class="btn-row"><button class="btn accent fr-appliquer" style="width:100%;">✅ Appliquer</button></div>'+
     '<div class="btn-row"><button class="btn ghost fr-pdf" style="width:auto;">📄 PDF</button><button class="btn ghost fr-ignorer" style="width:auto;">🗑 Ignorer</button></div>'+
     '<div class="fr-msg" style="margin-top:6px;font-size:12.5px;"></div>';
@@ -3158,10 +3270,13 @@ function ouvrirTraitementFiche(item){
     appliquerFicheAContremarque(f, cible);
     try{
       await saveBase();
-      await db.collection(FICHE_COL).doc(f.numero).set({ statut:'traitee', action:action, contremarqueId:cible.id, traiteLe:new Date().toISOString(), traitePar:currentIdentity(), traiteParUid:currentUid() }, { merge:true });
+      var crees = await creerDepuisFiche(f, cible, panel);
+      await db.collection(FICHE_COL).doc(f.numero).set({ statut:'traitee', action:action, contremarqueId:cible.id, traiteLe:new Date().toISOString(), traitePar:currentIdentity(), traiteParUid:currentUid(),
+        enlevementsCrees:crees.enlevementsCrees, cdeAttenteCrees:crees.cdeAttenteCrees }, { merge:true });
+      if(crees.erreurs.length){ banner('⚠ Fiche appliquée, mais : '+crees.erreurs.join(' ; ')); }
     }catch(e){ msg.textContent = '⚠️ Échec de l\'enregistrement ('+((e&&e.code)||'erreur')+')'; msg.style.color = 'var(--danger)'; btn.disabled = false; return; }
     document.getElementById('cnt-contremarques').textContent = pad4((state.base.contremarques||[]).length);
-    renderContremarquesList(); banner(action==='creation' ? 'Fiche contremarque créée' : 'Fiche contremarque mise à jour');
+    renderContremarquesList(); banner((action==='creation' ? 'Fiche contremarque créée' : 'Fiche contremarque mise à jour')+(crees && (crees.enlevementsCrees.length || crees.cdeAttenteCrees.length) ? ' — '+(crees.enlevementsCrees.length ? crees.enlevementsCrees.length+' enlèvement(s) à planifier dans Gestion Livraisons' : '')+(crees.enlevementsCrees.length && crees.cdeAttenteCrees.length ? ', ' : '')+(crees.cdeAttenteCrees.length ? crees.cdeAttenteCrees.length+' CDE en attente' : '') : ''));
     renderFichesRecues();
   });
 }
@@ -8208,7 +8323,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0081';
+var APP_VERSION = '2026.0082';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
