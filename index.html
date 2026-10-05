@@ -798,6 +798,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="livreurs" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧑‍✈️</div><div style="font-weight:700;color:var(--ink);">Livreurs</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="parcagence" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚐</div><div style="font-weight:700;color:var(--ink);">Gestion du Parc Agence</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="integrite" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔍</div><div style="font-weight:700;color:var(--ink);">Contrôle Intégrité Stock</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="destinations" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚪</div><div style="font-weight:700;color:var(--ink);">Destinations de sortie</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1122,6 +1123,18 @@
       <div id="controleIntegriteResult" style="margin-top:14px;"></div>
     </div>
     </div>
+    <div class="submodule-content" id="sub-parametres-destinations" style="display:none;">
+    <div class="card">
+      <h2>🚪 Destinations de sortie</h2>
+      <p class="hint" style="margin:0 0 12px;">Toute marchandise qui quitte le dépôt est facturée, sauf une destination marquée non facturable (« en service » : casse imputable à STLS, par exemple). Une destination non facturable exige toujours un motif et la validation d'un administrateur.</p>
+      <div id="destAdminList"></div>
+      <div class="btn-row"><button class="btn ghost" id="btnAddDestination" style="width:100%;">+ Ajouter une destination</button></div>
+      <div class="field" style="margin-top:12px;"><label>Motifs proposés pour les sorties à justifier (un par ligne)</label>
+        <textarea id="motifsServiceInput" rows="4" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>
+      <div class="btn-row"><button class="btn primary" id="btnSaveDestinations" style="width:100%;">Enregistrer</button></div>
+      <div id="destAdminMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    </div>
     <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
     <div class="card" id="tourneesListCard">
       <h2>🚚🛣️ Tournées de livraisons</h2>
@@ -1232,6 +1245,8 @@ var state = {
   agenciesList: [],
   siegesList: [],
   moduleAccess: { tarifs: 'admin', livraisons: 'admin', depot: 'all', contremarques: 'all', clients: 'all', planning: 'all', parametres: 'admin' },
+  destinationsSortie: null, // destinations de sortie paramétrables (null = valeurs par défaut)
+  motifsService: null,
   tournees: []
 };
 
@@ -1367,6 +1382,7 @@ async function loadGlobalConfig(){
       state.siegesList = d.siegesList || [];
       state.brandName = d.brandName || 'STLS';
       state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
+      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null;
       cacheGlobalConfig();
       return;
     }
@@ -1379,7 +1395,12 @@ async function loadGlobalConfig(){
 async function saveGlobalConfig(){
   cacheGlobalConfig();
   if(fsReady()){
-    try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }, { merge: true }); }
+    try{
+      var payload = { globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess };
+      if(state.destinationsSortie) payload.destinationsSortie = state.destinationsSortie; // jamais de null qui effacerait la config
+      if(state.motifsService) payload.motifsService = state.motifsService;
+      await globalDocRef.set(payload, { merge: true });
+    }
     catch(e){ console.error('Firestore saveGlobalConfig error', e); }
   }
 }
@@ -1403,6 +1424,7 @@ function watchGlobalConfig(){
     state.siegesList = d.siegesList || [];
     state.brandName = d.brandName || 'STLS';
     state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
+      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null;
     cacheGlobalConfig();
     renderSiegesList();
     renderDepotsList();
@@ -2325,6 +2347,72 @@ document.getElementById('btnLancerControle').addEventListener('click', async fun
   this.disabled = false; this.textContent = 'Lancer le contrôle';
 });
 
+
+// ================= Paramètres : destinations de sortie (administrateur) =================
+var destAdminBrouillon = [];
+function renderDestinationsAdmin(){
+  destAdminBrouillon = JSON.parse(JSON.stringify(getDestinations()));
+  dessinerDestinationsAdmin();
+  document.getElementById('motifsServiceInput').value = getMotifsService().join('\n');
+  document.getElementById('destAdminMsg').textContent = state.isAdmin ? '' : 'Lecture seule : seul un administrateur peut modifier les destinations.';
+}
+function dessinerDestinationsAdmin(){
+  var el = document.getElementById('destAdminList');
+  el.innerHTML = destAdminBrouillon.map(function(d, i){
+    var fige = !!d.systeme;                       // les trois destinations du système : seul le libellé change
+    var dis = function(v){ return (fige || v) ? ' disabled' : ''; };
+    var nonFact = d.facturable===false;
+    return '<div class="hist-item" data-i="'+i+'" style="margin-bottom:10px;">'+
+      '<div class="field"><label>Libellé'+(fige?' (destination du système)':'')+'</label><input type="text" class="dest-lib" value="'+escapeHtml(d.libelle)+'"></div>'+
+      '<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin:4px 0;"><input type="checkbox" class="dest-fact" '+(d.facturable!==false?'checked':'')+dis(false)+' style="width:18px;height:18px;"> Facturable</label>'+
+      '<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin:4px 0;"><input type="checkbox" class="dest-bl" '+(d.genereBL?'checked':'')+dis(false)+' style="width:18px;height:18px;"> Génère un Bon de Livraison</label>'+
+      '<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin:4px 0;"><input type="checkbox" class="dest-motif" '+(d.motifObligatoire?'checked':'')+dis(nonFact)+' style="width:18px;height:18px;"> Motif et description obligatoires</label>'+
+      '<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin:4px 0;"><input type="checkbox" class="dest-valid" '+(d.validationAdmin?'checked':'')+dis(nonFact)+' style="width:18px;height:18px;"> Sortie validée par un administrateur</label>'+
+      (fige ? '' : '<div class="btn-row"><button class="btn ghost dest-suppr" style="width:100%;">Supprimer cette destination</button></div>')+
+      '</div>';
+  }).join('');
+}
+document.getElementById('destAdminList').addEventListener('input', function(ev){
+  var item = ev.target.closest('.hist-item'); if(!item || !ev.target.classList.contains('dest-lib')) return;
+  destAdminBrouillon[parseInt(item.getAttribute('data-i'),10)].libelle = ev.target.value;
+});
+document.getElementById('destAdminList').addEventListener('change', function(ev){
+  var item = ev.target.closest('.hist-item'); if(!item) return;
+  var d = destAdminBrouillon[parseInt(item.getAttribute('data-i'),10)], c = ev.target.classList;
+  if(c.contains('dest-fact')){
+    d.facturable = ev.target.checked;
+    if(!d.facturable){ d.motifObligatoire = true; d.validationAdmin = true; } // une sortie non facturable est toujours justifiée et validée
+    dessinerDestinationsAdmin();
+  }
+  else if(c.contains('dest-bl')) d.genereBL = ev.target.checked;
+  else if(c.contains('dest-motif')) d.motifObligatoire = ev.target.checked;
+  else if(c.contains('dest-valid')) d.validationAdmin = ev.target.checked;
+});
+document.getElementById('destAdminList').addEventListener('click', function(ev){
+  if(!ev.target.classList.contains('dest-suppr')) return;
+  var item = ev.target.closest('.hist-item'); var i = parseInt(item.getAttribute('data-i'),10);
+  if(!confirm('Supprimer la destination « '+destAdminBrouillon[i].libelle+' » ? Les Bons de Préparation déjà créés avec cette destination ne sont pas modifiés.')) return;
+  destAdminBrouillon.splice(i, 1); dessinerDestinationsAdmin();
+});
+document.getElementById('btnAddDestination').addEventListener('click', function(){
+  destAdminBrouillon.push({ code:'dest_'+Date.now().toString(36), libelle:'Nouvelle destination', facturable:true, genereBL:false, motifObligatoire:false, validationAdmin:false, systeme:false });
+  dessinerDestinationsAdmin();
+});
+document.getElementById('btnSaveDestinations').addEventListener('click', async function(){
+  var msg = document.getElementById('destAdminMsg');
+  function ko(t){ msg.textContent = '⚠️ '+t; msg.style.color = 'var(--danger)'; }
+  if(!state.isAdmin){ ko('Seul un administrateur peut enregistrer.'); return; }
+  var libs = destAdminBrouillon.map(function(d){ return (d.libelle||'').trim(); });
+  if(libs.some(function(l){ return !l; })){ ko('Chaque destination doit avoir un libellé.'); return; }
+  if(libs.some(function(l, i){ return libs.indexOf(l)!==i; })){ ko('Deux destinations portent le même libellé.'); return; }
+  var motifs = document.getElementById('motifsServiceInput').value.split('\n').map(function(m){ return m.trim(); }).filter(Boolean);
+  if(destAdminBrouillon.some(function(d){ return d.motifObligatoire; }) && !motifs.length){ ko('Indique au moins un motif.'); return; }
+  state.destinationsSortie = destAdminBrouillon.map(function(d){ return Object.assign({}, d, { libelle:(d.libelle||'').trim() }); });
+  state.motifsService = motifs.length ? motifs : null;
+  await saveGlobalConfig();
+  msg.textContent = 'Destinations enregistrées.'; msg.style.color = 'var(--accent)';
+});
+
 // ================= PHASE 5 — Annulation d'un BL : retour à ranger, jamais une disparition silencieuse =================
 // traite une anomalie « BL annulé » détectée dans le dossier contremarque : la marchandise ne doit
 // jamais redevenir disponible instantanément si elle a physiquement quitté le dépôt — elle repasse
@@ -2412,6 +2500,7 @@ async function validerSortieBP(numero){
   if(!bpSnap.exists) return { ok:false, motif:'Bon de Préparation introuvable' };
   var bp = bpSnap.data();
   if(bp.statut!=='pret') return { ok:false, motif:'Le BP doit être marqué « Prêt » avant de valider la sortie' };
+  if(sortieExigeAdmin(bp) && !state.isAdmin) return { ok:false, motif:'Cette sortie (« '+(bp.destinationLibelle||libelleDestination(bp.destination))+' ») doit être validée par un administrateur.' };
 
   for(var i=0;i<bp.lignes.length;i++){
     var ligne = bp.lignes[i];
@@ -2433,7 +2522,7 @@ async function validerSortieBP(numero){
     var idx = state.historyIndex.findIndex(function(x){ return x.id===bp.lignes[j].commandeId; });
     if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec2); }
   }
-  await bpColRef.doc(numero).set({ statut:'sorti', sortieValidee:{ par:par, le:le } }, { merge:true });
+  await bpColRef.doc(numero).set({ statut:'sorti', sortieValidee:{ par:par, parUid:currentUid(), le:le } }, { merge:true });
   return { ok:true };
 }
 
@@ -2447,6 +2536,7 @@ async function createBonLivraisonFromBP(numero, dateInfo){
   var bp = bpSnap.data();
   if(bp.statut!=='sorti') return { erreur:true, motif:'La sortie de ce BP n\'est pas encore validée' };
   if(bp.blNumero) return { erreur:true, motif:'Ce BP est déjà rattaché au BL '+bp.blNumero };
+  if(!sortieGenereBL(bp)) return { erreur:true, motif:'La destination « '+(bp.destinationLibelle||libelleDestination(bp.destination))+' » ne génère pas de BL' };
 
   var selections = bp.lignes.map(function(l){ return { commandeId:l.commandeId, itemIds:l.itemIds }; });
   var numeroBL = await nextBLNumero();
@@ -2517,10 +2607,70 @@ async function loadBonsPreparationForContremarque(cmId){
   }catch(e){ console.error('Firestore loadBonsPreparationForContremarque error', e); return []; }
 }
 
+
+// ================= Destinations de sortie (paramétrables) =================
+// Toute marchandise qui quitte le dépôt est facturée, sauf une destination marquée non facturable (« en service » :
+// casse imputable à STLS, par exemple). Une destination non facturable exige toujours un motif et la validation d'un
+// administrateur : c'est la seule porte de sortie qui échappe à la facturation.
+var DESTINATIONS_PAR_DEFAUT = [
+  { code:'livraison', libelle:'Livraison', facturable:true, genereBL:true, motifObligatoire:false, validationAdmin:false, systeme:true },
+  { code:'emporte', libelle:'Emporté client', facturable:true, genereBL:false, motifObligatoire:false, validationAdmin:false, systeme:true },
+  { code:'service', libelle:'En service', facturable:false, genereBL:false, motifObligatoire:true, validationAdmin:true, systeme:true }
+];
+var MOTIFS_SERVICE_PAR_DEFAUT = ['Casse imputable à STLS'];
+function getDestinations(){ return (state.destinationsSortie && state.destinationsSortie.length) ? state.destinationsSortie : DESTINATIONS_PAR_DEFAUT; }
+function getMotifsService(){ return (state.motifsService && state.motifsService.length) ? state.motifsService : MOTIFS_SERVICE_PAR_DEFAUT; }
+function getDestination(code){
+  return getDestinations().find(function(d){ return d.code===code; }) ||
+    { code:code, libelle:code, facturable:true, genereBL:code==='livraison', motifObligatoire:false, validationAdmin:false };
+}
+function libelleDestination(code){ return getDestination(code).libelle; }
+function destinationOptionsHtml(){
+  return getDestinations().map(function(d){ return '<option value="'+escapeHtml(d.code)+'">'+escapeHtml(d.libelle)+'</option>'; }).join('');
+}
+// bloc « sortie à justifier » (motif, description, remplacement), affiché seulement si la destination l'exige
+function champsServiceHtml(prefix){
+  return '<div id="'+prefix+'Service" style="display:none;margin:6px 0 10px;padding:10px;border:1px solid var(--line-strong);border-radius:9px;background:#fff8f0;">'+
+    '<div class="hint titre-service" style="margin-bottom:6px;font-weight:600;"></div>'+
+    '<div class="field"><label>Motif</label><select id="'+prefix+'Motif">'+getMotifsService().map(function(m){ return '<option value="'+escapeHtml(m)+'">'+escapeHtml(m)+'</option>'; }).join('')+'</select></div>'+
+    '<div class="field"><label>Description (ce qui s\'est passé)</label><textarea id="'+prefix+'Desc" rows="2" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>'+
+    '<div class="field"><label>Réf. de la commande de remplacement (facultatif)</label><input type="text" id="'+prefix+'Remp"></div>'+
+    '<div class="hint">Cette sortie devra être validée par un administrateur.</div></div>';
+}
+function lierDestinationChamps(prefix, selectId){
+  var sel = document.getElementById(selectId), bloc = document.getElementById(prefix+'Service');
+  if(!sel || !bloc) return;
+  function maj(){
+    var d = getDestination(sel.value);
+    bloc.style.display = d.motifObligatoire ? 'block' : 'none';
+    var t = bloc.querySelector('.titre-service'); if(t) t.textContent = d.facturable ? 'Sortie à justifier' : 'Sortie non facturable — à justifier';
+  }
+  sel.addEventListener('change', maj); maj();
+}
+function lireChampsService(prefix, destCode){
+  var d = getDestination(destCode);
+  if(!d.motifObligatoire) return { ok:true, service:null };
+  var motif = (document.getElementById(prefix+'Motif')||{}).value || '';
+  var desc = ((document.getElementById(prefix+'Desc')||{}).value || '').trim();
+  var remp = ((document.getElementById(prefix+'Remp')||{}).value || '').trim();
+  if(!motif) return { ok:false, message:'Choisis un motif' };
+  if(desc.length < 5) return { ok:false, message:'Décris brièvement ce qui s\'est passé (5 caractères minimum)' };
+  return { ok:true, service:{ motif:motif, description:desc, refRemplacement:remp } };
+}
+function sortieExigeAdmin(bp){
+  return bp.validationAdmin===true || (bp.validationAdmin===undefined && !!getDestination(bp.destination).validationAdmin);
+}
+function sortieGenereBL(bp){
+  return bp.genereBL===true || (bp.genereBL===undefined && bp.destination==='livraison');
+}
+
 // crée un Bon de Préparation : pose le verrou (type 'bp') sur les articles choisis dès la création —
 // la marchandise est « prise » pour cette préparation avant même que la sortie physique soit validée,
 // ce qui empêche une autre préparation ou un BL de la sélectionner entre-temps
-async function createBonPreparation(cmId, cmNom, selection, destination){
+async function createBonPreparation(cmId, cmNom, selection, destination, extra){
+  var destCfg = getDestination(destination);
+  // la justification est contrôlée AVANT de verrouiller quoi que ce soit
+  if(destCfg.motifObligatoire && !(extra && extra.motif && extra.description)){ return { erreur:true, motif:'Motif et description obligatoires pour « '+destCfg.libelle+' »' }; }
   var entrees = selection.map(function(s){ return typeof s==='string' ? { commandeId:s, itemIds:null } : s; });
   for(var p=0;p<entrees.length;p++){
     if(!entrees[p].itemIds || !entrees[p].itemIds.length){
@@ -2551,7 +2701,9 @@ async function createBonPreparation(cmId, cmNom, selection, destination){
   }
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
   var bp = {
-    numero: numero, contremarqueId: cmId||'', contremarque: cmNom||'', destination: destination,
+    numero: numero, contremarqueId: cmId||'', contremarque: cmNom||'', destination: destination, destinationLibelle: destCfg.libelle,
+    facturable: destCfg.facturable!==false, genereBL: !!destCfg.genereBL, validationAdmin: !!destCfg.validationAdmin,
+    service: destCfg.motifObligatoire ? { motif: extra.motif, description: extra.description, refRemplacement: extra.refRemplacement||'' } : null,
     lignes: lignes, statut: 'brouillon', depotCode: state.currentAgencyCode||'', depotNom: (ag&&ag.name)||'',
     createdAt: new Date().toISOString(), createdPar: currentIdentity(), createdParUid: currentUid(), sortieValidee: null
   };
@@ -2592,21 +2744,25 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
     var nb = bp.lignes.length;
     var actions = '';
     if(bp.statut==='brouillon') actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="pret" style="padding:4px 10px;font-size:12px;">Marquer prêt</button>';
-    else if(bp.statut==='pret') actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="brouillon" style="padding:4px 10px;font-size:12px;">Revenir à créé</button>'+
-      '<button class="btn accent bp-valider-sortie" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">✅ Valider la sortie</button>';
-    else if(bp.statut==='sorti' && bp.destination==='livraison' && !bp.blNumero) actions = '<button class="btn accent bp-creer-bl" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">Créer le BL</button>';
+    else if(bp.statut==='pret'){
+      actions = '<button class="btn ghost bp-statut" data-num="'+bp.numero+'" data-nouveau="brouillon" style="padding:4px 10px;font-size:12px;">Revenir à créé</button>';
+      if(sortieExigeAdmin(bp) && !state.isAdmin) actions += '<span style="font-size:12px;color:var(--ink-soft);align-self:center;">⏳ en attente de validation par un administrateur</span>';
+      else actions += '<button class="btn accent bp-valider-sortie" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">✅ Valider la sortie</button>';
+    }
+    else if(bp.statut==='sorti' && sortieGenereBL(bp) && !bp.blNumero) actions = '<button class="btn accent bp-creer-bl" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">Créer le BL</button>';
     else if(bp.statut==='sorti' && bp.blNumero) actions = '<a href="livraisons.html?bl='+escapeHtml(bp.blNumero)+'" style="font-size:12px;color:var(--accent);font-weight:600;">→ BL '+escapeHtml(bp.blNumero)+'</a>';
     return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">'+
-      '<span>'+escapeHtml(bp.numero)+' — '+(bp.destination==='emporte'?'Emporté client':'Livraison')+' · '+nb+' commande(s) · '+lbl+'</span>'+
-      '<span style="display:flex;gap:6px;">'+actions+'</span><div id="bpMsgLigne-'+escapeHtml(bp.numero)+'" style="width:100%;font-size:12px;"></div></div>';
+      '<span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+nb+' commande(s) · '+lbl+'</span>'+
+      '<span style="display:flex;gap:6px;">'+actions+'</span>'+
+      (bp.service ? '<div style="width:100%;font-size:12px;color:var(--ink-soft);">🛠️ '+escapeHtml(bp.service.motif)+' — '+escapeHtml(bp.service.description)+(bp.service.refRemplacement?' · remplacement : '+escapeHtml(bp.service.refRemplacement):'')+(bp.facturable===false?' · non facturable':'')+'</div>' : '')+
+      '<div id="bpMsgLigne-'+escapeHtml(bp.numero)+'" style="width:100%;font-size:12px;"></div></div>';
   }).join('') : '<div class="hint">Aucun Bon de Préparation pour l\'instant.</div>';
 
   html += '<div class="hint" style="font-weight:600;margin:14px 0 6px;">Nouveau Bon de Préparation</div>';
   if(!enStock.length){
     html += '<div class="hint">Aucune commande disponible en stock pour « '+escapeHtml(contremarqueNom)+' ».</div>';
   } else {
-    html += '<div class="field"><label>Destination</label><select id="bpDestination-'+idx+'">'+
-      '<option value="livraison">Livraison</option><option value="emporte">Emporté client</option></select></div>';
+    html += '<div class="field"><label>Destination</label><select id="bpDestination-'+idx+'">'+destinationOptionsHtml()+'</select></div>'+champsServiceHtml('bpSvc'+idx);
     html += '<div class="btn-row"><button class="btn ghost" id="btnBPComplete-'+idx+'" style="width:100%;">Préparation complète (toutes les commandes disponibles)</button></div>';
     html += '<div class="hint" style="margin:10px 0 6px;">ou sélection partielle :</div>';
     html += enStock.map(function(h){
@@ -2659,11 +2815,14 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
   });
 
   var msgEl = document.getElementById('bpMsg-'+idx);
+  lierDestinationChamps('bpSvc'+idx, 'bpDestination-'+idx);
   async function lancerCreation(selection){
     var dest = document.getElementById('bpDestination-'+idx).value;
-    var bp = await createBonPreparation(cmId, contremarqueNom, selection, dest);
+    var champs = lireChampsService('bpSvc'+idx, dest);
+    if(!champs.ok){ if(msgEl){ msgEl.textContent = '⚠️ '+champs.message; msgEl.style.color = 'var(--danger)'; } return; }
+    var bp = await createBonPreparation(cmId, contremarqueNom, selection, dest, champs.service);
     if(bp && bp.erreur){
-      var detail = bp.conflits.map(function(c){
+      var detail = (bp.conflits||[]).map(function(c){
         var a = c.affectationActuelle;
         return c.itemId===null ? 'introuvable' : (a?'déjà affecté ('+a.type+' '+a.id+')':'?');
       }).join(' — ');
@@ -2746,7 +2905,9 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
 
   var blStatutParNumero = {};
   existingBLs.forEach(function(bl){ blStatutParNumero[bl.numero] = bl.statut; });
-  var lignesDossier = toutesLesCommandes.map(function(h){ return Object.assign({ h:h }, statutLigneReception(h, blStatutParNumero)); });
+  var bpParNumero = {};
+  if(cmId){ (await loadBonsPreparationForContremarque(cmId)).forEach(function(bp){ bpParNumero[bp.numero] = bp; }); }
+  var lignesDossier = toutesLesCommandes.map(function(h){ return Object.assign({ h:h }, statutLigneReception(h, blStatutParNumero, bpParNumero)); });
   var badge = badgeDossierContremarque(lignesDossier);
 
   var html = dossierSectionHtml(lignesDossier, badge);
@@ -4370,7 +4531,7 @@ async function loadBonsLivraisonForContremarque(contremarque, contremarqueId){
 // ================= Tableau de bord du dossier contremarque (§6/§15 de la spec) =================
 // Traduit l'état brut (réception / BL) en vocabulaire métier : REÇU, EN ATTENTE, BL CRÉÉ,
 // EN LIVRAISON, LIVRÉ — jamais stocké, toujours recalculé à partir des données déjà existantes
-function statutLigneReception(h, blStatutParNumero){
+function statutLigneReception(h, blStatutParNumero, bpParNumero){
   if(h.exitedAt){
     if(h.bonLivraisonId){
       var st = blStatutParNumero[h.bonLivraisonId];
@@ -4378,6 +4539,14 @@ function statutLigneReception(h, blStatutParNumero){
       if(st==='annule') return { icon:'⚠️', label:'Sorti — BL '+h.bonLivraisonId+' annulé', niveau:'anomalie', blAnnuleNumero:h.bonLivraisonId };
       if(st==='valide_pour_tournee' || st==='affecte_tournee') return { icon:'🚛', label:'En livraison (BL '+h.bonLivraisonId+')', niveau:'livraison' };
       return { icon:'🚚', label:'Sorti — BL '+h.bonLivraisonId+' en préparation', niveau:'bl_cree' };
+    }
+    // sortie validée via un Bon de Préparation dont la destination ne génère pas de BL (emporté, en service…)
+    var bpS = (h.bonPreparationId && bpParNumero) ? bpParNumero[h.bonPreparationId] : null;
+    if(bpS){
+      var libS = bpS.destinationLibelle || libelleDestination(bpS.destination);
+      if(bpS.facturable===false) return { icon:'🛠️', label:libS+' — non facturable ('+bpS.numero+')', niveau:'service' };
+      if(!sortieGenereBL(bpS)) return { icon:'✅', label:libS+' ('+bpS.numero+')', niveau:'livre' };
+      return { icon:'📋', label:'Sortie validée — BL à créer ('+bpS.numero+')', niveau:'bp_cree' };
     }
     return { icon:'⚠️', label:'Sorti sans BL (cas exceptionnel)', niveau:'anomalie' };
   }
@@ -4400,6 +4569,10 @@ function statutLigneReception(h, blStatutParNumero){
 function badgeDossierContremarque(lignes){
   if(!lignes.length) return null;
   var niveaux = lignes.map(function(l){ return l.niveau; });
+  // les articles sortis « en service » (non facturables) ne comptent pas dans l'avancement du reste du dossier
+  var actifs = niveaux.filter(function(n){ return n!=='service'; });
+  if(!actifs.length) return { icon:'🛠️', label:'SORTI EN SERVICE', color:'var(--ink-soft)' };
+  niveaux = actifs;
   if(niveaux.indexOf('anomalie')>=0) return { icon:'⚠️', label:'ANOMALIE À VÉRIFIER', color:'var(--danger)' };
   if(niveaux.every(function(n){ return n==='livre'; })) return { icon:'✅', label:'LIVRÉ', color:'#1e8e3e' };
   if(niveaux.every(function(n){ return n==='livre'||n==='livraison'; })) return { icon:'🚛', label:'EN LIVRAISON', color:'#2563eb' };
@@ -5507,8 +5680,7 @@ async function renderCmLinkPanel(id, forceOpen){
     if(dejaAffectee){
       html += '<div class="hint" style="color:var(--ink-soft);">Cette commande est déjà entièrement affectée (BP ou BL) — rien à mettre en préparation.</div>';
     } else {
-      html += '<div class="field"><label>Destination</label><select id="bpstockDest-'+id+'">'+
-        '<option value="livraison">Livraison</option><option value="emporte">Emporté client</option></select></div>'+
+      html += '<div class="field"><label>Destination</label><select id="bpstockDest-'+id+'">'+destinationOptionsHtml()+'</select></div>'+champsServiceHtml('stkSvc-'+id)+
         '<div class="btn-row"><button class="btn accent" id="btnBPStock-'+id+'" style="width:100%;">📋 Créer le Bon de Préparation</button></div>'+
         '<div id="bpstockMsg-'+id+'" style="margin-top:4px;font-size:12.5px;"></div>';
     }
@@ -5534,13 +5706,16 @@ async function renderCmLinkPanel(id, forceOpen){
   box.innerHTML = html;
   box.style.display = 'block';
 
+  lierDestinationChamps('stkSvc-'+id, 'bpstockDest-'+id);
   var btnBP = document.getElementById('btnBPStock-'+id);
   if(btnBP){
     btnBP.addEventListener('click', async function(){
-      btnBP.disabled = true; btnBP.textContent = 'Création…';
       var dest = document.getElementById('bpstockDest-'+id).value;
-      var bp = await createBonPreparation(linked.id, linked.nom, [{ commandeId:id, itemIds:null }], dest);
       var msg = document.getElementById('bpstockMsg-'+id);
+      var champs = lireChampsService('stkSvc-'+id, dest);
+      if(!champs.ok){ if(msg){ msg.textContent = '⚠️ '+champs.message; msg.style.color = 'var(--danger)'; } return; }
+      btnBP.disabled = true; btnBP.textContent = 'Création…';
+      var bp = await createBonPreparation(linked.id, linked.nom, [{ commandeId:id, itemIds:null }], dest, champs.service);
       if(bp && bp.erreur){
         if(msg){ msg.textContent = '⚠️ '+(bp.motif||'Création refusée — déjà affectée ailleurs'); msg.style.color = 'var(--danger)'; }
         btnBP.disabled = false; btnBP.textContent = '📋 Créer le Bon de Préparation';
@@ -7233,6 +7408,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='tournees'){ showTourneesList(); }
     if(btn.getAttribute('data-key')==='livreurs'){ renderLivreursList(); }
     if(btn.getAttribute('data-key')==='parcagence'){ renderParcVehiculesList(); }
+    if(btn.getAttribute('data-key')==='destinations'){ renderDestinationsAdmin(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
   });
 });
@@ -7546,7 +7722,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0069';
+var APP_VERSION = '2026.0070';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -8026,6 +8202,7 @@ async function refreshGlobalConfigFromServer(){
       state.siegesList = d.siegesList || state.siegesList;
       state.brandName = d.brandName || state.brandName;
       state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
+      state.destinationsSortie = d.destinationsSortie || null; state.motifsService = d.motifsService || null;
       cacheGlobalConfig();
       return true;
     }
