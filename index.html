@@ -2719,6 +2719,146 @@ async function passerStatutBP(numero, nouveauStatut){
   catch(e){ console.error('Firestore passerStatutBP error', e); return false; }
 }
 
+
+// ================= Bon de Préparation imprimable (A4) =================
+// Liste de prélèvement pour le magasinier : une ligne par unité (palette / colis vrac), triée par emplacement
+// pour parcourir le dépôt dans l'ordre, avec la date d'entrée et le nombre de jours de stockage.
+function joursEntreDates(debut, fin){
+  var a = String(debut||'').slice(0,10).split('-'), b = String(fin||todayISO()).slice(0,10).split('-');
+  if(a.length!==3 || b.length!==3) return null;
+  var d1 = new Date(parseInt(a[0],10), parseInt(a[1],10)-1, parseInt(a[2],10));
+  var d2 = new Date(parseInt(b[0],10), parseInt(b[1],10)-1, parseInt(b[2],10));
+  return Math.max(0, Math.round((d2 - d1) / 86400000));
+}
+function dateCourte(iso){ return iso ? fmtDate(String(iso).slice(0,10)) : '—'; }
+function comparerEmplacements(x, y){
+  var vx = x.emp==='—' ? '\uffff' : x.emp, vy = y.emp==='—' ? '\uffff' : y.emp;   // sans emplacement : en fin de liste
+  if(vx < vy) return -1; if(vx > vy) return 1;
+  return (x.label < y.label) ? -1 : (x.label > y.label ? 1 : (x.unite < y.unite ? -1 : 1));
+}
+async function lignesPrelevementBP(bp){
+  var rows = [];
+  for(var i=0;i<bp.lignes.length;i++){
+    var l = bp.lignes[i];
+    var rec = await getReceptionRecord(l.commandeId);
+    if(!rec){ rows.push({ emp:'—', label:l.labelNumber||l.commandeId, unite:'(commande introuvable)', fournisseur:l.fournisseur||'', entree:'', jours:null }); continue; }
+    var metas = computeLabels(rec.data), emps = rec.data.emplacements || {};
+    var entree = rec.data.receivedAt || rec.data.date || '';
+    var fin = rec.data.exitedAt ? String(rec.data.exitedAt).slice(0,10) : todayISO(); // une fois sortie, la durée s'arrête à la sortie
+    l.itemIds.forEach(function(it){
+      var m = metas.find(function(x){ return x.itemId===it; }) || {};
+      rows.push({ emp: emps[it] || rec.data.emplacement || '—', label: l.labelNumber||rec.data.labelNumber||'', unite: m.posLabel || it,
+        fournisseur: l.fournisseur || rec.data.fournisseur || '', entree: entree, jours: joursEntreDates(entree, fin) });
+    });
+  }
+  rows.sort(comparerEmplacements);
+  return rows;
+}
+function dessinerBonPreparation(bp, rows){
+  var doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+  var W = 210, M = 12, VERT = [15,110,86], GRIS = [95,94,90];
+  var cm = (state.base.contremarques||[]).find(function(c){ return c.id===bp.contremarqueId; }) || {};
+  var statutTxt = { brouillon:'Créé', pret:'Prêt', sorti:'Sortie validée' }[bp.statut] || bp.statut;
+  function tronquer(t, maxW){
+    t = String(t==null?'':t);
+    if(doc.getTextWidth(t) <= maxW) return t;
+    while(t.length>1 && doc.getTextWidth(t+'…') > maxW) t = t.slice(0,-1);
+    return t+'…';
+  }
+  function texte(t, x, y, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||10); doc.setTextColor.apply(doc, o.color||[28,28,26]); doc.text(String(t), x, y, o.align?{align:o.align}:undefined); }
+  function etiquette(t, x, y){ texte(t, x, y, { size:7.5, color:GRIS }); }
+
+  // ----- en-tête -----
+  texte('BON DE PRÉPARATION', M, 16, { bold:true, size:18 });
+  texte(bp.numero, W-M, 16, { bold:true, size:18, align:'right', color:VERT });
+  doc.setDrawColor.apply(doc, VERT); doc.setLineWidth(0.6); doc.line(M, 20, W-M, 20);
+
+  var y = 27;
+  etiquette('CONTREMARQUE', M, y); texte(bp.contremarque||'—', M, y+5.5, { bold:true, size:13 });
+  var adr = [cm.adresse1, [cm.cp, cm.ville].filter(Boolean).join(' '), cm.tel1 ? 'Tél. '+cm.tel1 : ''].filter(Boolean);
+  adr.slice(0,3).forEach(function(l, i){ texte(tronquer(l, 88), M, y+11+i*4.6, { size:9, color:GRIS }); });
+  etiquette('DESTINATION', 112, y); texte(bp.destinationLibelle || libelleDestination(bp.destination), 112, y+5.5, { bold:true, size:13 });
+  if(bp.facturable === false) texte('SORTIE NON FACTURABLE', 112, y+11, { bold:true, size:9, color:[163,45,45] });
+  texte('Statut : '+statutTxt, 112, y+(bp.facturable===false?15.6:11), { size:9, color:GRIS });
+  texte('Créé le '+dateCourte(bp.createdAt)+(bp.createdPar?' par '+bp.createdPar:''), 112, y+(bp.facturable===false?20.2:15.6), { size:9, color:GRIS });
+  texte('Dépôt : '+(bp.depotNom||bp.depotCode||''), 112, y+(bp.facturable===false?24.8:20.2), { size:9, color:GRIS });
+  y += 31;
+
+  // ----- sortie à justifier -----
+  if(bp.service){
+    var desc = doc.splitTextToSize('Description : '+bp.service.description, W-2*M-8).slice(0,4);
+    var h = 14 + desc.length*4.4 + (bp.service.refRemplacement?4.6:0);
+    doc.setFillColor(255,244,230); doc.setDrawColor(224,160,90); doc.setLineWidth(0.3); doc.rect(M, y, W-2*M, h, 'FD');
+    texte('SORTIE À JUSTIFIER'+(sortieExigeAdmin(bp)?' — validation administrateur requise':''), M+4, y+5.5, { bold:true, size:9, color:[160,80,0] });
+    texte('Motif : '+bp.service.motif, M+4, y+10.5, { bold:true, size:9.5 });
+    desc.forEach(function(l, i){ texte(l, M+4, y+15.2+i*4.4, { size:9 }); });
+    if(bp.service.refRemplacement) texte('Commande de remplacement : '+bp.service.refRemplacement, M+4, y+15.2+desc.length*4.4, { size:9 });
+    y += h + 5;
+  }
+
+  // ----- tableau de prélèvement -----
+  var cols = [ {t:'', w:9}, {t:'Emplacement', w:28}, {t:'Étiquette', w:26}, {t:'Unité', w:36}, {t:'Fournisseur', w:47}, {t:'Entrée', w:22}, {t:'Jours', w:18} ];
+  function enteteTableau(){
+    doc.setFillColor(225,245,238); doc.rect(M, y, W-2*M, 7, 'F');
+    var x = M;
+    cols.forEach(function(c){ texte(c.t, x+(c.t==='Jours'?c.w-2:2), y+4.8, { bold:true, size:8.5, align:(c.t==='Jours'?'right':undefined) }); x += c.w; });
+    y += 7;
+  }
+  texte('LISTE DE PRÉLÈVEMENT — triée par emplacement', M, y, { bold:true, size:10.5, color:VERT }); y += 4;
+  enteteTableau();
+  rows.forEach(function(r, i){
+    if(y > 268){ doc.addPage(); y = 16; texte('Bon de Préparation '+bp.numero+' — suite', M, y, { bold:true, size:10, color:VERT }); y += 5; enteteTableau(); }
+    if(i%2===1){ doc.setFillColor(246,245,240); doc.rect(M, y, W-2*M, 8, 'F'); }
+    doc.setDrawColor(90,90,86); doc.setLineWidth(0.35); doc.rect(M+2.2, y+2, 4, 4);          // case à cocher
+    var x = M + cols[0].w;
+    texte(tronquer(r.emp, cols[1].w-3), x+2, y+5.4, { bold:true, size:10 }); x += cols[1].w;
+    texte(tronquer(r.label, cols[2].w-3), x+2, y+5.4, { size:9.5 }); x += cols[2].w;
+    texte(tronquer(r.unite, cols[3].w-3), x+2, y+5.4, { size:9.5 }); x += cols[3].w;
+    texte(tronquer(r.fournisseur, cols[4].w-3), x+2, y+5.4, { size:9 }); x += cols[4].w;
+    texte(dateCourte(r.entree), x+2, y+5.4, { size:9 }); x += cols[5].w;
+    texte(r.jours==null?'—':String(r.jours), x+cols[6].w-2, y+5.4, { bold:true, size:10, align:'right' });
+    y += 8;
+  });
+  doc.setDrawColor(190,188,178); doc.setLineWidth(0.3); doc.line(M, y, W-M, y); y += 6;
+
+  // ----- totaux -----
+  var colis = bp.lignes.reduce(function(s, l){ return s + (l.colis||0); }, 0);
+  var poids = bp.lignes.reduce(function(s, l){ return s + (l.poids||0); }, 0);
+  texte(rows.length+' unité(s) à prélever · '+bp.lignes.length+' commande(s) · '+colis+' colis · '+poids.toFixed(1).replace('.',',')+' kg', M, y, { bold:true, size:10 });
+  y += 8;
+
+  // ----- signatures -----
+  var boites = [ 'Préparé par (nom et signature)', 'Contrôle avant sortie' ];
+  if(sortieExigeAdmin(bp)) boites.push('Validation administrateur');
+  if(y + 30 > 285){ doc.addPage(); y = 16; }
+  var bw = (W - 2*M - (boites.length-1)*4) / boites.length;
+  boites.forEach(function(t, i){
+    var bx = M + i*(bw+4);
+    doc.setDrawColor(150,148,140); doc.setLineWidth(0.3); doc.rect(bx, y, bw, 24);
+    texte(t, bx+2.5, y+4.6, { size:8, color:GRIS });
+    texte('Date : ____ / ____ / ________', bx+2.5, y+21, { size:8, color:GRIS });
+  });
+
+  // ----- pied de page, avec la pagination exacte -----
+  var n = doc.getNumberOfPages();
+  for(var p=1; p<=n; p++){
+    doc.setPage(p);
+    texte('STLS — Bon de Préparation '+bp.numero, M, 290.5, { size:7.5, color:GRIS });
+    texte('Page '+p+' / '+n, W-M, 290.5, { size:7.5, color:GRIS, align:'right' });
+  }
+  return doc;
+}
+async function genererBonPreparationPdf(numero){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible — vérifie ta connexion'); return; }
+  if(!(fsReady() && bpColRef)){ banner('Connexion indisponible'); return; }
+  var snap = await bpColRef.doc(numero).get();
+  if(!snap.exists){ banner('Bon de Préparation introuvable'); return; }
+  var bp = snap.data();
+  var rows = await lignesPrelevementBP(bp);
+  downloadPdf(dessinerBonPreparation(bp, rows), 'BP_'+numero+'.pdf');
+  banner('Bon de Préparation '+numero+' téléchargé');
+}
+
 var BP_STATUT_LABEL = { brouillon: '📋 Créé', pret: '✅ Prêt', sorti: '🚚 Sortie validée' };
 
 // ---------- panneau Bons de Préparation d'une fiche contremarque (même disposition que le panneau BL) ----------
@@ -2753,7 +2893,7 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
     else if(bp.statut==='sorti' && bp.blNumero) actions = '<a href="livraisons.html?bl='+escapeHtml(bp.blNumero)+'" style="font-size:12px;color:var(--accent);font-weight:600;">→ BL '+escapeHtml(bp.blNumero)+'</a>';
     return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">'+
       '<span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+nb+' commande(s) · '+lbl+'</span>'+
-      '<span style="display:flex;gap:6px;">'+actions+'</span>'+
+      '<span style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn ghost bp-imprimer" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">🖨️ PDF</button>'+actions+'</span>'+
       (bp.service ? '<div style="width:100%;font-size:12px;color:var(--ink-soft);">🛠️ '+escapeHtml(bp.service.motif)+' — '+escapeHtml(bp.service.description)+(bp.service.refRemplacement?' · remplacement : '+escapeHtml(bp.service.refRemplacement):'')+(bp.facturable===false?' · non facturable':'')+'</div>' : '')+
       '<div id="bpMsgLigne-'+escapeHtml(bp.numero)+'" style="width:100%;font-size:12px;"></div></div>';
   }).join('') : '<div class="hint">Aucun Bon de Préparation pour l\'instant.</div>';
@@ -2846,6 +2986,9 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
       await passerStatutBP(btn.getAttribute('data-num'), btn.getAttribute('data-nouveau'));
       renderBPPanel(idx, contremarqueNom, true, cmId);
     });
+  });
+  Array.prototype.forEach.call(box.querySelectorAll('.bp-imprimer'), function(btn){
+    btn.addEventListener('click', function(){ genererBonPreparationPdf(btn.getAttribute('data-num')); });
   });
   Array.prototype.forEach.call(box.querySelectorAll('.bp-valider-sortie'), function(btn){
     btn.addEventListener('click', async function(){
@@ -5679,6 +5822,8 @@ async function renderCmLinkPanel(id, forceOpen){
     var dejaAffectee = Object.values(rec.data.itemAffectation||{}).length>0 && Object.keys(rec.data.itemAffectation||{}).length>=computeLabels(rec.data).length;
     if(dejaAffectee){
       html += '<div class="hint" style="color:var(--ink-soft);">Cette commande est déjà entièrement affectée (BP ou BL) — rien à mettre en préparation.</div>';
+      var bpIds = []; Object.keys(rec.data.itemAffectation||{}).forEach(function(k){ var a = rec.data.itemAffectation[k]; if(a && a.type==='bp' && bpIds.indexOf(a.id)<0) bpIds.push(a.id); });
+      bpIds.forEach(function(n){ html += '<div class="btn-row"><button class="btn ghost stk-bp-print" data-num="'+escapeHtml(n)+'" style="width:100%;">🖨️ Imprimer le Bon de Préparation '+escapeHtml(n)+'</button></div>'; });
     } else {
       html += '<div class="field"><label>Destination</label><select id="bpstockDest-'+id+'">'+destinationOptionsHtml()+'</select></div>'+champsServiceHtml('stkSvc-'+id)+
         '<div class="btn-row"><button class="btn accent" id="btnBPStock-'+id+'" style="width:100%;">📋 Créer le Bon de Préparation</button></div>'+
@@ -5707,6 +5852,7 @@ async function renderCmLinkPanel(id, forceOpen){
   box.style.display = 'block';
 
   lierDestinationChamps('stkSvc-'+id, 'bpstockDest-'+id);
+  Array.prototype.forEach.call(box.querySelectorAll('.stk-bp-print'), function(b2){ b2.addEventListener('click', function(){ genererBonPreparationPdf(b2.getAttribute('data-num')); }); });
   var btnBP = document.getElementById('btnBPStock-'+id);
   if(btnBP){
     btnBP.addEventListener('click', async function(){
@@ -7722,7 +7868,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0070';
+var APP_VERSION = '2026.0071';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
