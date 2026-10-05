@@ -329,27 +329,20 @@ var fsAvailable = false;
 var db = null;
 function fsReady(){ return fsAvailable && !!db; }
 
-// ---------- authentification anonyme (étape 1 de sécurisation) ----------
-// Ne remplace pas le code équipe/admin — c'est une couche technique en plus, invisible pour l'utilisateur.
-// Objectif : donner à Firestore un moyen de distinguer "vient de l'app" d'un accès direct à la base (script, robot).
-// tant que ce n'est pas fait, les règles Firestore ne peuvent pas être fermées sans bloquer tout le monde.
+// ---------- session de compte (phase 3 de la sécurisation) ----------
+// Plus aucune session anonyme : on attend seulement que le SDK ait restauré une éventuelle session de compte.
+// Tant que personne n'est identifié, rien n'est lu dans la base. Une vieille session anonyme laissée par
+// une ancienne version est fermée.
 var authReady = null;
-function ensureAuth(){
-  if(!fsAvailable) return Promise.resolve(false);
+function restoreSession(){
   if(authReady) return authReady;
   authReady = new Promise(function(resolve){
-    if(!(window.firebase && firebase.auth)){ resolve(false); return; }
+    if(!(window.firebase && firebase.auth)){ resolve(null); return; }
     var auth = firebase.auth();
-    // le SDK restaure d'abord une éventuelle session existante : on attend cet état avant de décider
-    // quoi que ce soit. Une session déjà là (compte réel ou anonyme) n'est JAMAIS remplacée —
-    // signInAnonymously() écraserait sinon le compte réel connecté.
     var unsub = auth.onAuthStateChanged(function(user){
       unsub();
-      if(user){ resolve(true); return; }
-      auth.signInAnonymously().then(function(){ resolve(true); }).catch(function(e){
-        console.error('Firebase anonymous sign-in error', e);
-        resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
-      });
+      if(user && user.isAnonymous){ try{ auth.signOut(); }catch(e){} resolve(null); return; }
+      resolve(user || null);
     });
   });
   return authReady;
@@ -384,6 +377,7 @@ function initFirebase(retriesLeft){
 var LS_PREFIX = 'stls_etiquettes_'; // même préfixe que Gestion Dépôt pour partager la session
 function lsGet(key){ try{ return localStorage.getItem(LS_PREFIX+key); }catch(e){ return null; } }
 function lsSet(key, val){ try{ localStorage.setItem(LS_PREFIX+key, val); }catch(e){} }
+function lsDelete(key){ try{ localStorage.removeItem(LS_PREFIX+key); }catch(e){} }
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
@@ -410,7 +404,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0020';
+var APP_VERSION = '2026.0021';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -649,6 +643,12 @@ var pendingAccount = null;
 function currentUid(){
   try{ var u = window.firebase && firebase.auth && firebase.auth().currentUser; return (u && !u.isAnonymous) ? u.uid : ''; }catch(e){ return ''; }
 }
+// compte réellement connecté (session vérifiée) et ses droits — base des contrôles réservés à l'administrateur
+function currentAccount(){
+  var uid = currentUid();
+  return (uid && globalSecurity && globalSecurity.accounts && globalSecurity.accounts[uid]) || null;
+}
+function isAdminUser(){ var a = currentAccount(); return !!(a && a.isAdmin); }
 function currentIdentity(){
   var uid = currentUid();
   var acc = uid && globalSecurity && globalSecurity.accounts && globalSecurity.accounts[uid];
@@ -657,7 +657,8 @@ function currentIdentity(){
 }
 
 async function loadGlobalSecurity(){
-  if(!fsReady()) return;
+  state.lastGlobalConfigError = '';
+  if(!fsReady()){ state.lastGlobalConfigError = 'indisponible'; return false; }
   try{
     var snap = await globalDocRef.get();
     if(snap.exists){
@@ -665,8 +666,11 @@ async function loadGlobalSecurity(){
       globalSecurity = d.globalSecurity || globalSecurity;
       state.agenciesList = d.agenciesList || [];
       state.siegesList = d.siegesList || [];
+      return true;
     }
-  }catch(e){ console.error('Firestore loadGlobalSecurity error', e); }
+    state.lastGlobalConfigError = 'absent';
+    return false;
+  }catch(e){ console.error('Firestore loadGlobalSecurity error', e); state.lastGlobalConfigError = (e && e.code) || 'erreur'; return false; }
 }
 
 async function loadBons(){
@@ -1362,7 +1366,14 @@ document.getElementById('btnAccessSubmit').addEventListener('click', async funct
   try{
     var cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
     var uid = cred.user.uid;
-    await loadGlobalSecurity();
+    var cfgOk = await loadGlobalSecurity();
+    if(!cfgOk && state.lastGlobalConfigError!=='permission-denied' && state.lastGlobalConfigError!=='absent'){
+      await firebase.auth().signOut();
+      err.textContent = 'Impossible de charger la configuration — vérifie ta connexion et réessaie.';
+      err.style.display = 'block';
+      btn.disabled = false;
+      return;
+    }
     var account = (globalSecurity.accounts || {})[uid];
     if(!account){
       await firebase.auth().signOut();
@@ -3205,16 +3216,39 @@ async function nextBLNumeroForCollecte(){
 }
 
 // ---------- init ----------
+function clearSessionFlags(){ lsDelete('access-unlocked'); lsDelete('access-identity'); lsDelete('access-is-admin'); }
+// reprend une session de compte déjà ouverte : lecture AUTHENTIFIÉE de la configuration, contrôle que le compte
+// existe toujours, agence imposée à un non-administrateur
+async function resumeSession(user){
+  var okCfg = await loadGlobalSecurity();
+  if(!okCfg){
+    if(state.lastGlobalConfigError==='permission-denied'){
+      try{ await firebase.auth().signOut(); }catch(e){} clearSessionFlags();
+      return { ok:false, message:'Compte non reconnu — contacte l\'administrateur' };
+    }
+    return { ok:false, message:'Impossible de charger la configuration — vérifie ta connexion puis recharge la page.' };
+  }
+  var account = (globalSecurity.accounts || {})[user.uid];
+  if(!account){ try{ await firebase.auth().signOut(); }catch(e){} clearSessionFlags(); return { ok:false }; }
+  lsSet('access-identity', account.name);
+  lsSet('access-is-admin', account.isAdmin ? '1' : '');
+  var agency = account.isAdmin ? (lsGet('current-agency') || account.agencyCode) : account.agencyCode;
+  if(!agency) return { ok:false };
+  await startForAgency(agency);
+  return { ok:true };
+}
 (async function init(){
   await initFirebase(10);
   if(fsReady()){ globalDocRef = db.collection('stls_depot').doc('global'); }
-  await ensureAuth();
-  await loadGlobalSecurity();
-  var unlocked = lsGet('access-unlocked');
-  var agencyCode = lsGet('current-agency');
-  if(unlocked && agencyCode){
-    await startForAgency(agencyCode);
+  var user = await restoreSession();
+  if(user && lsGet('access-unlocked') && lsGet('current-agency')){
+    var r = await resumeSession(user);
+    if(!r.ok){
+      showAccessGate();
+      if(r.message){ var ge = document.getElementById('accessGateError'); ge.textContent = r.message; ge.style.display = 'block'; }
+    }
   } else {
+    if(lsGet('access-unlocked')) clearSessionFlags(); // indicateur « connecté » sans session de compte : on repart propre
     showAccessGate();
   }
 })();

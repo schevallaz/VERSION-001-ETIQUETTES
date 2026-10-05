@@ -1221,14 +1221,13 @@ var DEFAULT_EMAIL_RECEPTION = "Cher client,\n\nVeuillez trouver ci-joint les doc
 
 var state = {
   base: { clients: [], fournisseurs: [], transporteurs: [], emplacements: [] },
-  security: { masterCode: '2013', userCodes: [] },
   agencyCode: '83',
   historyIndex: [],
   editingId: null,
   // multi-agences
   currentAgencyCode: null,
   isAdmin: false,
-  globalSecurity: { masterCode: '2013', adminCode: 'ADMIN1', users: [], sessionVersion: 1 },
+  globalSecurity: { accounts: {}, sessionVersion: 1 },
   brandName: 'STLS',
   agenciesList: [],
   siegesList: [],
@@ -1315,91 +1314,70 @@ function setActiveAgency(code){
 
 function fsReady(){ return fsAvailable && !!db; }
 
-// ---------- authentification anonyme (étape 1 de sécurisation) ----------
-// Ne remplace pas le code équipe/admin — c'est une couche technique en plus, invisible pour l'utilisateur.
-// Objectif : donner à Firestore un moyen de distinguer "vient de l'app" d'un accès direct à la base (script, robot).
-// tant que ce n'est pas fait, les règles Firestore ne peuvent pas être fermées sans bloquer tout le monde.
+// ---------- session de compte (phase 3 de la sécurisation) ----------
+// Plus aucune session anonyme : on attend seulement que le SDK ait restauré une éventuelle session de compte.
+// Tant que personne n'est identifié, rien n'est lu dans la base. Une vieille session anonyme laissée par
+// une ancienne version est fermée.
 var authReady = null;
-function ensureAuth(){
-  if(!fsAvailable) return Promise.resolve(false);
+function restoreSession(){
   if(authReady) return authReady;
   authReady = new Promise(function(resolve){
-    if(!(window.firebase && firebase.auth)){ resolve(false); return; }
+    if(!(window.firebase && firebase.auth)){ resolve(null); return; }
     var auth = firebase.auth();
-    // le SDK restaure d'abord une éventuelle session existante : on attend cet état avant de décider
-    // quoi que ce soit. Une session déjà là (compte réel ou anonyme) n'est JAMAIS remplacée —
-    // signInAnonymously() écraserait sinon le compte réel connecté.
     var unsub = auth.onAuthStateChanged(function(user){
       unsub();
-      if(user){ resolve(true); return; }
-      auth.signInAnonymously().then(function(){ resolve(true); }).catch(function(e){
-        console.error('Firebase anonymous sign-in error', e);
-        resolve(false);   // on continue quand même : mieux vaut une app qui marche sans auth qu'une app bloquée
-      });
+      if(user && user.isAnonymous){ try{ auth.signOut(); }catch(e){} resolve(null); return; }
+      resolve(user || null);
     });
   });
   return authReady;
 }
 
-
 // ---------- config globale (multi-agences) : code équipe, code administrateur, liste des agences ----------
-async function loadGlobalConfig(){
-  if(fsReady()){
-    try{
-      var snap = await globalDocRef.get();
-      if(snap.exists && snap.data().agenciesList && snap.data().agenciesList.length){
-        var d = snap.data();
-        state.globalSecurity = d.globalSecurity || state.globalSecurity;
-        if(!state.globalSecurity.sessionVersion) state.globalSecurity.sessionVersion = 1;
-        state.agenciesList = d.agenciesList || [];
-        state.siegesList = d.siegesList || [];
-        state.brandName = d.brandName || 'STLS';
-        state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
-        lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
-        return;
-      }
-    }catch(e){ console.error('Firestore loadGlobalConfig error', e); }
-  }
-  // pas encore de config globale dans le cloud : on migre depuis l'ancien système mono-agence (sans rien supprimer)
+// cache d'affichage (nom de marque, agences, modules) — volontairement SANS la liste des comptes
+// (emails, noms, droits) : elle ne doit pas rester dans le navigateur d'un appareil partagé
+function cacheGlobalConfig(){
+  lsSet('global-config', JSON.stringify({ sessionVersion: (state.globalSecurity||{}).sessionVersion || 1, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
+}
+function loadCachedGlobalConfigForDisplay(){
   var raw = lsGet('global-config');
-  if(raw){
-    try{
-      var cached = JSON.parse(raw);
-      state.globalSecurity = cached.globalSecurity || state.globalSecurity;
+  if(!raw) return;
+  try{
+    var cached = JSON.parse(raw);
+    state.agenciesList = cached.agenciesList || state.agenciesList || [];
+    state.siegesList = cached.siegesList || state.siegesList || [];
+    state.brandName = cached.brandName || state.brandName || 'STLS';
+    state.moduleAccess = Object.assign({}, state.moduleAccess, cached.moduleAccess || {});
+  }catch(e){}
+}
+// Lecture AUTHENTIFIÉE de la configuration globale. Ne remplace JAMAIS le document du cloud : un échec
+// de lecture (réseau, droits) laisse state.globalConfigLoadFailed à vrai, sans rien écrire — l'ancien
+// chemin de repli réécrivait des valeurs par défaut par-dessus la vraie configuration.
+async function loadGlobalConfig(){
+  state.globalConfigLoadFailed = false;
+  state.lastGlobalConfigError = '';
+  if(!fsReady()){ state.globalConfigLoadFailed = true; loadCachedGlobalConfigForDisplay(); return; }
+  try{
+    var snap = await globalDocRef.get();
+    if(snap.exists && snap.data().agenciesList && snap.data().agenciesList.length){
+      var d = snap.data();
+      state.globalSecurity = d.globalSecurity || state.globalSecurity;
       if(!state.globalSecurity.sessionVersion) state.globalSecurity.sessionVersion = 1;
-      state.agenciesList = cached.agenciesList || [];
-      state.siegesList = cached.siegesList || [];
-      state.brandName = cached.brandName || 'STLS';
-      state.moduleAccess = Object.assign({}, state.moduleAccess, cached.moduleAccess || {});
-    }catch(e){}
-  }
-  if(!state.agenciesList || !state.agenciesList.length){
-    // reprend l'ancien code équipe local s'il existe, et crée l'agence 83 (Var) par défaut
-    var oldSecRaw = lsGet('security-data');
-    var oldMasterCode = '2013';
-    var oldUserNames = [];
-    if(oldSecRaw){
-      try{
-        var oldSec = JSON.parse(oldSecRaw);
-        if(oldSec.masterCode) oldMasterCode = oldSec.masterCode;
-        if(Array.isArray(oldSec.userCodes)) oldUserNames = oldSec.userCodes;
-      }catch(e){}
+      state.agenciesList = d.agenciesList || [];
+      state.siegesList = d.siegesList || [];
+      state.brandName = d.brandName || 'STLS';
+      state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
+      cacheGlobalConfig();
+      return;
     }
-    var oldAgencyRaw = lsGet('agency-code');
-    var defaultCode = (oldAgencyRaw && /^[0-9]{2}$/.test(oldAgencyRaw)) ? oldAgencyRaw : '83';
-    state.globalSecurity = {
-      masterCode: oldMasterCode,
-      adminCode: 'ADMIN1',
-      sessionVersion: 1,
-      users: oldUserNames.map(function(n){ return { name: n, agencyCode: defaultCode, isAdmin: false }; })
-    };
-    state.agenciesList = [{ code: defaultCode, name: 'Var' }];
-  }
-  await saveGlobalConfig();
+    state.globalConfigLoadFailed = true; // document absent : amorçage manuel (voir procédure), jamais automatique
+    state.lastGlobalConfigError = 'absent';
+  }catch(e){ console.error('Firestore loadGlobalConfig error', e); state.globalConfigLoadFailed = true; state.lastGlobalConfigError = (e && e.code) || 'erreur'; }
+  loadCachedGlobalConfigForDisplay();
 }
 
 async function saveGlobalConfig(){
-  lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
+  cacheGlobalConfig();
   if(fsReady()){
     try{ await globalDocRef.set({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }, { merge: true }); }
     catch(e){ console.error('Firestore saveGlobalConfig error', e); }
@@ -1409,12 +1387,6 @@ async function saveGlobalConfig(){
 // écoute en direct : garde la config globale (codes, sièges, dépôts) à jour sur tous les appareils ouverts,
 // réinitialisation exceptionnelle et unique du code administrateur (suite au bug de synchronisation) :
 // au tout premier chargement de cette version, si ce n'est pas déjà fait, le code repasse à une valeur connue
-async function applyOneTimeAdminReset(){
-  if(state.globalSecurity.adminCodeResetV8) return;
-  state.globalSecurity.adminCode = 'ADMIN1';
-  state.globalSecurity.adminCodeResetV8 = true;
-  await saveGlobalConfig();
-}
 
 // pour qu'une sauvegarde locale ne parte jamais d'une copie périmée et n'écrase un changement fait ailleurs
 var globalConfigWatchStarted = false;
@@ -1431,7 +1403,7 @@ function watchGlobalConfig(){
     state.siegesList = d.siegesList || [];
     state.brandName = d.brandName || 'STLS';
     state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
-    lsSet('global-config', JSON.stringify({ globalSecurity: state.globalSecurity, agenciesList: state.agenciesList, siegesList: state.siegesList, brandName: state.brandName, moduleAccess: state.moduleAccess }));
+    cacheGlobalConfig();
     renderSiegesList();
     renderDepotsList();
     updateBrandingUI();
@@ -7574,7 +7546,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0067';
+var APP_VERSION = '2026.0068';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
@@ -7930,6 +7902,7 @@ async function finalizeLogin(name, isAdmin, agencyCode){
   lsSet('current-agency', agencyCode);
   lsSet('session-version', String(state.globalSecurity.sessionVersion || 1));
   state.isAdmin = !!isAdmin;
+  watchGlobalConfig();
   await migrateAgencyDataIfNeeded(agencyCode);
   setActiveAgency(agencyCode);
   await loadAgencyDataAndShowApp();
@@ -7959,7 +7932,15 @@ document.getElementById('btnAccessSubmit').addEventListener('click', async funct
   try{
     var cred = await firebase.auth().signInWithEmailAndPassword(email, pass);
     var uid = cred.user.uid;
-    await refreshGlobalConfigFromServer();
+    var cfgOk = await refreshGlobalConfigFromServer();
+    if(!cfgOk && state.lastGlobalConfigError!=='permission-denied' && state.lastGlobalConfigError!=='absent'){
+      // panne de réseau ou de service : on ne prétend pas que le compte est inconnu
+      await firebase.auth().signOut();
+      err.textContent = 'Impossible de charger la configuration — vérifie ta connexion et réessaie.';
+      err.style.display = 'block';
+      btn.disabled = false;
+      return;
+    }
     var account = (state.globalSecurity.accounts || {})[uid];
     if(!account){
       await firebase.auth().signOut();
@@ -7973,7 +7954,7 @@ document.getElementById('btnAccessSubmit').addEventListener('click', async funct
     if(account.isAdmin){
       goToAgencyStep(qrAgency || account.agencyCode);
     } else {
-      await finalizeLogin(account.name, false, qrAgency || account.agencyCode);
+      await finalizeLogin(account.name, false, account.agencyCode); // un non-administrateur reste sur son agence
     }
   }catch(e){
     var m = 'Email ou mot de passe incorrect';
@@ -8018,7 +7999,8 @@ document.getElementById('btnAccessAgencySubmit').addEventListener('click', async
 });
 
 async function refreshGlobalConfigFromServer(){
-  if(!fsReady()) return;
+  state.lastGlobalConfigError = '';
+  if(!fsReady()){ state.lastGlobalConfigError = 'indisponible'; return false; }
   try{
     var snap = await globalDocRef.get();
     if(snap.exists && snap.data().agenciesList){
@@ -8028,8 +8010,12 @@ async function refreshGlobalConfigFromServer(){
       state.siegesList = d.siegesList || state.siegesList;
       state.brandName = d.brandName || state.brandName;
       state.moduleAccess = Object.assign({}, state.moduleAccess, d.moduleAccess || {});
+      cacheGlobalConfig();
+      return true;
     }
-  }catch(e){ console.error('Firestore refreshGlobalConfigFromServer error', e); }
+    state.lastGlobalConfigError = 'absent';
+    return false;
+  }catch(e){ console.error('Firestore refreshGlobalConfigFromServer error', e); state.lastGlobalConfigError = (e && e.code) || 'erreur'; return false; }
 }
 
 document.getElementById('btnForceLogoutAll').addEventListener('click', async function(){
@@ -8295,46 +8281,63 @@ async function fixExitDate(){
 }
 document.getElementById('btnFixExitDate').addEventListener('click', fixExitDate);
 
-// ---------- init ----------
-(async function init(){
-  await ensureAuth();
+// ---------- init : la connexion passe avant toute lecture de données ----------
+function clearSessionFlags(){
+  lsDelete('access-unlocked'); lsDelete('access-identity'); lsDelete('access-is-admin');
+}
+// reprend une session de compte déjà ouverte : lecture AUTHENTIFIÉE de la configuration, contrôle que le
+// compte existe toujours, déconnexion forcée éventuelle, agence imposée à un non-administrateur
+async function resumeSession(user){
   await loadGlobalConfig();
-  await applyOneTimeAdminReset();
+  if(state.globalConfigLoadFailed){
+    if(state.lastGlobalConfigError==='permission-denied'){
+      // les règles refusent la lecture à ce compte : il n'existe plus (ou plus ici) dans la liste des comptes
+      try{ await firebase.auth().signOut(); }catch(e){} clearSessionFlags();
+      return { ok:false, message:'Compte non reconnu — contacte l\'administrateur' };
+    }
+    // autre échec (réseau, panne passagère) : on ne déconnecte personne, l'utilisateur peut réessayer
+    return { ok:false, message:'Impossible de charger la configuration — vérifie ta connexion puis recharge la page.' };
+  }
+  var account = (state.globalSecurity.accounts || {})[user.uid];
+  if(!account){ try{ await firebase.auth().signOut(); }catch(e){} clearSessionFlags(); return { ok:false }; }
+  var cachedSessionVersion = parseInt(lsGet('session-version')||'0', 10);
+  var liveSessionVersion = state.globalSecurity.sessionVersion || 1;
+  if(cachedSessionVersion && cachedSessionVersion < liveSessionVersion){
+    // l'administrateur a forcé la déconnexion de tout le monde : cet appareil doit se reconnecter
+    try{ await firebase.auth().signOut(); }catch(e){} clearSessionFlags(); return { ok:false };
+  }
+  lsSet('session-version', String(liveSessionVersion));
+  state.isAdmin = !!account.isAdmin; // vient du compte vérifié, plus du stockage du navigateur
+  lsSet('access-identity', account.name);
+  lsSet('access-is-admin', state.isAdmin ? '1' : '');
   watchGlobalConfig();
+  var qrAgency = getQrAgencyParam();
+  var agencyToUse = state.isAdmin
+    ? (qrAgency || lsGet('current-agency') || account.agencyCode || (state.agenciesList[0] && state.agenciesList[0].code))
+    : account.agencyCode;
+  if(!agencyToUse) return { ok:false };
+  lsSet('current-agency', agencyToUse);
+  await migrateAgencyDataIfNeeded(agencyToUse);
+  setActiveAgency(agencyToUse);
+  await loadAgencyDataAndShowApp();
+  return { ok:true };
+}
+
+(async function init(){
+  var user = await restoreSession();
+  loadCachedGlobalConfigForDisplay(); // affichage seulement (nom de marque…) : aucune lecture dans la base avant connexion
   updateBrandingUI();
   renderSiegesList();
   renderDepotsList();
-  tryShowQrLanding(); // fonctionne même sans être connecté, grâce au code agence inclus dans le lien du QR
-
-  if(isUnlocked()){
-    var identity = currentIdentity();
-    var cachedSessionVersion = parseInt(lsGet('session-version')||'0', 10);
-    var liveSessionVersion = state.globalSecurity.sessionVersion || 1;
-    if(cachedSessionVersion && cachedSessionVersion < liveSessionVersion){
-      // l'administrateur a forcé la déconnexion de tout le monde : cet appareil doit se reconnecter
-      lsDelete('access-unlocked');
-      lsDelete('access-identity');
-      lsDelete('access-is-admin');
+  if(user && isUnlocked()){
+    var r = await resumeSession(user);
+    if(!r.ok){
       showAccessGate();
-      return;
-    }
-    lsSet('session-version', String(liveSessionVersion));
-    var userRecord = (state.globalSecurity.users||[]).find(function(u){ return u.name===identity; });
-    state.isAdmin = userRecord ? !!userRecord.isAdmin : (lsGet('access-is-admin') === '1');
-    lsSet('access-is-admin', state.isAdmin ? '1' : '');
-    var qrAgency = getQrAgencyParam();
-    var savedAgency = lsGet('current-agency');
-    var agencyToUse = qrAgency || savedAgency || (state.agenciesList[0] && state.agenciesList[0].code);
-    if(agencyToUse){
-      lsSet('current-agency', agencyToUse);
-      await migrateAgencyDataIfNeeded(agencyToUse);
-      setActiveAgency(agencyToUse);
-      await loadAgencyDataAndShowApp();
-    } else {
-      showAccessGate();
+      if(r.message){ var ge = document.getElementById('accessGateError'); ge.textContent = r.message; ge.style.display = 'block'; }
     }
   } else {
-    showAccessGate(); // reste affiché tant que le code n'est pas validé
+    if(isUnlocked()) clearSessionFlags(); // drapeau « connecté » sans session de compte : on repart propre
+    showAccessGate();
   }
 })();
 
