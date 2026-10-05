@@ -2062,6 +2062,33 @@ function collectProfileFields(p){
 
 
 
+
+// ================= Marchandise & enlèvements (section 6 de la fiche de livraison) =================
+var MODES_RECEPTION = { depot:'Livrée directement au dépôt STLS (aucun enlèvement)', enlevement:'Enlèvement(s) chez les fournisseurs par STLS', mixte:'Mixte : une partie livrée au dépôt, une partie à enlever' };
+var FICHE_LOGISTIQUE = ['nbFournisseurs','modeReception','nbPointsEnlevement','enlevements','colisLongLongueurCm','colisLongLargeurCm','colisLongHauteurCm','colisLongDescription','colisLourdPoidsKg','colisLourdDescription'];
+function nbFr(x){ return String(x).replace('.', ','); }
+function lignesMarchandise(f){
+  var out = [];
+  if(f.nbFournisseurs!=null) out.push(['Fournisseurs', String(f.nbFournisseurs)]);
+  if(f.modeReception) out.push(['Mode de réception', MODES_RECEPTION[f.modeReception] || f.modeReception]);
+  (f.enlevements||[]).forEach(function(e, i){ out.push(['Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — '+e.colis+' colis, '+nbFr(e.poidsKg)+' kg'+(e.horaires?' ('+e.horaires+')':'')]); });
+  if(f.colisLongLongueurCm!=null) out.push(['Colis le plus long', nbFr(f.colisLongLongueurCm)+' cm'+(f.colisLongLargeurCm?' × '+nbFr(f.colisLongLargeurCm)+' cm':'')+(f.colisLongHauteurCm?' × '+nbFr(f.colisLongHauteurCm)+' cm':'')+(f.colisLongDescription?' — '+f.colisLongDescription:'')]);
+  if(f.colisLourdPoidsKg!=null) out.push(['Colis le plus lourd', nbFr(f.colisLourdPoidsKg)+' kg'+(f.colisLourdDescription?' — '+f.colisLourdDescription:'')]);
+  return out;
+}
+// la déclaration reçue REMPLACE la précédente (une fiche ancienne, sans section 6, ne touche à rien)
+function appliquerMarchandise(f, cm){
+  if(!f.modeReception) return;
+  FICHE_LOGISTIQUE.forEach(function(k){ if(f[k]!==undefined) cm[k] = f[k]; else delete cm[k]; });
+}
+function differencesMarchandise(f, cm){
+  if(!f.modeReception) return [];
+  var avant = {}, apres = {}; lignesMarchandise(cm).forEach(function(l){ avant[l[0]] = l[1]; }); lignesMarchandise(f).forEach(function(l){ apres[l[0]] = l[1]; });
+  var libs = Object.keys(avant).concat(Object.keys(apres).filter(function(k){ return !(k in avant); })), d = [];
+  libs.forEach(function(k){ if(avant[k]!==apres[k]) d.push({ k:k, de:avant[k]||'', vers:apres[k]||'(supprimé)' }); });
+  return d;
+}
+
 // ================= Fiche de livraison contremarque (PDF A4, d'après le document STLS) =================
 // Même structure que la fiche papier : 1 informations, 2 accès, 3 options, 4 jours, 5 contraintes, 6 confirmation.
 // Pré-remplie avec la fiche contremarque ; vierge si on lui donne un profil vide.
@@ -2098,6 +2125,7 @@ function dessinerFicheLivraison(p){
     });
     return lignes*5.4;
   }
+  function place(h){ if(y + h > 270){ doc.addPage(); y = 12; } }
   function boite(texte, x, w, h, taille){
     doc.setDrawColor.apply(doc, BORD); doc.setLineWidth(0.25); doc.rect(x, y, w, h);
     if(texte){ var l = doc.splitTextToSize(String(texte), w-3); doc.setFont('helvetica','normal'); doc.setFontSize(taille||8.5); doc.setTextColor(17,24,39); doc.text(l.slice(0, Math.floor((h-1)/3.8)), x+1.5, y+4); }
@@ -2166,20 +2194,55 @@ function dessinerFicheLivraison(p){
   barre('5. Informations complémentaires / contraintes');
   boite(p.contraintes, M, CW, 27, 8.4); y += 27;
 
+  // ----- 6. marchandise & enlèvements -----
+  place(70); barre('6. Marchandise & enlèvements');
+  champ('Nombre de fournisseurs différents qui alimentent la livraison finale *', p.nbFournisseurs!=null ? String(p.nbFournisseurs) : '', M, 70); y += 10.4;
+  T('Mode de réception de la marchandise *', M, y+2.4, { bold:true, size:7 }); y += 4.2;
+  [['depot', "La marchandise est livrée directement au dépôt STLS (aucun enlèvement à prévoir)"], ['enlevement', "STLS doit effectuer un ou plusieurs enlèvements chez les fournisseurs"], ['mixte', "Mixte : une partie est livrée au dépôt, une partie doit être enlevée"]].forEach(function(m){
+    caseCoche(m[1], p.modeReception===m[0], M, y+3.4); y += 5.2;
+  });
+  y += 1.4;
+  var enl = (p.enlevements && p.enlevements.length) ? p.enlevements : null;
+  champ("Nombre de points d'enlèvement distincts (si enlèvement ou mixte)", p.nbPointsEnlevement!=null ? String(p.nbPointsEnlevement) : '', M, 70); y += 10.4;
+  var nbBlocs = enl ? enl.length : (p.modeReception==='depot' ? 0 : 3);
+  if(p.modeReception==='depot') T("Sans objet : livraison directe au dépôt STLS.", M, y+3, { size:8, color:GRIS });
+  if(p.modeReception==='depot') y += 6;
+  for(var ib=0; ib<nbBlocs; ib++){
+    place(29);
+    var e = enl ? enl[ib] : {};
+    doc.setDrawColor.apply(doc, BORD); doc.setLineWidth(0.25); doc.roundedRect(M, y, CW, 27.4, 1.2, 1.2);
+    T("Point d'enlèvement n° "+(ib+1), M+2, y+3.6, { bold:true, size:7.6, color:SOMBRE });
+    var yy = y; y += 5.2;
+    champ('Nom / enseigne du fournisseur *', e.fournisseur, M+2, CW*0.40-3); champ("Adresse complète du point d'enlèvement *", e.adresse, M+CW*0.40+1, CW*0.60-3); y += 9.6;
+    champ('Nombre de colis à enlever *', e.colis!=null ? String(e.colis) : '', M+2, 34); champ('Poids total à enlever (kg) *', e.poidsKg!=null ? nbFr(e.poidsKg) : '', M+38, 38); champ("Horaires d'ouverture et contraintes éventuelles", e.horaires, M+78, CW-80); y += 9.6;
+    y = yy + 27.4 + 2;
+  }
+  if(!enl && p.modeReception!=='depot'){ T("Un bloc par point d'enlèvement : joindre une feuille supplémentaire au-delà de 3 points.", M, y+2.6, { size:6.9, color:GRIS }); y += 5; }
+  place(46);
+  T('Colis le plus long', M, y+3, { bold:true, size:8.4, color:SOMBRE }); y += 3.2;
+  champ('Longueur (cm) *', p.colisLongLongueurCm!=null ? nbFr(p.colisLongLongueurCm) : '', M, 34); champ('Largeur (cm)', p.colisLongLargeurCm!=null ? nbFr(p.colisLongLargeurCm) : '', M+38, 34); champ('Hauteur (cm)', p.colisLongHauteurCm!=null ? nbFr(p.colisLongHauteurCm) : '', M+76, 34); champ('Description ou référence', p.colisLongDescription, M+114, CW-114); y += 11;
+  T('Colis le plus lourd', M, y+3, { bold:true, size:8.4, color:SOMBRE }); y += 3.2;
+  champ('Poids (kg) *', p.colisLourdPoidsKg!=null ? nbFr(p.colisLourdPoidsKg) : '', M, 34); champ('Description ou référence', p.colisLourdDescription, M+38, CW-38); y += 11;
+
   // ----- 6. confirmation -----
-  barre('6. Confirmation');
+  place(54); barre('7. Confirmation');
   doc.setFillColor(249,250,251); doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.rect(M, y, CW, 12.4, 'FD');
   var certif = doc.splitTextToSize("Je certifie que les informations communiquées sont exactes et permettent d'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu'une nouvelle facturation.", CW-4);
   doc.setFont('helvetica','normal'); doc.setFontSize(7.4); doc.setTextColor(55,65,81); doc.text(certif, M+2, y+3.8);
   y += 16.2;
   caseCoche("J'ai vérifié les informations de livraison", false, M, y);
+  y += 5.6;
+  caseCoche("J'ai vérifié les informations de marchandise et d'enlèvements", false, M, y);
   y += 8.5;
   T('Nom du demandeur : ______________________________', M, y, { size:8.6 }); T('Date : ____ / ____ / ____', M+CW/2+3, y, { size:8.6 });
 
   // ----- pied de page -----
-  doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 278, W-M, 278);
-  T(STLS_MENTIONS_FICHE[0], W/2, 282, { bold:true, size:6.6, color:[55,65,81], align:'center' });
-  for(var i=1;i<STLS_MENTIONS_FICHE.length;i++) T(STLS_MENTIONS_FICHE[i], W/2, 282+i*3.2, { size:6.6, color:GRIS, align:'center' });
+  for(var pg=1; pg<=doc.getNumberOfPages(); pg++){
+    doc.setPage(pg);
+    doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 278, W-M, 278);
+    T(STLS_MENTIONS_FICHE[0], W/2, 282, { bold:true, size:6.6, color:[55,65,81], align:'center' });
+    for(var i=1;i<STLS_MENTIONS_FICHE.length;i++) T(STLS_MENTIONS_FICHE[i], W/2, 282+i*3.2, { size:6.6, color:GRIS, align:'center' });
+  }
   return doc;
 }
 function genererFicheLivraisonPdf(profil, nomFichier){
@@ -2467,7 +2530,8 @@ function renderContremarquesList(){
     return '<div class="hist-item" data-idx="'+idx+'" data-nom="'+escapeHtml(cm.nom||'')+'" data-cmid="'+escapeHtml(cm.id||'')+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+'</span></div>'+
       (adr ? '<div class="sub">'+escapeHtml(adr)+'</div>' : '')+
-      '<div class="actions">'+
+      (cm.modeReception ? '<div class="sub" style="color:var(--ink-soft);">📦 '+escapeHtml((cm.nbFournisseurs||'?')+' fournisseur(s) · '+(cm.modeReception==='depot' ? 'livraison directe au dépôt' : (cm.nbPointsEnlevement||0)+' point(s) d\'enlèvement')+(cm.colisLongLongueurCm!=null ? ' · plus long '+nbFr(cm.colisLongLongueurCm)+' cm' : '')+(cm.colisLourdPoidsKg!=null ? ' · plus lourd '+nbFr(cm.colisLourdPoidsKg)+' kg' : ''))+'</div>' : '')+
+        '<div class="actions">'+
         '<button class="btn ghost" data-act="editcm">Modifier</button>'+
         '<button class="btn ghost" data-act="fichecm">📄 Fiche de livraison</button>'+
         '<button class="btn ghost" data-act="bpcm">Bons de Préparation</button>'+
@@ -2979,9 +3043,10 @@ function differencesFiche(f, cm){
   var diffs = [];
   FICHE_TEXTES.forEach(function(k){ var nv = String(f[k]==null?'':f[k]).trim(); if(nv && nv !== String(cm[k]==null?'':cm[k]).trim()) diffs.push({ k:k, de:cm[k]||'', vers:nv }); });
   FICHE_COCHES.forEach(function(k){ var nv = !!f[k]; if(nv !== !!cm[k]) diffs.push({ k:k, de:cm[k]?'oui':'non', vers:nv?'oui':'non' }); });
-  return diffs;
+  return diffs.concat(differencesMarchandise(f, cm).map(function(x){ return { k:'M:'+x.k, de:x.de, vers:x.vers }; }));
 }
 function appliquerFicheAContremarque(f, cm){
+  appliquerMarchandise(f, cm);
   FICHE_TEXTES.forEach(function(k){ var nv = String(f[k]==null?'':f[k]).trim(); if(nv) cm[k] = nv; });
   FICHE_COCHES.forEach(function(k){ cm[k] = !!f[k]; });
   cm.derniereFiche = { numero:f.numero, le:new Date().toISOString(), par:currentIdentity() };
@@ -2992,7 +3057,7 @@ function resumeFicheHtml(f){
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+
     ln('Accès', oui(['ascenseur','villa','immeuble','bureau','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose?dateCourte(f.datePose):'')+
-    ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
+    ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
 async function renderFichesRecues(){
   var el = document.getElementById('fichesRecuesList'); if(!el) return;
@@ -3025,7 +3090,7 @@ function ouvrirTraitementFiche(item){
     if(sel.value===''){ diff.innerHTML = '<div class="hint">Une nouvelle fiche contremarque « '+escapeHtml(f.nom+' '+f.prenom)+' » sera créée avec ces informations.</div>'; return; }
     var cm = cms[parseInt(sel.value,10)], d = differencesFiche(f, cm);
     diff.innerHTML = d.length
-      ? '<div class="hint" style="font-weight:600;margin:6px 0 4px;">Ce qui va changer dans la fiche « '+escapeHtml(cm.nom||'')+' » ('+d.length+') :</div>'+d.map(function(x){ return '<div class="sub">'+escapeHtml(FICHE_LIBELLES[x.k]||x.k)+' : <span style="color:var(--ink-soft);">'+escapeHtml(x.de||'—')+'</span> → <strong>'+escapeHtml(x.vers)+'</strong></div>'; }).join('')
+      ? '<div class="hint" style="font-weight:600;margin:6px 0 4px;">Ce qui va changer dans la fiche « '+escapeHtml(cm.nom||'')+' » ('+d.length+') :</div>'+d.map(function(x){ return '<div class="sub">'+escapeHtml(x.k.indexOf('M:')===0 ? x.k.slice(2) : (FICHE_LIBELLES[x.k]||x.k))+' : <span style="color:var(--ink-soft);">'+escapeHtml(x.de||'—')+'</span> → <strong>'+escapeHtml(x.vers)+'</strong></div>'; }).join('')
       : '<div class="hint">Aucune différence : la fiche existante contient déjà ces informations.</div>';
   }
   sel.addEventListener('change', majDiff); majDiff();
@@ -8100,7 +8165,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0079';
+var APP_VERSION = '2026.0080';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
