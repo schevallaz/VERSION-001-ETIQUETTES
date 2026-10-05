@@ -733,6 +733,9 @@
       <div class="btn-row">
         <button class="btn accent" id="btnSaveContremarqueFiche" style="width:100%;">Enregistrer la fiche</button>
       </div>
+      <div class="btn-row">
+        <button class="btn ghost" id="btnFicheLivraisonForm" style="width:100%;">📄 Fiche de livraison (PDF) — vierge ou avec la saisie en cours</button>
+      </div>
       <div class="btn-row" id="btnCancelCmEditRow" style="display:none;">
         <button class="btn ghost" id="btnCancelCmEdit" style="width:100%;">Annuler la modification</button>
       </div>
@@ -2027,13 +2030,161 @@ function buildProfileFieldsHtml(p){
 var PROFILE_FIELD_IDS = ['nom','prenom','adresse1','adresse2','departement','cp','ville','pays','tel1','tel2','mail','etage'];
 var PROFILE_CHECK_IDS = ['ascenseur','villa','immeuble','bureau','horairesAM','horairesPM','joursTous','lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
 var PROFILE_TIME_IDS = ['amDe','amA','pmDe','pmA','journeeDe','journeeA'];
+// compléments propres à la fiche CONTREMARQUE (d'après la fiche de livraison STLS) : accès, options souhaitées, contraintes
+var PROFILE_EXTRA_FIELD_IDS = ['accesPrecisions','datePose','contraintes'];
+var PROFILE_EXTRA_CHECK_IDS = ['escalier','accesDifficile','accesAutre','optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation'];
 
 function collectProfileFields(p){
   var obj = {};
   PROFILE_FIELD_IDS.forEach(function(id){ obj[id] = document.getElementById(p+'-'+id).value.trim(); });
   PROFILE_CHECK_IDS.forEach(function(id){ obj[id] = document.getElementById(p+'-'+id).checked; });
   PROFILE_TIME_IDS.forEach(function(id){ obj[id] = document.getElementById(p+'-'+id).value; });
+  PROFILE_EXTRA_FIELD_IDS.forEach(function(id){ var el = document.getElementById(p+'-'+id); if(el) obj[id] = el.value.trim(); });
+  PROFILE_EXTRA_CHECK_IDS.forEach(function(id){ var el = document.getElementById(p+'-'+id); if(el) obj[id] = el.checked; });
   return obj;
+}
+
+
+
+// ================= Fiche de livraison contremarque (PDF A4, d'après le document STLS) =================
+// Même structure que la fiche papier : 1 informations, 2 accès, 3 options, 4 jours, 5 contraintes, 6 confirmation.
+// Pré-remplie avec la fiche contremarque ; vierge si on lui donne un profil vide.
+var STLS_MENTIONS_FICHE = [
+  'SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS) – EURL au capital de 5 000 €',
+  'RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A',
+  '938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume',
+  'Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr'
+];
+function dessinerFicheLivraison(p){
+  p = p || {};
+  var doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+  var W = 210, M = 10, CW = W - 2*M, SOMBRE = [31,41,55], GRIS = [75,85,99], BORD = [209,213,219], y = 0;
+  function T(t, x, yy, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||9); doc.setTextColor.apply(doc, o.color||[17,24,39]); doc.text(String(t), x, yy, o.align?{align:o.align}:undefined); }
+  function tronquer(t, maxW){ t = String(t==null?'':t); if(doc.getTextWidth(t) <= maxW) return t; while(t.length>1 && doc.getTextWidth(t+'…') > maxW) t = t.slice(0,-1); return t+'…'; }
+  function barre(titre){ y += 2.6; doc.setFillColor.apply(doc, SOMBRE); doc.roundedRect(M, y, CW, 5.6, 1, 1, 'F'); T(titre.toUpperCase(), M+3, y+3.9, { bold:true, size:8, color:[255,255,255] }); y += 7.4; }
+  function champ(label, val, x, w){
+    T(label, x, y+2.6, { bold:true, size:7 });
+    doc.setDrawColor.apply(doc, BORD); doc.setLineWidth(0.25); doc.rect(x, y+3.4, w, 5.4);
+    if(val){ doc.setFont('helvetica','normal'); doc.setFontSize(8.8); T(tronquer(val, w-3), x+1.5, y+7.2, { size:8.8 }); }
+  }
+  function caseCoche(label, coche, x, yy){
+    doc.setDrawColor(31,41,55); doc.setLineWidth(0.3); doc.rect(x, yy-3, 3.3, 3.3);
+    if(coche){ doc.setLineWidth(0.55); doc.line(x+0.6, yy-1.2, x+1.4, yy-0.3); doc.line(x+1.4, yy-0.3, x+2.8, yy-2.5); }
+    T(label, x+4.8, yy, { size:8.6 }); return x + 4.8 + doc.getTextWidth(label) + 6;
+  }
+  function rangeeCases(items, x0, largeur){   // renvoie la hauteur utilisée
+    var x = x0, yy = y+3, lignes = 1;
+    items.forEach(function(it){
+      doc.setFont('helvetica','normal'); doc.setFontSize(8.6);
+      var besoin = 4.8 + doc.getTextWidth(it[0]) + 6;
+      if(x + besoin > x0 + largeur){ x = x0; yy += 5.4; lignes++; }
+      x = caseCoche(it[0], !!it[1], x, yy);
+    });
+    return lignes*5.4;
+  }
+  function boite(texte, x, w, h, taille){
+    doc.setDrawColor.apply(doc, BORD); doc.setLineWidth(0.25); doc.rect(x, y, w, h);
+    if(texte){ var l = doc.splitTextToSize(String(texte), w-3); doc.setFont('helvetica','normal'); doc.setFontSize(taille||8.5); doc.setTextColor(17,24,39); doc.text(l.slice(0, Math.floor((h-1)/3.8)), x+1.5, y+4); }
+  }
+
+  // ----- en-tête -----
+  T('STLS', M, 18, { bold:true, size:26, color:[31,41,55] });
+  T('SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE', M, 22.2, { bold:true, size:5.8, color:GRIS });
+  T('FICHE DE LIVRAISON – CONTREMARQUE', W-M, 16.5, { bold:true, size:14, align:'right' });
+  T('Merci de renseigner les informations nécessaires à la bonne organisation de votre livraison.', W-M, 22.2, { size:7.8, color:GRIS, align:'right' });
+  y = 24;
+
+  // ----- 1. informations -----
+  barre('1. Informations de la contremarque');
+  var c1 = M, c2 = M + CW/2 + 3, wc = CW/2 - 3;
+  [[['Nom *', p.nom],['Prénom *', p.prenom]], [['Téléphone 1 *', p.tel1],['Téléphone 2', p.tel2]], [['Adresse 1 *', p.adresse1],['Adresse 2', p.adresse2]],
+   [['Département *', p.departement],['Code Postal *', p.cp]], [['Ville *', p.ville],['Mail', p.mail]]].forEach(function(r){
+    champ(r[0][0], r[0][1], c1, wc); champ(r[1][0], r[1][1], c2, wc); y += 9.6;
+  });
+
+  // ----- 2. accès -----
+  barre("2. Accès à l'adresse");
+  var yTab = y, wG = CW*0.55, wD = CW - wG;
+  doc.setFillColor(243,244,246); doc.setDrawColor.apply(doc, BORD); doc.setLineWidth(0.25);
+  doc.rect(M, y, wG, 5.4, 'FD'); doc.rect(M+wG, y, wD, 5.4, 'FD');
+  T("Type d'accès", M+2, y+3.8, { bold:true, size:8 }); T('Précisions utiles', M+wG+2, y+3.8, { bold:true, size:8 });
+  y += 5.4;
+  doc.rect(M, y, wG, 16); doc.rect(M+wG, y, wD, 16);
+  var acces = [['Ascenseur',p.ascenseur],['Villa',p.villa],['Immeuble',p.immeuble],['Bureau',p.bureau],['Escalier',p.escalier],['Accès difficile',p.accesDifficile],['Autre',p.accesAutre]];
+  rangeeCases(acces, M+2, wG-4);
+  if(p.accesPrecisions){ var lp = doc.splitTextToSize(p.accesPrecisions, wD-4).slice(0,4); doc.setFont('helvetica','normal'); doc.setFontSize(8.2); doc.setTextColor(17,24,39); doc.text(lp, M+wG+2, y+4); }
+  y += 16;
+  doc.rect(M, y, CW, 7);
+  T("Nombre d'étages :", M+2, y+4.8, { bold:true, size:8.4 });
+  if(p.etage!=null && p.etage!=='') T(String(p.etage), M+36, y+4.8, { size:9 });
+  y += 7;
+
+  // ----- 3. options -----
+  barre('3. Options souhaitées');
+  var opts = [['Déballage *',p.optDeballage],['Reprise des emballages *',p.optRepriseEmballages],['Montage simple *',p.optMontageSimple],['Mise en place *',p.optMiseEnPlace],['Évacuation ancien matériel *',p.optEvacuation]];
+  var h3 = rangeeCases(opts, M, CW); y += h3 + 1.5;
+  var note = ['* Informations importantes concernant les options :',
+    "Montage simple : durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.",
+    "Mise en place : positionnement du mobilier ou de l'équipement sans aucune fixation.",
+    "Évacuation ancien matériel : uniquement si le matériel est transportable et préalablement emballé.",
+    "Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires."];
+  doc.setFontSize(6.9);
+  note.forEach(function(n, i){
+    var lignes = doc.splitTextToSize(n, CW);
+    T(lignes[0], M, y+2.4, { size:6.9, bold:(i===0), color:GRIS });
+    for(var k=1;k<lignes.length;k++){ y += 2.9; T(lignes[k], M, y+2.4, { size:6.9, color:GRIS }); }
+    y += 2.9;
+  });
+  y += 1.2;
+  T('Date de la Pose :', M, y+4.2, { bold:true, size:8.6 });
+  doc.setDrawColor.apply(doc, BORD); doc.rect(M+27, y, 38, 6);
+  if(p.datePose) T(fmtDate(String(p.datePose).slice(0,10)), M+29, y+4.2, { size:9 });
+  y += 7;
+
+  // ----- 4. jours -----
+  barre('4. Jours de livraison possibles');
+  var jours = [['Tous',p.joursTous],['Lundi',p.lundi],['Mardi',p.mardi],['Mercredi',p.mercredi],['Jeudi',p.jeudi],['Vendredi',p.vendredi],['Samedi',p.samedi],['Dimanche',p.dimanche]];
+  y += rangeeCases(jours, M, CW) - 1;
+
+  // ----- 5. contraintes -----
+  barre('5. Informations complémentaires / contraintes');
+  boite(p.contraintes, M, CW, 27, 8.4); y += 27;
+
+  // ----- 6. confirmation -----
+  barre('6. Confirmation');
+  doc.setFillColor(249,250,251); doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.rect(M, y, CW, 12.4, 'FD');
+  var certif = doc.splitTextToSize("Je certifie que les informations communiquées sont exactes et permettent d'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu'une nouvelle facturation.", CW-4);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.4); doc.setTextColor(55,65,81); doc.text(certif, M+2, y+3.8);
+  y += 16.2;
+  caseCoche("J'ai vérifié les informations de livraison", false, M, y);
+  y += 8.5;
+  T('Nom du demandeur : ______________________________', M, y, { size:8.6 }); T('Date : ____ / ____ / ____', M+CW/2+3, y, { size:8.6 });
+
+  // ----- pied de page -----
+  doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 278, W-M, 278);
+  T(STLS_MENTIONS_FICHE[0], W/2, 282, { bold:true, size:6.6, color:[55,65,81], align:'center' });
+  for(var i=1;i<STLS_MENTIONS_FICHE.length;i++) T(STLS_MENTIONS_FICHE[i], W/2, 282+i*3.2, { size:6.6, color:GRIS, align:'center' });
+  return doc;
+}
+function genererFicheLivraisonPdf(profil, nomFichier){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible — vérifie ta connexion'); return; }
+  var base = String(nomFichier||'contremarque').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'contremarque';
+  downloadPdf(dessinerFicheLivraison(profil), 'fiche_livraison_'+base+'.pdf');
+  banner('Fiche de livraison générée');
+}
+
+function buildContremarqueExtraHtml(p){
+  var cb = function(id, lib){ return '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" id="'+p+'-'+id+'" style="width:17px;height:17px;">'+lib+'</label>'; };
+  var h = '';
+  h += '<div class="field"><label style="margin-bottom:8px;">Accès — compléments</label><div style="display:flex;flex-wrap:wrap;gap:14px;">'+
+       cb('escalier','Escalier')+cb('accesDifficile','Accès difficile')+cb('accesAutre','Autre')+'</div></div>';
+  h += '<div class="field"><label for="'+p+'-accesPrecisions">Précisions utiles sur l\'accès</label><textarea id="'+p+'-accesPrecisions" rows="2" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>';
+  h += '<div class="field"><label style="margin-bottom:8px;">Options souhaitées</label><div style="display:flex;flex-direction:column;gap:8px;">'+
+       cb('optDeballage','Déballage')+cb('optRepriseEmballages','Reprise des emballages')+cb('optMontageSimple','Montage simple')+cb('optMiseEnPlace','Mise en place')+cb('optEvacuation','Évacuation ancien matériel')+'</div>'+
+       '<div class="hint" style="margin-top:8px;"><strong>Montage simple :</strong> 15 minutes maximum, au-delà facturé au temps passé si prévu et validé en amont. <strong>Mise en place :</strong> positionnement sans aucune fixation. <strong>Évacuation :</strong> matériel transportable et préalablement emballé. Les options doivent être validées lors de la préparation de la livraison.</div></div>';
+  h += '<div class="field"><label for="'+p+'-datePose">Date de la pose</label><input type="date" id="'+p+'-datePose"></div>';
+  h += '<div class="field"><label for="'+p+'-contraintes">Informations complémentaires / contraintes</label><textarea id="'+p+'-contraintes" rows="3" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>';
+  return h;
 }
 
 function fillProfileFields(p, obj){
@@ -2041,6 +2192,8 @@ function fillProfileFields(p, obj){
   PROFILE_FIELD_IDS.forEach(function(id){ document.getElementById(p+'-'+id).value = obj[id] || (id==='pays' ? 'FR-France' : ''); });
   PROFILE_CHECK_IDS.forEach(function(id){ document.getElementById(p+'-'+id).checked = !!obj[id]; });
   PROFILE_TIME_IDS.forEach(function(id){ document.getElementById(p+'-'+id).value = obj[id] || ''; });
+  PROFILE_EXTRA_FIELD_IDS.forEach(function(id){ var el = document.getElementById(p+'-'+id); if(el) el.value = obj[id] || ''; });
+  PROFILE_EXTRA_CHECK_IDS.forEach(function(id){ var el = document.getElementById(p+'-'+id); if(el) el.checked = !!obj[id]; });
 }
 
 function clearProfileFields(p){ fillProfileFields(p, {}); }
@@ -2300,6 +2453,7 @@ function renderContremarquesList(){
       (adr ? '<div class="sub">'+escapeHtml(adr)+'</div>' : '')+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="editcm">Modifier</button>'+
+        '<button class="btn ghost" data-act="fichecm">📄 Fiche de livraison</button>'+
         '<button class="btn ghost" data-act="bpcm">Bons de Préparation</button>'+
         '<button class="btn accent" data-act="blcm">Bons de Livraison</button>'+
       '</div>'+
@@ -2309,6 +2463,12 @@ function renderContremarquesList(){
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="editcm"]'), function(btn){
     btn.addEventListener('click', function(){ startEditContremarque(parseInt(btn.closest('.hist-item').getAttribute('data-idx'),10)); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="fichecm"]'), function(btn){
+    btn.addEventListener('click', function(){
+      var cmx = (state.base.contremarques||[])[parseInt(btn.closest('.hist-item').getAttribute('data-idx'),10)];
+      if(cmx) genererFicheLivraisonPdf(cmx, cmx.nom);
+    });
   });
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="bpcm"]'), function(btn){
     btn.addEventListener('click', function(){
@@ -3568,6 +3728,7 @@ function startEditContremarque(idx){
 }
 document.getElementById('btnCancelCmEdit').addEventListener('click', clearContremarqueForm);
 
+document.getElementById('btnFicheLivraisonForm').addEventListener('click', function(){ var pf = collectProfileFields('cm'); genererFicheLivraisonPdf(pf, pf.nom || 'vierge'); });
 document.getElementById('btnSaveContremarqueFiche').addEventListener('click', async function(){
   var msg = document.getElementById('cmFicheMsg');
   var profile = collectProfileFields('cm');
@@ -3590,7 +3751,7 @@ document.getElementById('btnSaveContremarqueFiche').addEventListener('click', as
 
 // injecte les champs de profil partagés dans les deux formulaires
 document.getElementById('cli-profile-fields').innerHTML = buildProfileFieldsHtml('cli');
-document.getElementById('cm-profile-fields').innerHTML = buildProfileFieldsHtml('cm');
+document.getElementById('cm-profile-fields').innerHTML = buildProfileFieldsHtml('cm') + buildContremarqueExtraHtml('cm');
 
 // suggestion en cascade Département → Code postal → Ville, à partir de la liste des communes fournie
 function wireProfileCpVilleCascade(p){
@@ -7741,7 +7902,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0077';
+var APP_VERSION = '2026.0078';
 
 function updateBrandingUI(){
   var brand = (state.brandName || 'STLS').replace(/^Gestion\s+d[ée]p[ôo]t\s+/i, '').trim() || 'STLS';
