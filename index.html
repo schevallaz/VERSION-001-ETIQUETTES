@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0083">
+<meta name="app-version" content="2026.0084">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -852,9 +852,16 @@
       <div class="field"><label for="newAccountEmail">Email</label><input type="email" id="newAccountEmail" placeholder="email@exemple.fr"></div>
       <div class="field"><label for="newAccountPassword">Mot de passe provisoire</label><input type="text" id="newAccountPassword" placeholder="6 caractères minimum"></div>
       <div class="field"><label for="newAccountAgency">Agence</label><select id="newAccountAgency" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select></div>
-      <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="newAccountIsAdmin" style="width:17px;height:17px;">Administrateur</label>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:6px;"><input type="checkbox" id="newAccountIsAdmin" style="width:17px;height:17px;">Administrateur</label>
+      <p class="hint" style="margin:0 0 10px;">Compte de secours : crée un second administrateur avec une adresse e-mail distincte et un mot de passe long, noté hors de l'application (coffre ou enveloppe fermée).</p>
       <div class="btn-row"><button class="btn accent" id="btnCreateAccount" style="width:100%;">Créer le compte</button></div>
       <div id="newAccountMsg" style="margin-top:8px;font-size:12.5px;"></div>
+    </div>
+    <div class="card">
+      <h2 style="font-size:15px;">🛡 Contrôle de sécurité</h2>
+      <p class="hint" style="margin:0 0 12px;">Teste en direct ce qu'un <strong>visiteur non connecté</strong> peut voir ou faire, et si un compte de secours existe. Aucune donnée n'est modifiée.</p>
+      <div class="btn-row" style="margin-top:0;"><button class="btn primary" id="btnSecCheck" style="width:100%;">Lancer le contrôle</button></div>
+      <div id="secCheckResult" style="margin-top:12px;"></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-deconnexion" style="display:none;">
@@ -5219,20 +5226,39 @@ document.getElementById('btnSaveParcVehicule').addEventListener('click', async f
 });
 
 // ================= Comptes (Firebase Authentication, Paramètres → Sécurité) =================
+function nbAdministrateurs(){ var acc = state.globalSecurity.accounts || {}; return Object.keys(acc).filter(function(u){ return acc[u].isAdmin; }).length; }
 function renderAccountsList(){
   var el = document.getElementById('listAccounts');
   var accounts = state.globalSecurity.accounts || {};
   var uids = Object.keys(accounts);
   if(!uids.length){ el.innerHTML = '<div class="empty">Aucun compte créé</div>'; return; }
-  el.innerHTML = uids.map(function(uid){
+  var nbAdmins = nbAdministrateurs(), moi = currentUid();
+  var alerte = nbAdmins<=1 ? '<div class="hint" style="background:#fdf2f0;border:1px solid #f0c9c3;color:#8a2c20;border-radius:10px;padding:8px 10px;margin-bottom:10px;">⚠ <strong>Un seul administrateur.</strong> Si ce compte est perdu, plus personne ne peut modifier la configuration ni créer de comptes. Crée un <strong>compte de secours</strong> (case « Administrateur » ci-dessous).</div>' : '';
+  el.innerHTML = alerte + uids.map(function(uid){
     var a = accounts[uid];
-    return '<div class="base-row"><span>'+escapeHtml(a.name)+' — '+escapeHtml(a.email)+(a.isAdmin?' <strong>(admin)</strong>':'')+'</span>'+
-      '<button data-revoke="'+uid+'">Révoquer</button></div>';
+    return '<div class="base-row"><span>'+escapeHtml(a.name)+' — '+escapeHtml(a.email)+(a.isAdmin?' <strong>(admin)</strong>':'')+(uid===moi?' <em>(toi)</em>':'')+'</span>'+
+      '<span><button data-toggleadmin="'+uid+'">'+(a.isAdmin?'Retirer admin':'Passer admin')+'</button> <button data-revoke="'+uid+'">Révoquer</button></span></div>';
   }).join('');
+  // garde-fous : on ne peut ni retirer le dernier administrateur, ni retirer son propre accès
+  function dernierAdmin(uid){ var a = accounts[uid]; return !!(a && a.isAdmin) && nbAdministrateurs()<=1; }
+  Array.prototype.forEach.call(el.querySelectorAll('[data-toggleadmin]'), function(btn){
+    btn.addEventListener('click', async function(){
+      var uid = btn.getAttribute('data-toggleadmin'), a = state.globalSecurity.accounts[uid]; if(!a) return;
+      if(a.isAdmin){
+        if(dernierAdmin(uid)){ banner('⚠ Impossible : c\'est le dernier administrateur. Crée d\'abord un autre administrateur.'); return; }
+        if(uid===moi){ banner('⚠ Tu ne peux pas retirer ton propre statut : demande à un autre administrateur.'); return; }
+        if(!confirm('Retirer le statut administrateur de '+a.name+' ?')) return;
+      } else if(!confirm('Donner le statut administrateur à '+a.name+' ?\n\nUn administrateur voit toutes les agences et peut modifier la configuration et les comptes.')) return;
+      a.isAdmin = !a.isAdmin; a.modifieLe = new Date().toISOString(); a.modifiePar = currentIdentity();
+      await saveGlobalConfig(); renderAccountsList(); banner(a.isAdmin ? 'Administrateur ajouté' : 'Statut administrateur retiré');
+    });
+  });
   Array.prototype.forEach.call(el.querySelectorAll('[data-revoke]'), function(btn){
     btn.addEventListener('click', async function(){
       var uid = btn.getAttribute('data-revoke');
       var a = state.globalSecurity.accounts[uid];
+      if(dernierAdmin(uid)){ banner('⚠ Impossible : c\'est le dernier administrateur. Crée d\'abord un compte de secours.'); return; }
+      if(uid===moi){ banner('⚠ Tu ne peux pas révoquer ton propre accès : demande à un autre administrateur.'); return; }
       if(!confirm('Révoquer l\'accès de '+(a?a.name:uid)+' ? Elle ne pourra plus se connecter à l\'appli. Son compte email/mot de passe Firebase n\'est pas supprimé — seul l\'accès à cette application l\'est.')) return;
       delete state.globalSecurity.accounts[uid];
       await saveGlobalConfig();
@@ -5245,6 +5271,73 @@ function populateNewAccountAgencySelect(){
   var sel = document.getElementById('newAccountAgency');
   sel.innerHTML = (state.agenciesList||[]).map(function(a){ return '<option value="'+escapeHtml(a.code)+'">'+escapeHtml(a.code)+' — '+escapeHtml(a.name||'')+'</option>'; }).join('');
 }
+
+// ================= Contrôle de sécurité : ce qu'un visiteur NON connecté peut faire =================
+// Utilise une instance Firebase temporaire, jamais connectée : elle reproduit exactement ce que voit un inconnu.
+function avecDelai(p, ms){ return Promise.race([p, new Promise(function(_, rej){ setTimeout(function(){ rej({ code:'delai' }); }, ms || 9000); })]); }
+async function essaiVisiteur(fn){   // 'refuse' | 'accepte' | 'inconnu'
+  try{ await avecDelai(fn()); return 'accepte'; }
+  catch(e){ return (e && e.code==='permission-denied') ? 'refuse' : 'inconnu'; }
+}
+async function controleSecurite(){
+  var res = [], code = state.currentAgencyCode || '';
+  var app = firebase.initializeApp(firebaseConfig, 'ctrl-'+Date.now()), vdb = app.firestore();
+  try{
+    // 1. les données du dépôt sont-elles protégées ?
+    var g = await essaiVisiteur(function(){ return vdb.collection('stls_depot').doc('global').get(); });
+    var ag = await essaiVisiteur(function(){ return vdb.collection('stls_depot').doc('agency_'+code).get(); });
+    if(g==='refuse' && ag==='refuse') res.push({ n:'ok', t:'Données du dépôt protégées', d:'Un visiteur non connecté ne peut lire ni la configuration ni les données de l\'agence.' });
+    else if(g==='accepte' || ag==='accepte') res.push({ n:'ko', t:'Données du dépôt LISIBLES sans connexion', d:'Les règles de sécurité ne sont pas publiées (ou trop ouvertes).', c:'Publie le fichier firestore.rules avec la procédure Word, puis relance ce contrôle.' });
+    else res.push({ n:'warn', t:'Protection des données : test impossible', d:'Pas de réponse du serveur (connexion ?).', c:'Relance le contrôle avec une bonne connexion.' });
+    // 2. formulaire en ligne : règles v5 publiées ?
+    var pub = await essaiVisiteur(function(){ return vdb.collection('stls_fiches_public').doc(code).get(); });
+    if(pub==='accepte') res.push({ n:'ok', t:'Formulaire en ligne : règles à jour', d:'Le formulaire public peut lire son interrupteur.' });
+    else if(pub==='refuse') res.push({ n:'warn', t:'Formulaire en ligne inutilisable', d:'Les règles actuelles ne connaissent pas la fiche de livraison en ligne : le formulaire affichera « indisponible ».', c:'Publie la dernière version de firestore.rules (v5).' });
+    else res.push({ n:'warn', t:'Formulaire en ligne : test impossible', d:'Pas de réponse du serveur.', c:'Relance le contrôle.' });
+    // 3. dépôt public de fiches : refus d'une fiche non conforme, lecture interdite
+    var lect = await essaiVisiteur(function(){ return vdb.collection('stls_fiches_soumissions').get(); });
+    var crea = await essaiVisiteur(function(){ return vdb.collection('stls_fiches_soumissions').doc('CONTROLE-INVALIDE').set({ pirate:true }); });
+    if(crea==='accepte'){ try{ await db.collection('stls_fiches_soumissions').doc('CONTROLE-INVALIDE').delete(); }catch(e){} }   // on nettoie ce que le test a pu créer
+    if(lect==='refuse' && crea==='refuse') res.push({ n:'ok', t:'Fiches reçues protégées', d:'Un visiteur ne peut ni lire les fiches reçues, ni en déposer une non conforme.' });
+    else if(lect==='accepte' || crea==='accepte') res.push({ n:'ko', t:'Fiches reçues insuffisamment protégées', d:(lect==='accepte' ? 'Un visiteur peut lire les fiches reçues. ' : '')+(crea==='accepte' ? 'Un visiteur peut déposer une fiche non conforme (test supprimé).' : ''), c:'Publie la dernière version de firestore.rules (v5).' });
+    else res.push({ n:'warn', t:'Fiches reçues : test impossible', d:'Pas de réponse du serveur.', c:'Relance le contrôle.' });
+  }finally{ try{ await app.delete(); }catch(e){} }
+  // 4. connexion anonyme (instance séparée : une connexion réussie crée un utilisateur, supprimé aussitôt)
+  var app2 = firebase.initializeApp(firebaseConfig, 'ctrl-anon-'+Date.now());
+  try{
+    var cred = await avecDelai(app2.auth().signInAnonymously());
+    try{ await cred.user.delete(); }catch(e){}
+    res.push({ n:'warn', t:'Connexion anonyme ACTIVE', d:'Plus aucun module n\'en a besoin : elle ne sert qu\'à créer des comptes fantômes.', c:'Firebase › Authentication › Méthode de connexion › Anonyme › Désactiver.' });
+  }catch(e){
+    var c = e && e.code;
+    if(c==='auth/operation-not-allowed' || c==='auth/admin-restricted-operation') res.push({ n:'ok', t:'Connexion anonyme désactivée', d:'Seuls les comptes personnels peuvent se connecter.' });
+    else res.push({ n:'warn', t:'Connexion anonyme : test impossible', d:'Réponse inattendue ('+(c||'erreur')+').', c:'Relance le contrôle.' });
+  }finally{ try{ await app2.delete(); }catch(e){} }
+  // 5. compte de secours
+  var nb = nbAdministrateurs();
+  if(nb>=2) res.push({ n:'ok', t:'Compte de secours présent', d:nb+' administrateurs : la perte d\'un compte ne bloque pas la configuration.' });
+  else if(nb===1) res.push({ n:'warn', t:'Aucun compte de secours', d:'Un seul administrateur : s\'il perd son accès, plus personne ne peut modifier la configuration.', c:'Crée un second administrateur (formulaire « Créer un compte », case Administrateur).' });
+  else res.push({ n:'ko', t:'Aucun administrateur', d:'Personne ne peut modifier la configuration.', c:'À corriger immédiatement dans la console Firebase (document stls_depot/global).' });
+  return res;
+}
+function afficherControleSecurite(res){
+  var icone = { ok:'✅', warn:'⚠️', ko:'❌' }, couleur = { ok:'var(--accent)', warn:'#9a6700', ko:'var(--danger)' };
+  var nOk = res.filter(function(r){ return r.n==='ok'; }).length;
+  document.getElementById('secCheckResult').innerHTML =
+    '<div style="font-weight:700;margin-bottom:8px;">'+nOk+' contrôle(s) sur '+res.length+' conforme(s)'+(nOk<res.length?' — '+(res.length-nOk)+' à traiter':' — tout est en ordre')+'</div>'+
+    res.map(function(r){ return '<div class="base-row" style="display:block;border-left:4px solid '+couleur[r.n]+';padding-left:10px;margin-bottom:8px;"><div><strong>'+icone[r.n]+' '+escapeHtml(r.t)+'</strong></div><div class="hint" style="margin-top:2px;">'+escapeHtml(r.d)+'</div>'+(r.c?'<div class="hint" style="margin-top:2px;color:'+couleur[r.n]+';">→ '+escapeHtml(r.c)+'</div>':'')+'</div>'; }).join('')+
+    '<div class="hint" style="margin-top:6px;">Contrôle effectué le '+escapeHtml(dateHeureCourte(new Date().toISOString()))+'.</div>';
+}
+document.getElementById('btnSecCheck').addEventListener('click', async function(){
+  var btn = this, zone = document.getElementById('secCheckResult');
+  if(!state.isAdmin){ zone.innerHTML = '<div class="hint" style="color:var(--danger);">Réservé à l\'administrateur.</div>'; return; }
+  if(!(window.firebase && firebase.auth && firebase.firestore)){ zone.innerHTML = '<div class="hint" style="color:var(--danger);">Connexion indisponible.</div>'; return; }
+  btn.disabled = true; btn.textContent = 'Contrôle en cours…'; zone.innerHTML = '<div class="hint">Interrogation du serveur en tant que visiteur non connecté…</div>';
+  try{ afficherControleSecurite(await controleSecurite()); }
+  catch(e){ console.error('contrôle de sécurité', e); zone.innerHTML = '<div class="hint" style="color:var(--danger);">Le contrôle n\'a pas pu aboutir ('+escapeHtml((e && (e.code||e.message))||'erreur')+').</div>'; }
+  btn.disabled = false; btn.textContent = 'Relancer le contrôle';
+});
+
 document.getElementById('btnCreateAccount').addEventListener('click', async function(){
   var msg = document.getElementById('newAccountMsg');
   msg.textContent = ''; msg.style.color = '';
@@ -8496,7 +8589,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0083';
+var APP_VERSION = '2026.0084';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
