@@ -405,7 +405,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0026';
+var APP_VERSION = '2026.0027';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -470,6 +470,10 @@ function controlerBL(bl){
     { key:'marchandise', label:'Marchandise (poids/colis)', ok: (bl.poidsTotal>0 || bl.nbColisTotal>0) },
     { key:'date', label:'Date de livraison (souhaitée ou impérative)', ok: !!(bl.dateSouhaitee || bl.dateImperative) }
   ];
+  if(bl.disponibleLe){   // BL d'enlèvement : on ne livre pas avant que la marchandise soit disponible chez le fournisseur
+    var dEff = bonDateLivraison(bl), okDispo = !dEff || dEff >= bl.disponibleLe;
+    checks.push({ key:'disponibilite', label: okDispo ? 'Marchandise disponible à la date de livraison' : 'Date de livraison antérieure à la disponibilité de la marchandise (à partir du '+fmtDate(bl.disponibleLe)+')', ok: okDispo });
+  }
   return { complet: checks.every(function(c){ return c.ok; }), checks: checks };
 }
 
@@ -811,16 +815,17 @@ function renderBonList(opts){
     var checkbox = opts.checkboxes ? '<input type="checkbox" class="bl-check-'+opts.elId+'" data-numero="'+b.numero+'" style="width:18px;height:18px;">' : '';
     var statutInfo = BL_STATUTS[b.statut] || BL_STATUTS.incomplet;
     var statutBadge = '<span style="color:'+statutInfo.color+';font-weight:700;font-size:12.5px;">'+statutInfo.icon+' '+statutInfo.label+'</span>';
+    var dispoBanner = (b.disponibleLe && b.disponibleLe > todayIso()) ? '<div class="sub" style="color:#9a6700;font-weight:600;">⏳ Marchandise disponible à partir du '+fmtDate(b.disponibleLe)+(b.numeroCommandeEnlevement?' — commande '+escapeHtml(b.numeroCommandeEnlevement):'')+'</div>' : '';
     var impBanner = b.estImperative ? '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — '+(b.dateImperative?fmtDate(b.dateImperative):'date à fixer')+'</div>' : '';
     return '<div class="hist-item">'+
       '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;">'+checkbox+
       '<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></label>'+statutBadge+'</div>'+
       '<div class="sub">'+escapeHtml(b.contremarque||'—')+'</div>'+
-      impBanner+
+      impBanner+dispoBanner+
       '<div class="sub">'+(b.commandeIds?b.commandeIds.length:0)+' commande(s) · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
         '<label>Date de livraison prévue</label>'+
-        '<input type="date" data-numero="'+b.numero+'" class="liv-date-input-'+opts.elId+'" value="'+(b.dateLivraisonPrevue||'')+'">'+
+        '<input type="date" data-numero="'+b.numero+'" class="liv-date-input-'+opts.elId+'" value="'+(b.dateLivraisonPrevue||'')+'"'+(b.disponibleLe ? ' min="'+b.disponibleLe+'"' : '')+'>'+
       '</div>'+
       '<div class="btn-row"><button class="btn primary bl-manage-btn" data-numero="'+b.numero+'" style="width:100%;">⚙️ Gérer le BL</button></div>'+
       '<div class="btn-row"><button class="btn ghost btn-bl-pdf-'+opts.elId+'" data-numero="'+b.numero+'" style="width:100%;">📄 Bon de Livraison (PDF)</button></div>'+
@@ -831,6 +836,11 @@ function renderBonList(opts){
   Array.prototype.forEach.call(el.querySelectorAll('.liv-date-input-'+opts.elId), function(input){
     input.addEventListener('change', async function(){
       var numero = input.getAttribute('data-numero');
+      var blDate = state.bons.find(function(x){ return x.numero===numero; });
+      if(blDate && blDate.disponibleLe && input.value && input.value < blDate.disponibleLe){   // enlèvement impossible avant la disponibilité
+        banner('⚠ Marchandise disponible seulement à partir du '+fmtDate(blDate.disponibleLe)+' : date refusée');
+        input.value = blDate.dateLivraisonPrevue || ''; return;
+      }
       await saveBonPatch(numero, { dateLivraisonPrevue: input.value });
       banner('Date de livraison enregistrée');
     });
@@ -1941,6 +1951,7 @@ function controleBLPourTournee(b, t, date){
   var dBl = bonDateLivraison(b);
   if(!dBl) raisons.push('Date de livraison manquante');
   else if(dBl !== date) raisons.push('Date du BL ('+fmtDateLong(dBl)+') différente de celle de la tournée ('+fmtDateLong(date)+')'+(b.estImperative ? ' — date impérative : ne pas la déplacer' : ''));
+  if(b.disponibleLe && date < b.disponibleLe) raisons.push('Marchandise disponible seulement à partir du '+fmtDateLong(b.disponibleLe)+' (tournée du '+fmtDateLong(date)+')');
   var ev = evaluerTournee(b, t, date);
   if(!ev.ok) raisons.push(ev.message);
   return { ok: !raisons.length, raisons: raisons };
@@ -2157,6 +2168,7 @@ function controleTournee(inst){
     if(b.statut==='retourne') an.push({ texte: 'BL retourné au dépôt', derogeable: false });
     var manques = ctrl.checks.filter(function(k){ return !k.ok; }).map(function(k){ return LIBELLES_MANQUE[k.key] || k.label; });
     if(manques.length) an.push({ texte: 'BL incomplet : '+manques.join(', '), derogeable: false });
+    if(b.disponibleLe && inst.date && inst.date < b.disponibleLe) an.push({ texte: 'Marchandise disponible seulement à partir du '+fmtDate(b.disponibleLe)+' : enlèvement impossible à la date de la tournée', derogeable: false });
     if(!b.estImperative && !(b.rdv && b.rdv.date)) an.push({ texte: 'RDV non réalisé', derogeable: false });
     if(!(b.validationExploitant && b.validationExploitant.valide)) an.push({ texte: 'BL non validé par l\'exploitant', derogeable: false });
     if(b.estImperative && b.dateImperative){
@@ -3103,6 +3115,7 @@ async function nextLabelNumberForCollecte(){
 
 // autorisation d'enlèvement archivée par Gestion Dépôt : on la rouvre telle quelle
 document.getElementById('collecteList').addEventListener('click', async function(ev){
+  var cond = ev.target.closest('.col-cond'); if(cond){ await designerConducteur(cond.getAttribute('data-num')); return; }
   var b = ev.target.closest('.col-aut'); if(!b || !collectesColRef) return;
   try{
     var sn = await collectesColRef.doc(b.getAttribute('data-num')).collection('documents').doc(b.getAttribute('data-doc')).get();
@@ -3203,6 +3216,146 @@ document.getElementById('btnAddPartenaire').addEventListener('click', async func
 });
 
 // ---------- liste des collectes ----------
+
+// ================= Autorisation d'enlèvement (PDF A4) — même fonction dans le formulaire et dans l'application =================
+// d = { aut:{numero, emisLe, valideJusquau, lieu}, commande, dispo, client:{enseigne, ref, nom, prenom, tel1, tel2, mail, adresse1, adresse2, cp, ville, demandeur},
+//       agence:{nom, adresse1, cp, ville, tel, mail}, fournisseur, adresse, horaires, colis, poidsKg, longCm, lourdKg, valideLe }
+var STLS_ENTREPRISE = { nom:'SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS)', forme:'EURL au capital de 5 000 €', rcs:'RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A', adresse:'938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume', contact:'Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr' };
+var AUTORISATION_VALIDITE_JOURS = 30;
+function autFr(iso){ var v = String(iso||'').slice(0,10).split('-'); return v.length===3 ? v[2]+'/'+v[1]+'/'+v[0] : ''; }
+function autPlusJours(iso, n){ var p = String(iso).slice(0,10).split('-'); var d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2] + n)); return d.toISOString().slice(0,10); }
+function autNb(x){ return String(x).replace('.', ','); }
+function dessinerAutorisationEnlevement(d){
+  var doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+  var W = 210, M = 12, CW = W - 2*M, SOMBRE = [31,41,55], GRIS = [95,100,110], BORD = [209,213,219], VERT = [15,110,86], y = 0;
+  function T(t, x, yy, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||9.5); doc.setTextColor.apply(doc, o.color||[17,24,39]); doc.text(String(t), x, yy, o.align?{align:o.align}:undefined); }
+  function coupe(t, w, size){ doc.setFontSize(size||9.5); return doc.splitTextToSize(String(t==null?'':t), w); }
+  function barre(titre){ y += 2; doc.setFillColor.apply(doc, SOMBRE); doc.roundedRect(M, y, CW, 5.6, 1, 1, 'F'); T(titre.toUpperCase(), M+3, y+3.9, { bold:true, size:8.3, color:[255,255,255] }); y += 7.6; }
+  function ligne(label, val, hint){
+    var l = coupe(val || '—', CW-52, 9.2); T(label, M+1, y+3.5, { bold:true, size:8.2, color:GRIS });
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.2); doc.setTextColor(17,24,39); doc.text(l, M+50, y+3.5);
+    y += Math.max(5.1, 4.1*l.length + 1.2);
+  }
+  var c = d.client || {}, a = d.agence || {}, lieu = (d.aut && d.aut.lieu) || a.ville || 'Saint-Maximin-la-Sainte-Baume';
+  // ----- en-tête : logo + titre -----
+  T('STLS', M, 18, { bold:true, size:28, color:SOMBRE });
+  T('SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE', M, 22.4, { bold:true, size:5.9, color:GRIS });
+  T("AUTORISATION D'ENLÈVEMENT", W-M, 15, { bold:true, size:15, align:'right' });
+  T('de marchandise', W-M, 20, { size:10, align:'right', color:GRIS });
+  T('N° '+((d.aut && d.aut.numero) || ''), W-M, 25.2, { bold:true, size:9.5, align:'right', color:VERT });
+  doc.setDrawColor.apply(doc, VERT); doc.setLineWidth(0.6); doc.line(M, 27.5, W-M, 27.5);
+  y = 30;
+  // ----- référence bien en vue -----
+  doc.setFillColor(236,246,242); doc.setDrawColor(185,226,211); doc.setLineWidth(0.3); doc.roundedRect(M, y, CW, 16, 1.5, 1.5, 'FD');
+  T('NUMÉRO DE COMMANDE', M+4, y+5, { bold:true, size:7.5, color:GRIS });
+  var nc = coupe(d.commande, 95, 15); doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor.apply(doc, VERT); doc.text(nc[0] + (nc.length>1?'…':''), M+4, y+12.4);
+  T('DISPONIBLE À PARTIR DU', M+112, y+5, { bold:true, size:7.5, color:GRIS }); T(autFr(d.dispo), M+112, y+11.8, { bold:true, size:12 });
+  T("VALABLE JUSQU'AU", M+112+37, y+5, { bold:true, size:7.5, color:GRIS }); T(autFr(d.aut && d.aut.valideJusquau), M+112+37, y+11.8, { bold:true, size:12 });
+  y += 17;
+  // ----- 1. client donneur d'ordre -----
+  barre("1. Client donneur d'ordre (expéditeur de l'autorisation)");
+  ligne('Client / enseigne', c.enseigne || ((c.nom||'')+' '+(c.prenom||'')).trim());
+  ligne('Référence du dossier', c.ref);
+  ligne('Bénéficiaire (contremarque)', ((c.nom||'')+' '+(c.prenom||'')).trim());
+  ligne('Coordonnées', [c.tel1, c.tel2, c.mail].filter(Boolean).join('  ·  '));
+  ligne('Adresse de livraison', [c.adresse1, c.adresse2, [c.cp, c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+  ligne('Demande validée par', c.demandeur);
+  // ----- 2. transport et agence -----
+  barre('2. Entreprise de transport et agence concernée');
+  ligne('Entreprise de transport', 'STLS — Société de Transport Livraison et Stockage (EURL)');
+  ligne('Siège et coordonnées', STLS_ENTREPRISE.adresse+' — 06 58 30 16 87');
+  ligne('Agence concernée', [a.nom, [a.adresse1, [a.cp, a.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '), a.tel].filter(Boolean).join(' — '));
+  // ----- 3. point d'enlèvement -----
+  barre("3. Point d'enlèvement");
+  ligne('Fournisseur / magasin', d.fournisseur);
+  ligne('Adresse complète', d.adresse);
+  ligne('Horaires et contraintes', d.horaires);
+  // ----- 4. personne autorisée -----
+  barre("4. Personne autorisée à enlever la marchandise");
+  ligne('Transporteur', "STLS, représentée par le conducteur qu'elle désigne lors de la planification");
+  if(d.conducteur){
+    ligne('Conducteur désigné', d.conducteur+(d.conducteurTel ? ' — '+d.conducteurTel : ''));
+    if(d.enlevementPrevu) ligne('Enlèvement prévu le', autFr(d.enlevementPrevu));
+    T("Pièce d'identité à présenter : oui", M+1, y+3.4, { size:8.4, color:GRIS }); y += 5.4;
+  } else { T("Nom du conducteur : ________________________________", M+1, y+4.2, { size:9.2 }); T("Pièce d'identité à présenter : oui", M+112, y+4.2, { size:8.4, color:GRIS }); y += 7; }
+  // ----- 5. marchandise -----
+  barre('5. Marchandise à enlever');
+  var m = []; if(d.colis!=null) m.push(d.colis+' colis'); if(d.poidsKg!=null) m.push(autNb(d.poidsKg)+' kg au total');
+  ligne('Quantité', m.join(' — ') || 'À confirmer sur place');
+  if(d.longCm!=null) ligne('Colis le plus long', autNb(d.longCm)+' cm');
+  if(d.lourdKg!=null) ligne('Colis le plus lourd', autNb(d.lourdKg)+' kg');
+  // ----- 6. autorisation (mention légale) -----
+  barre('6. Autorisation');
+  var texte = "Le client donneur d'ordre désigné ci-dessus autorise la société STLS, ainsi que le conducteur qu'elle désigne, à retirer pour son compte la marchandise décrite au présent document auprès du point d'enlèvement indiqué, sur présentation du présent document et du numéro de commande « "+(d.commande||'')+" ». "+
+    "Cette autorisation est valable à compter du "+autFr(d.dispo)+" et jusqu'au "+autFr(d.aut && d.aut.valideJusquau)+" inclus ; passé ce délai, elle est caduque. Elle est strictement limitée à la commande référencée, personnelle et non cessible. "+
+    "Le client certifie l'exactitude des informations communiquées et demeure responsable de la mise à disposition de la marchandise au point d'enlèvement. STLS ne peut être tenue responsable d'un enlèvement refusé en raison d'une information inexacte ou d'une marchandise non disponible.";
+  var lt = coupe(texte, CW-4, 8.4); doc.setFillColor(249,250,251); doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.rect(M, y, CW, 3.7*lt.length + 3.6, 'FD');
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.4); doc.setTextColor(55,65,81); doc.text(lt, M+2, y+4.3); y += 3.7*lt.length + 5.6;
+  // ----- émission et signatures -----
+  T('Fait à '+lieu+', le '+autFr(d.aut && d.aut.emisLe), M, y+3, { bold:true, size:9.5 });
+  T('Document généré électroniquement'+(d.valideLe ? ' — demande validée en ligne le '+autFr(d.valideLe)+' par '+(c.demandeur||'le client') : '')+(d.miseAJourLe ? ' — version n° '+(d.version||2)+' mise à jour le '+autFr(d.miseAJourLe)+' (conducteur désigné)' : ''), M, y+7.6, { size:7.6, color:GRIS });
+  y += 10;
+  var bw = (CW-6)/2; doc.setDrawColor(150,152,160); doc.setLineWidth(0.3);
+  doc.rect(M, y, bw, 19); doc.rect(M+bw+6, y, bw, 19);
+  T('Signature du client donneur d\'ordre', M+2, y+4.2, { size:8, color:GRIS }); T('Cachet et signature de l\'entreprise de transport', M+bw+8, y+4.2, { size:8, color:GRIS });
+  // ----- pied de page -----
+  doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 281, W-M, 281);
+  T(STLS_ENTREPRISE.nom+' – '+STLS_ENTREPRISE.forme, W/2, 285, { bold:true, size:6.4, color:[55,65,81], align:'center' });
+  T(STLS_ENTREPRISE.rcs+' – '+STLS_ENTREPRISE.adresse, W/2, 288, { size:6.4, color:GRIS, align:'center' });
+  return doc;
+}
+
+// nom du conducteur : régénère l'autorisation (nouvelle version archivée, anciennes conservées) puis propose de la renvoyer
+async function designerConducteur(numero){
+  var col = (state.collectes||[]).find(function(c){ return c.numero===numero; });
+  if(!col || !col.autorisation || !col.autorisation.docId || !collectesColRef){ banner('Aucune autorisation archivée pour cette collecte'); return; }
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible'); return; }
+  var au = col.autorisation, refDoc = collectesColRef.doc(numero).collection('documents'), cur = null;
+  try{ var sn = await refDoc.doc(au.docId).get(); cur = sn.exists ? sn.data() : null; }catch(e){ banner('Lecture de l\'autorisation impossible ('+((e && e.code)||'erreur')+')'); return; }
+  if(!cur || !cur.donnees){ banner('Régénération impossible : cette autorisation a été créée avant cette fonction. Recrée-la depuis Gestion Dépôt.'); return; }
+  var b = state.bons.find(function(x){ return x.origineCollecte===numero; }) || {};
+  var inst = (state.instances||[]).find(function(i){ return i.id===b.tourneeId; });
+  var defaut = (inst && inst.livreur && inst.livreur.nom) || au.conducteur || '';
+  var nom = prompt('Nom du conducteur qui effectuera l\'enlèvement chez '+(col.sourceNom||'le fournisseur')+' :', defaut); if(nom===null) return;
+  nom = nom.trim();
+  if(nom.length < 3){ banner('⚠ Nom du conducteur obligatoire (3 caractères minimum)'); return; }
+  var version = (au.version||1) + 1, now = new Date().toISOString();
+  var donnees = Object.assign({}, cur.donnees, { conducteur:nom, conducteurTel:(inst && inst.livreur && inst.livreur.telephone) || '', enlevementPrevu:bonDateLivraison(b) || '', miseAJourLe:now.slice(0,10), version:version });
+  var dataUrl = dessinerAutorisationEnlevement(donnees).output('datauristring');
+  var id = 'aut_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  try{
+    await refDoc.doc(id).set({ id:id, type:'autorisation_enlevement', nom:'Autorisation_enlevement_'+donnees.aut.numero+'_v'+version+'.pdf', mime:'application/pdf', autNumero:donnees.aut.numero, version:version, conducteur:nom,
+      donnees:JSON.parse(JSON.stringify(donnees)), taille:dataUrl.length, dataUrl:dataUrl, le:now, par:currentIdentity() });
+    var hist = (au.historique||[]).concat([{ docId:au.docId, version:au.version||1, conducteur:au.conducteur||'' }]);
+    var nouvelle = Object.assign({}, au, { docId:id, version:version, conducteur:nom, majLe:now, majPar:currentIdentity(), aRenvoyer:true, historique:hist });
+    await collectesColRef.doc(numero).set({ autorisation:nouvelle }, { merge:true });
+    col.autorisation = nouvelle;
+  }catch(e){ console.error('conducteur', e); banner('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return; }
+  renderCollecteList(); banner('Autorisation mise à jour — conducteur : '+nom);
+  if(confirm('Renvoyer maintenant l\'autorisation mise à jour au client ?')) await renvoyerAutorisation(col, donnees, dataUrl, b);
+}
+async function renvoyerAutorisation(col, donnees, dataUrl, b){
+  var to = prompt('Adresse e-mail du client :', (b && b.emailDestinataire) || ((donnees.client||{}).mail) || ''); if(to===null) return; to = to.trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)){ banner('⚠ Adresse e-mail invalide'); return; }
+  var nomFichier = 'Autorisation_enlevement_'+donnees.aut.numero+'_v'+donnees.version+'.pdf';
+  var sujet = 'Autorisation d\'enlèvement mise à jour — '+((donnees.client||{}).ref || donnees.aut.numero);
+  var corps = 'Bonjour,\n\nVeuillez trouver ci-joint l\'autorisation d\'enlèvement mise à jour (conducteur désigné : '+donnees.conducteur+(donnees.enlevementPrevu ? ', enlèvement prévu le '+autFr(donnees.enlevementPrevu) : '')+').\nCommande « '+donnees.commande+' » chez '+donnees.fournisseur+'.\n\nCordialement,\n'+(state.agencyName || 'STLS');
+  var fait = false;
+  try{
+    var blob = await (await fetch(dataUrl)).blob(), file = new File([blob], nomFichier, { type:'application/pdf' });
+    if(navigator.canShare && navigator.canShare({ files:[file] })){ await navigator.share({ files:[file], title:sujet, text:'À : '+to+'\n\n'+corps }); fait = true; }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  if(!fait){   // ordinateur : on télécharge le PDF et on ouvre la messagerie (à joindre à la main)
+    var a = document.createElement('a'); a.href = dataUrl; a.download = nomFichier; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    window.location.href = 'mailto:'+encodeURIComponent(to)+'?subject='+encodeURIComponent(sujet)+'&body='+encodeURIComponent(corps+'\n\n(Joindre le fichier '+nomFichier+' téléchargé.)');
+  }
+  try{
+    var au = Object.assign({}, col.autorisation, { aRenvoyer:false, envoyeLe:new Date().toISOString(), envoyePar:currentIdentity(), envoyeA:to });
+    await collectesColRef.doc(col.numero).set({ autorisation:au }, { merge:true }); col.autorisation = au; renderCollecteList();
+  }catch(e){ console.error('trace envoi', e); }
+  banner('E-mail préparé');
+}
+
 function renderCollecteList(){
   var el = document.getElementById('collecteList');
   var items = state.collectes.slice().sort(function(a,b){ return (b.createdAt||'').localeCompare(a.createdAt||''); });
@@ -3213,8 +3366,10 @@ function renderCollecteList(){
       '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">'+escapeHtml(c.numero)+'</span></div>'+
       '<div class="sub">Chez '+escapeHtml(c.sourceNom||'—')+' → '+(destLabels[c.destination]||c.destination)+'</div>'+
       '<div class="sub">'+(c.dateCollecte?fmtDate(c.dateCollecte):'date à définir')+(c.creneauCollecte?' · '+escapeHtml(c.creneauCollecte):'')+' · '+(c.poidsEstime||0)+' kg · '+(c.colisEstime||0)+' colis</div>'+
-      (c.numeroCommande?'<div class="sub">Commande <strong>'+escapeHtml(c.numeroCommande)+'</strong>'+(c.disponibleLe?' · marchandise disponible à partir du <strong>'+fmtDate(c.disponibleLe)+'</strong>':'')+'</div>':'')+
-      (c.autorisation && c.autorisation.docId?'<div class="actions"><button class="btn ghost col-aut" data-num="'+escapeHtml(c.numero)+'" data-doc="'+escapeHtml(c.autorisation.docId)+'" style="width:auto;padding:6px 10px;font-size:12.5px;">📄 Autorisation d\'enlèvement</button>'+(c.autorisation.envoyeLe?'<span class="hint" style="align-self:center;">envoyée au client le '+fmtDate(String(c.autorisation.envoyeLe).slice(0,10))+'</span>':'<span class="hint" style="align-self:center;">archivée</span>')+'</div>':'')+
+      (c.numeroCommande?'<div class="sub">Commande <strong>'+escapeHtml(c.numeroCommande)+'</strong>'+(c.disponibleLe?' · marchandise disponible à partir du <strong>'+fmtDate(c.disponibleLe)+'</strong>'+(c.disponibleLe > todayIso() ? ' <span style="color:#9a6700;font-weight:600;">⏳ pas encore disponible</span>' : ''):'')+'</div>':'')+
+      (c.autorisation && c.autorisation.docId?'<div class="actions"><button class="btn ghost col-aut" data-num="'+escapeHtml(c.numero)+'" data-doc="'+escapeHtml(c.autorisation.docId)+'" style="width:auto;padding:6px 10px;font-size:12.5px;">📄 Autorisation d\'enlèvement</button>'+(c.autorisation.envoyeLe?'<span class="hint" style="align-self:center;">envoyée au client le '+fmtDate(String(c.autorisation.envoyeLe).slice(0,10))+'</span>':'<span class="hint" style="align-self:center;">archivée</span>')+'</div>'+
+        '<div class="sub">'+(c.autorisation.conducteur ? '🪪 Conducteur : <strong>'+escapeHtml(c.autorisation.conducteur)+'</strong> · version '+(c.autorisation.version||2)+(c.autorisation.aRenvoyer ? ' · <span style="color:#9a6700;font-weight:600;">⚠ à renvoyer au client</span>' : '') : '🪪 Conducteur non désigné')+'</div>'+
+        '<div class="actions"><button class="btn ghost col-cond" data-num="'+escapeHtml(c.numero)+'" style="width:auto;padding:6px 10px;font-size:12.5px;">🪪 '+(c.autorisation.conducteur ? 'Changer le conducteur' : 'Désigner le conducteur')+'</button></div>':'')+
       (c.resultBlNumero?'<div class="sub" style="color:var(--accent);">→ BL '+escapeHtml(c.resultBlNumero)+'</div>':'')+
       (c.resultReceptionLabel?'<div class="sub" style="color:var(--accent);">→ Étiquette '+escapeHtml(c.resultReceptionLabel)+' (CDE en attente)</div>':'')+
     '</div>';

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0084">
+<meta name="app-version" content="2026.0085">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -2175,7 +2175,11 @@ function dessinerAutorisationEnlevement(d){
   // ----- 4. personne autorisée -----
   barre("4. Personne autorisée à enlever la marchandise");
   ligne('Transporteur', "STLS, représentée par le conducteur qu'elle désigne lors de la planification");
-  T("Nom du conducteur : ________________________________", M+1, y+4.2, { size:9.2 }); T("Pièce d'identité à présenter : oui", M+112, y+4.2, { size:8.4, color:GRIS }); y += 7;
+  if(d.conducteur){
+    ligne('Conducteur désigné', d.conducteur+(d.conducteurTel ? ' — '+d.conducteurTel : ''));
+    if(d.enlevementPrevu) ligne('Enlèvement prévu le', autFr(d.enlevementPrevu));
+    T("Pièce d'identité à présenter : oui", M+1, y+3.4, { size:8.4, color:GRIS }); y += 5.4;
+  } else { T("Nom du conducteur : ________________________________", M+1, y+4.2, { size:9.2 }); T("Pièce d'identité à présenter : oui", M+112, y+4.2, { size:8.4, color:GRIS }); y += 7; }
   // ----- 5. marchandise -----
   barre('5. Marchandise à enlever');
   var m = []; if(d.colis!=null) m.push(d.colis+' colis'); if(d.poidsKg!=null) m.push(autNb(d.poidsKg)+' kg au total');
@@ -2191,7 +2195,7 @@ function dessinerAutorisationEnlevement(d){
   doc.setFont('helvetica','normal'); doc.setFontSize(8.4); doc.setTextColor(55,65,81); doc.text(lt, M+2, y+4.3); y += 3.7*lt.length + 5.6;
   // ----- émission et signatures -----
   T('Fait à '+lieu+', le '+autFr(d.aut && d.aut.emisLe), M, y+3, { bold:true, size:9.5 });
-  T('Document généré électroniquement'+(d.valideLe ? ' — demande validée en ligne le '+autFr(d.valideLe)+' par '+(c.demandeur||'le client') : ''), M, y+7.6, { size:7.6, color:GRIS });
+  T('Document généré électroniquement'+(d.valideLe ? ' — demande validée en ligne le '+autFr(d.valideLe)+' par '+(c.demandeur||'le client') : '')+(d.miseAJourLe ? ' — version n° '+(d.version||2)+' mise à jour le '+autFr(d.miseAJourLe)+' (conducteur désigné)' : ''), M, y+7.6, { size:7.6, color:GRIS });
   y += 10;
   var bw = (CW-6)/2; doc.setDrawColor(150,152,160); doc.setLineWidth(0.3);
   doc.rect(M, y, bw, 19); doc.rect(M+bw+6, y, bw, 19);
@@ -3308,12 +3312,13 @@ function donneesAutorisationEnlevement(f, cm, e){
 // génère le PDF et l'archive côté dépôt (sous la collecte) ; retourne l'identifiant du document
 async function archiverAutorisation(f, cm, e, collecte){
   if(!(window.jspdf && window.jspdf.jsPDF) || !e.autNumero) return '';
-  var doc = dessinerAutorisationEnlevement(donneesAutorisationEnlevement(f, cm, e));
+  var donnees = JSON.parse(JSON.stringify(donneesAutorisationEnlevement(f, cm, e)));   // sans valeurs « undefined » (refusées par Firestore) ; permet de régénérer le document
+  var doc = dessinerAutorisationEnlevement(donnees);
   var dataUrl = doc.output('datauristring');
   var col = collectesCol(); if(!col) return '';
   var id = 'aut_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
   await col.doc(collecte.numero).collection('documents').doc(id).set({ id:id, type:'autorisation_enlevement', nom:'Autorisation_enlevement_'+e.autNumero+'.pdf', mime:'application/pdf', autNumero:e.autNumero,
-    taille:dataUrl.length, dataUrl:dataUrl, le:new Date().toISOString(), par:currentIdentity(), parUid:currentUid() });
+    version:1, donnees:donnees, taille:dataUrl.length, dataUrl:dataUrl, le:new Date().toISOString(), par:currentIdentity(), parUid:currentUid() });
   return id;
 }
 
@@ -8589,7 +8594,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0084';
+var APP_VERSION = '2026.0085';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
