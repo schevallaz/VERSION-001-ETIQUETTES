@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0087">
+<meta name="app-version" content="2026.0088">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -825,6 +825,11 @@
       <div class="field"><label for="ficheLienOut">Lien à envoyer</label><input type="text" id="ficheLienOut" readonly></div>
       <div class="btn-row"><button class="btn accent" id="btnFicheCopier" style="width:auto;">Copier le lien</button><button class="btn ghost" id="btnFichePartager" style="width:auto;">Partager…</button></div>
     </div>
+    <div class="card" id="cmCorbeilleCard" style="display:none;">
+      <h2>🗑 Corbeille des fiches contremarque (<span id="cnt-cm-corbeille">0</span>)</h2>
+      <p class="hint" style="margin:0 0 10px;">Une fiche mise à la corbeille n'apparaît plus dans les listes ni dans les choix de contremarque. Restaure-la ici si besoin : elle retrouve son identifiant, donc ses commandes se rattachent à nouveau.</p>
+      <div id="listCmCorbeille"></div>
+    </div>
     <div class="card">
       <h2>📥 Fiches de livraison reçues (<span id="cnt-fiches-recues">0</span>)</h2>
       <div id="fichesRecuesList"><div class="empty">Chargement…</div></div>
@@ -1632,7 +1637,7 @@ async function loadBase(){
         var d0 = snap.data();
         state.base = {
           clients: d0.clients||[], fournisseurs: d0.fournisseurs||[], transporteurs: d0.transporteurs||[], emplacements: d0.emplacements||DEFAULT_EMPLACEMENTS.slice(),
-          contremarques: d0.contremarques||[], emplacementStatus: d0.emplacementStatus||{}, livreurs: d0.livreurs||[], vehicules: d0.vehicules||[],
+          contremarques: d0.contremarques||[], contremarquesCorbeille: d0.contremarquesCorbeille||[], emplacementStatus: d0.emplacementStatus||{}, livreurs: d0.livreurs||[], vehicules: d0.vehicules||[],
           emailTemplateReserve: d0.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
           emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
           receivedAtMigrated: !!d0.receivedAtMigrated
@@ -1663,6 +1668,7 @@ async function loadBase(){
   if(!state.base.emplacements){ state.base.emplacements = []; }
   if(!state.base.emailTemplateReserve){ state.base.emailTemplateReserve = DEFAULT_EMAIL_RESERVE; }
   if(!state.base.contremarques){ state.base.contremarques = []; }
+  if(!state.base.contremarquesCorbeille){ state.base.contremarquesCorbeille = []; }
   if(!state.base.emplacementStatus){ state.base.emplacementStatus = {}; }
   if(!state.base.livreurs){ state.base.livreurs = []; }
   if(!state.base.vehicules){ state.base.vehicules = []; }
@@ -1688,7 +1694,7 @@ function watchBase(){
     if(!d.clients) return; // évite d'écraser avec un doc vide pendant la 1re écriture
     state.base = {
       clients: d.clients||[], fournisseurs: d.fournisseurs||[], transporteurs: d.transporteurs||[], emplacements: d.emplacements||[],
-      contremarques: d.contremarques||[], emplacementStatus: d.emplacementStatus||{}, livreurs: d.livreurs||[], vehicules: d.vehicules||[],
+      contremarques: d.contremarques||[], contremarquesCorbeille: d.contremarquesCorbeille||[], emplacementStatus: d.emplacementStatus||{}, livreurs: d.livreurs||[], vehicules: d.vehicules||[],
       emailTemplateReserve: d.emailTemplateReserve || DEFAULT_EMAIL_RESERVE,
       emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
       receivedAtMigrated: !!d.receivedAtMigrated
@@ -2515,6 +2521,7 @@ function renderBaseLists(){
   renderClientsList();
   populateClientFicheSelect();
   renderContremarquesList();
+  renderCmCorbeille();
   renderOneBaseList('listFournisseurs', state.base.fournisseurs, 'nom', 'code', function(idx){
     if(!confirm('Supprimer ce fournisseur de la base ?')) return;
     state.base.fournisseurs.splice(idx,1); saveBase(); renderBaseLists(); refreshDatalists();
@@ -2728,12 +2735,17 @@ function renderContremarquesList(){
         '<button class="btn ghost" data-act="bpcm">Bons de Préparation</button>'+
         '<button class="btn accent" data-act="blcm">Bons de Livraison</button>'+
       '</div>'+
+      '<div class="actions" style="margin-top:6px;justify-content:flex-end;"><button class="btn ghost" data-act="suppcm" style="width:auto;color:var(--danger);border-color:var(--danger);">🗑 Supprimer cette fiche</button></div>'+
+      '<div id="cmsupp-'+idx+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="bppanel-'+idx+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '<div id="blpanel-'+idx+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div>'+
       '</div>';
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="editcm"]'), function(btn){
     btn.addEventListener('click', function(){ startEditContremarque(parseInt(btn.closest('.hist-item').getAttribute('data-idx'),10)); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-act="suppcm"]'), function(btn){
+    btn.addEventListener('click', function(){ ouvrirSuppressionCm(parseInt(btn.closest('.hist-item').getAttribute('data-idx'),10)); });
   });
   Array.prototype.forEach.call(el.querySelectorAll('[data-act="fichecm"]'), function(btn){
     btn.addEventListener('click', function(){
@@ -3662,6 +3674,118 @@ document.getElementById('kpiNext').addEventListener('click', function(){ var n =
 document.getElementById('kpiToday').addEventListener('click', function(){ kpiLundi = lundiDe(isoLocal(new Date())); afficherKpi(false); });
 document.getElementById('kpiRefresh').addEventListener('click', function(){ afficherKpi(true); });
 document.getElementById('btnKpiPdf').addEventListener('click', genererRapportKpiPdf);
+
+
+// ================= Suppression d'une fiche contremarque : motif, corbeille, restauration =================
+// La fiche n'est jamais effacée directement : elle passe dans state.base.contremarquesCorbeille avec qui / quand / pourquoi.
+// Refusée tant qu'elle est utilisée par une commande, un BP ou un BL en cours (sinon on casserait un chantier actif).
+var CM_MOTIFS = ['Doublon', 'Erreur de saisie', 'Contremarque annulée', 'Client ou chantier terminé', 'Autre'];
+function memeContremarque(h, cm){
+  if(h.contremarqueId) return h.contremarqueId===cm.id;
+  return String(h.contremarque||'').trim().toLowerCase()===String(cm.nom||'').trim().toLowerCase();
+}
+async function usageContremarque(cm){
+  var u = { commandes:0, bp:0, bl:0, erreur:'' };
+  u.commandes = (state.historyIndex||[]).filter(function(h){ return !h.deletedAt && !h.exitedAt && memeContremarque(h, cm); }).length;
+  try{
+    var bps = await loadBonsPreparationForContremarque(cm.id);
+    u.bp = (bps||[]).filter(function(b){ return b.statut==='brouillon' || b.statut==='pret'; }).length;
+  }catch(e){ console.error('usage BP', e); u.erreur = 'bons de préparation'; }
+  try{
+    if(blColRef){
+      var sn = await blColRef.get();
+      sn.forEach(function(d){ var b = d.data(); if(b.contremarqueId===cm.id && ['livre','retourne','annule'].indexOf(b.statut)<0) u.bl++; });
+    }
+  }catch(e){ console.error('usage BL', e); u.erreur = u.erreur || 'bons de livraison'; }
+  return u;
+}
+async function ouvrirSuppressionCm(idx){
+  var box = document.getElementById('cmsupp-'+idx); if(!box) return;
+  if(box.style.display==='block'){ box.style.display = 'none'; return; }
+  var cm = (state.base.contremarques||[])[idx]; if(!cm) return;
+  box.style.display = 'block'; box.innerHTML = '<div class="hint">Vérification des dossiers liés…</div>';
+  var u = await usageContremarque(cm);
+  if(u.erreur){ box.innerHTML = '<div class="hint" style="color:var(--danger);">⚠ Impossible de vérifier les '+u.erreur+' (connexion ?). Suppression refusée par prudence : réessaie.</div>'; return; }
+  var morceaux = [];
+  if(u.commandes) morceaux.push(u.commandes+' commande(s) en cours (en attente, en stock ou en préparation)');
+  if(u.bp) morceaux.push(u.bp+' bon(s) de préparation en cours');
+  if(u.bl) morceaux.push(u.bl+' bon(s) de livraison en cours');
+  if(morceaux.length){
+    box.innerHTML = '<div style="background:#fdf2f0;border:1px solid #f0c9c3;color:#8a2c20;border-radius:10px;padding:10px;"><strong>Suppression impossible</strong> : cette fiche est encore utilisée par<br>• '+morceaux.map(escapeHtml).join('<br>• ')+'<div class="hint" style="margin-top:6px;color:#8a2c20;">Termine ou annule ces dossiers (sortie, livraison, annulation), puis reviens la supprimer.</div></div><div class="btn-row"><button class="btn ghost cmsupp-annuler" style="width:auto;">Fermer</button></div>';
+    box.querySelector('.cmsupp-annuler').addEventListener('click', function(){ box.style.display = 'none'; });
+    return;
+  }
+  box.innerHTML = '<div class="hint" style="font-weight:600;margin-bottom:6px;">Mettre « '+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+' » à la corbeille</div>'+
+    '<div class="field"><label for="cmsupp-motif-'+idx+'">Motif de la suppression *</label><select id="cmsupp-motif-'+idx+'" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="">— Choisir un motif —</option>'+CM_MOTIFS.map(function(m){ return '<option value="'+escapeHtml(m)+'">'+escapeHtml(m)+'</option>'; }).join('')+'</select></div>'+
+    '<div class="field"><label for="cmsupp-detail-'+idx+'">Précisions <span class="hint" id="cmsupp-oblig-'+idx+'">(facultatif)</span></label><textarea id="cmsupp-detail-'+idx+'" rows="2" maxlength="300" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>'+
+    '<div class="hint" style="margin-bottom:8px;">La fiche pourra être restaurée depuis la corbeille. L\'historique des commandes déjà sorties garde le nom de la contremarque.</div>'+
+    '<div class="btn-row"><button class="btn danger cmsupp-ok" style="width:auto;">🗑 Mettre à la corbeille</button><button class="btn ghost cmsupp-annuler" style="width:auto;">Annuler</button></div><div class="cmsupp-msg" style="margin-top:6px;font-size:12.5px;"></div>';
+  var sel = box.querySelector('select'), det = box.querySelector('textarea'), msg = box.querySelector('.cmsupp-msg');
+  sel.addEventListener('change', function(){ document.getElementById('cmsupp-oblig-'+idx).textContent = sel.value==='Autre' ? '(obligatoire pour « Autre »)' : '(facultatif)'; });
+  box.querySelector('.cmsupp-annuler').addEventListener('click', function(){ box.style.display = 'none'; });
+  box.querySelector('.cmsupp-ok').addEventListener('click', async function(){
+    var motif = sel.value, precision = det.value.trim();
+    if(!motif){ msg.textContent = '⚠️ Choisis un motif de suppression.'; msg.style.color = 'var(--danger)'; return; }
+    if(motif==='Autre' && precision.length < 5){ msg.textContent = '⚠️ Pour « Autre », précise le motif (5 caractères minimum).'; msg.style.color = 'var(--danger)'; return; }
+    this.disabled = true;
+    await supprimerContremarque(idx, motif + (precision ? ' — '+precision : ''));
+  });
+}
+async function supprimerContremarque(idx, motif){
+  var cm = (state.base.contremarques||[])[idx]; if(!cm) return;
+  var u = await usageContremarque(cm);   // revérifié au dernier moment : un dossier a pu être créé entre-temps
+  if(u.erreur || u.commandes || u.bp || u.bl){ banner('⚠ Suppression annulée : la fiche vient d\'être utilisée ou la vérification a échoué'); renderContremarquesList(); return; }
+  var now = new Date().toISOString(), entree = JSON.parse(JSON.stringify(cm));
+  entree.deletedAt = now; entree.deletedBy = currentIdentity(); entree.deletedByUid = currentUid(); entree.motifSuppression = motif;
+  entree.historiqueFiche = (entree.historiqueFiche||[]).concat([{ action:'suppression', le:now, par:currentIdentity(), motif:motif }]);
+  if(!state.base.contremarquesCorbeille) state.base.contremarquesCorbeille = [];
+  state.base.contremarquesCorbeille.push(entree);
+  state.base.contremarques.splice(idx, 1);
+  if(cmEditIdx!=null){ if(cmEditIdx===idx) clearContremarqueForm(); else if(cmEditIdx>idx) cmEditIdx--; }   // la fiche en cours de modification reste la bonne
+  await saveBase();
+  document.getElementById('cnt-contremarques').textContent = pad4(state.base.contremarques.length);
+  renderContremarquesList(); renderCmCorbeille(); refreshDatalists();
+  banner('Fiche « '+(cm.nom||'')+' » mise à la corbeille');
+}
+function renderCmCorbeille(){
+  var carte = document.getElementById('cmCorbeilleCard'); if(!carte) return;
+  var arr = state.base.contremarquesCorbeille || [];
+  document.getElementById('cnt-cm-corbeille').textContent = arr.length;
+  carte.style.display = arr.length ? 'block' : 'none';
+  var l = arr.map(function(cm, i){ return { cm:cm, i:i }; }).sort(function(a, b){ return String(b.cm.deletedAt||'').localeCompare(String(a.cm.deletedAt||'')); });
+  document.getElementById('listCmCorbeille').innerHTML = l.map(function(x){
+    var cm = x.cm, adr = [cm.adresse1, cm.cp, cm.ville].filter(Boolean).join(' · ');
+    return '<div class="hist-item" data-i="'+x.i+'"><div class="hd"><span class="nom">'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+'</span><span class="date">'+escapeHtml(dateHeureCourte(cm.deletedAt))+'</span></div>'+
+      (adr ? '<div class="sub">'+escapeHtml(adr)+'</div>' : '')+
+      '<div class="sub">Supprimée par <strong>'+escapeHtml(cm.deletedBy||'?')+'</strong></div><div class="sub" style="color:#9a6700;">Motif : '+escapeHtml(cm.motifSuppression||'—')+'</div>'+
+      '<div class="actions"><button class="btn accent cmc-restaurer" style="width:auto;">↩ Restaurer</button>'+(state.isAdmin ? '<button class="btn ghost cmc-purger" style="width:auto;color:var(--danger);border-color:var(--danger);">Supprimer définitivement</button>' : '')+'</div></div>';
+  }).join('');
+}
+async function restaurerContremarque(i){
+  var arr = state.base.contremarquesCorbeille || [], e = arr[i]; if(!e) return;
+  if((state.base.contremarques||[]).some(function(c){ return c.id===e.id; })){ banner('⚠ Une fiche active porte déjà cet identifiant : restauration impossible'); return; }
+  var homonyme = (state.base.contremarques||[]).some(function(c){ return normNom((c.nom||'')+' '+(c.prenom||''))===normNom((e.nom||'')+' '+(e.prenom||'')); });
+  if(homonyme && !confirm('Une fiche active porte déjà le nom « '+(e.nom||'')+' '+(e.prenom||'')+' ».\nRestaurer quand même ? (Vérifie ensuite qu\'il ne s\'agit pas d\'un doublon.)')) return;
+  var now = new Date().toISOString(), cm = JSON.parse(JSON.stringify(e));
+  ['deletedAt','deletedBy','deletedByUid','motifSuppression'].forEach(function(k){ delete cm[k]; });
+  cm.historiqueFiche = (cm.historiqueFiche||[]).concat([{ action:'restauration', le:now, par:currentIdentity() }]);
+  state.base.contremarques.push(cm); arr.splice(i, 1);
+  await saveBase();
+  document.getElementById('cnt-contremarques').textContent = pad4(state.base.contremarques.length);
+  renderContremarquesList(); renderCmCorbeille(); refreshDatalists();
+  banner('Fiche « '+(cm.nom||'')+' » restaurée');
+}
+async function purgerContremarque(i){
+  if(!state.isAdmin) return;
+  var arr = state.base.contremarquesCorbeille || [], e = arr[i]; if(!e) return;
+  if(!confirm('Supprimer DÉFINITIVEMENT la fiche « '+(e.nom||'')+' '+(e.prenom||'')+' » ?\n\nCette action est irréversible : la fiche ne pourra plus être restaurée.')) return;
+  arr.splice(i, 1); await saveBase(); renderCmCorbeille(); banner('Fiche supprimée définitivement');
+}
+document.getElementById('listCmCorbeille').addEventListener('click', function(ev){
+  var item = ev.target.closest('.hist-item'); if(!item) return; var i = parseInt(item.getAttribute('data-i'), 10);
+  if(ev.target.closest('.cmc-restaurer')) restaurerContremarque(i);
+  else if(ev.target.closest('.cmc-purger')) purgerContremarque(i);
+});
 
 // ================= Fiche de livraison en ligne (formulaire public + boîte de réception) =================
 var FICHE_COL = 'stls_fiches_soumissions', FICHE_PUBLIC_COL = 'stls_fiches_public';
@@ -8892,7 +9016,7 @@ function switchTab(name){
   if(name==='planning'){ renderPlanningList(); }
   if(name==='tms'){ renderModulesGrid(); }
   if(name==='clients'){ renderClientsList(); populateClientFicheSelect(); showSubmoduleGrid('clients'); }
-  if(name==='contremarques'){ renderContremarquesList(); renderFicheEnLigneCard(); renderFichesRecues(); }
+  if(name==='contremarques'){ renderContremarquesList(); renderCmCorbeille(); renderFicheEnLigneCard(); renderFichesRecues(); }
   if(name==='kpi'){ afficherKpi(true); }
   if(name!=='inventaire'){ invStopScan(); }
   if(name==='inventaire'){ invOuvrir(); }
@@ -9161,7 +9285,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0087';
+var APP_VERSION = '2026.0088';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
