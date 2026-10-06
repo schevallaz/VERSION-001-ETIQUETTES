@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0085">
+<meta name="app-version" content="2026.0086">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -762,6 +762,25 @@
       <div id="clientFicheMsg" style="margin-top:8px;font-size:12.5px;"></div>
     </div>
     </div>
+  </section>
+
+  <!-- ===== TAB: TABLEAU DE BORD HEBDOMADAIRE ===== -->
+  <section id="tab-kpi" style="display:none;">
+    <div class="card">
+      <h2>📊 Tableau de bord hebdomadaire</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+        <button class="btn ghost" id="kpiPrev" style="width:auto;padding:8px 14px;">‹</button>
+        <div id="kpiSemaineLabel" style="text-align:center;font-weight:700;flex:1;"></div>
+        <button class="btn ghost" id="kpiNext" style="width:auto;padding:8px 14px;">›</button>
+      </div>
+      <div class="btn-row" style="margin-top:0;">
+        <button class="btn ghost" id="kpiToday" style="width:auto;">Cette semaine</button>
+        <button class="btn ghost" id="kpiRefresh" style="width:auto;">↻ Actualiser</button>
+        <button class="btn accent" id="btnKpiPdf" style="width:auto;">📄 Rapport PDF</button>
+      </div>
+      <div id="kpiAvert" class="hint" style="margin-top:8px;"></div>
+    </div>
+    <div id="kpiBody"></div>
   </section>
 
   <!-- ===== TAB: GESTION CONTREMARQUES ===== -->
@@ -3100,6 +3119,212 @@ document.addEventListener('click', function(ev){
   if(id) ouvrirJournalCommande(id);
 });
 
+
+
+// ================= Tableau de bord hebdomadaire =================
+// Semaine = lundi → dimanche (heure locale). Chaque indicateur est comparé à la semaine précédente.
+// « En ce moment » = photo à l'instant, indépendante de la semaine affichée.
+var kpiLundi = '', kpiDonnees = null, kpiCharge = 0, kpiCourant = null;
+function p2(n){ return String(n).padStart(2,'0'); }
+function isoLocal(d){ return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()); }
+function jourLocal(v){ if(!v) return ''; var t = String(v); if(/^\d{4}-\d{2}-\d{2}$/.test(t)) return t; var d = new Date(t); return isNaN(d.getTime()) ? '' : isoLocal(d); }
+function plusJours(iso, n){ var q = iso.split('-'); return isoLocal(new Date(+q[0], +q[1]-1, +q[2]+n)); }
+function lundiDe(iso){ var q = iso.split('-'), d = new Date(+q[0], +q[1]-1, +q[2]); return plusJours(iso, -((d.getDay()+6)%7)); }
+function semaineISO(iso){   // numéro de semaine ISO 8601 et année ISO
+  var q = iso.split('-'), d = new Date(Date.UTC(+q[0], +q[1]-1, +q[2])), j = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - j);
+  var an = d.getUTCFullYear(), debut = new Date(Date.UTC(an, 0, 1));
+  return { semaine: Math.ceil((((d - debut) / 86400000) + 1) / 7), annee: an };
+}
+function nombreDe(v){ var n = parseFloat(String(v==null ? '' : v).replace(',', '.')); return isNaN(n) ? 0 : n; }
+function fmtNb(x, dec){ return (Math.round(x * Math.pow(10, dec||0)) / Math.pow(10, dec||0)).toLocaleString('fr-FR', { minimumFractionDigits:0, maximumFractionDigits:dec||0 }); }
+function fmtJourCourt(iso){ var q = iso.split('-'); return q[2]+'/'+q[1]; }
+
+function kpiPourSemaine(D, lundi){
+  var fin = plusJours(lundi, 6), aujourdhui = isoLocal(new Date()), refAge = fin < aujourdhui ? fin : aujourdhui;
+  var r = { lundi:lundi, fin:fin, recues:{ n:0, colis:0, poids:0 }, sorties:{ n:0, parDest:{} }, stock:{ n:0, colis:0, poids:0, ageMoy:0, plus30:0, plus60:0 },
+    cmr:{ recues:0, avecCmr:0 }, avaries:{ commandes:0, colis:0 }, delaiSortie:{ n:0, somme:0 }, blCrees:0, blLivres:0, retours:0, collectesCreees:0, tournees:{ n:0, bl:0 },
+    jours:[0,1,2,3,4,5,6].map(function(i){ return { jour:plusJours(lundi, i), recues:0, sorties:0, livres:0 }; }) };
+  function slot(j){ var i = r.jours.findIndex(function(x){ return x.jour===j; }); return i>=0 ? r.jours[i] : null; }
+  var ageSomme = 0;
+  D.index.filter(function(e){ return !e.deletedAt; }).forEach(function(e){
+    var rj = jourLocal(e.receivedAt), xj = jourLocal(e.exitedAt);
+    if(rj && rj>=lundi && rj<=fin){
+      r.recues.n++; r.recues.colis += nombreDe(e.colis); r.recues.poids += nombreDe(e.poids); slot(rj).recues++;
+      r.cmr.recues++; if(e.cmrRecu) r.cmr.avecCmr++;
+      if(e.avarieCount > 0){ r.avaries.commandes++; r.avaries.colis += e.avarieCount; }
+    }
+    if(xj && xj>=lundi && xj<=fin){
+      r.sorties.n++; slot(xj).sorties++;
+      var dest = e.sortieDestinationLibelle || (e.sortieBP ? 'BP' : 'Hors bon de préparation');
+      r.sorties.parDest[dest] = (r.sorties.parDest[dest]||0) + 1;
+      if(typeof e.exitDaysStored==='number'){ r.delaiSortie.n++; r.delaiSortie.somme += e.exitDaysStored; }
+    }
+    // marchandise au dépôt en fin de semaine : reçue au plus tard le dernier jour, pas encore sortie à cette date
+    if(rj && rj<=fin && (!xj || xj>fin)){
+      r.stock.n++; r.stock.colis += nombreDe(e.colis); r.stock.poids += nombreDe(e.poids);
+      var age = Math.max(0, joursEntreDates(rj, refAge)); ageSomme += age; if(age>30) r.stock.plus30++; if(age>60) r.stock.plus60++;
+    }
+  });
+  r.stock.ageMoy = r.stock.n ? ageSomme / r.stock.n : 0;
+  var ids = {};
+  (D.instances||[]).forEach(function(i){ if(i.date && i.date>=lundi && i.date<=fin){ r.tournees.n++; ids[i.id] = true; } });
+  (D.bls||[]).forEach(function(b){
+    var c = jourLocal(b.createdAt); if(c && c>=lundi && c<=fin) r.blCrees++;
+    var lv = jourLocal(b.livraison && b.livraison.le); if(lv && lv>=lundi && lv<=fin){ r.blLivres++; slot(lv).livres++; }
+    var rt = jourLocal(b.retourDepot && b.retourDepot.le); if(rt && rt>=lundi && rt<=fin) r.retours++;
+    if(b.affectation && ids[b.affectation.instanceId]) r.tournees.bl++;
+  });
+  (D.collectes||[]).forEach(function(c){ var cj = jourLocal(c.createdAt); if(cj && cj>=lundi && cj<=fin) r.collectesCreees++; });
+  return r;
+}
+function kpiInstantane(D){
+  var auj = isoLocal(new Date()), o = { enAttente:{ n:0, plusAncienne:0, plus14:0 }, aRanger:0, bl:{ incomplets:0, rdv:0, prets:0, affectes:0 }, collectes:{ aPlanifier:0, pretes:0 }, fiches:D.fiches||0 };
+  D.index.filter(function(e){ return !e.deletedAt; }).forEach(function(e){
+    if(!e.receivedAt && !e.exitedAt){
+      o.enAttente.n++; var cj = jourLocal(e.savedAt || e.date);
+      if(cj){ var a = Math.max(0, joursEntreDates(cj, auj)); if(a > o.enAttente.plusAncienne) o.enAttente.plusAncienne = a; if(a > 14) o.enAttente.plus14++; }
+    } else if(e.receivedAt && !e.exitedAt && e.itemsRanged < e.itemsTotal) o.aRanger++;
+  });
+  (D.bls||[]).forEach(function(b){
+    var st = b.statut || 'incomplet';
+    if(st==='livre' || st==='retourne' || st==='annule') return;
+    if(st==='incomplet') o.bl.incomplets++;
+    else if(st==='a_prendre_rdv' || st==='rdv_en_cours') o.bl.rdv++;
+    else if(st==='affecte_tournee') o.bl.affectes++;
+    else o.bl.prets++;
+    if(b.type==='collecte' && st!=='affecte_tournee'){ o.collectes.aPlanifier++; if(!b.disponibleLe || b.disponibleLe <= auj) o.collectes.pretes++; }
+  });
+  return o;
+}
+function kpiAlertes(sem, inst){
+  var a = [];
+  if(sem.stock.plus60) a.push({ n:'ko', t:sem.stock.plus60+' commande(s) au dépôt depuis plus de 60 jours', c:'À livrer, sortir ou facturer en priorité.' });
+  else if(sem.stock.plus30) a.push({ n:'warn', t:sem.stock.plus30+' commande(s) au dépôt depuis plus de 30 jours', c:'Vérifier avec le client.' });
+  if(inst.enAttente.plus14) a.push({ n:'warn', t:inst.enAttente.plus14+' CDE en attente depuis plus de 14 jours (plus ancienne : '+inst.enAttente.plusAncienne+' j)', c:'Relancer le fournisseur ou annuler.' });
+  if(inst.collectes.pretes) a.push({ n:'warn', t:inst.collectes.pretes+' enlèvement(s) prêt(s) à planifier', c:'Marchandise disponible : fixer la date de livraison et affecter à une tournée.' });
+  if(inst.bl.incomplets) a.push({ n:'warn', t:inst.bl.incomplets+' BL incomplet(s)', c:'Compléter les informations manquantes dans Gestion Livraisons.' });
+  if(inst.fiches) a.push({ n:'warn', t:inst.fiches+' fiche(s) de livraison à traiter', c:'Gestion Contremarques › Fiches reçues.' });
+  return a;
+}
+async function chargerDonneesKpi(force){
+  if(!force && kpiDonnees && Date.now() - kpiCharge < 60000) return kpiDonnees;
+  var D = { index:(state.historyIndex||[]).slice(), bls:[], collectes:[], instances:[], fiches:0, manques:[] };
+  async function lire(nom, ref, cible){
+    if(!ref){ D.manques.push(nom); return; }
+    try{ var sn = await ref.get(); sn.forEach(function(d){ cible.push(d.data()); }); }catch(e){ console.error('KPI '+nom, e); D.manques.push(nom); }
+  }
+  if(fsReady()){
+    await lire('bons de livraison', blColRef, D.bls);
+    await lire('collectes', collectesCol(), D.collectes);
+    await lire('tournées', configDocRef ? configDocRef.collection('tourneesPlanifiees') : null, D.instances);
+    try{ D.fiches = (await chargerFichesRecues()).length; }catch(e){ D.manques.push('fiches reçues'); }
+  } else D.manques.push('Livraisons (hors connexion)');
+  kpiDonnees = D; kpiCharge = Date.now(); return D;
+}
+function deltaKpi(cur, prev, o){
+  o = o || {}; var d = cur - prev, u = o.unite || '';
+  if(Math.abs(d) < 0.05) return '<span class="kpi-d" style="color:var(--ink-soft);">= semaine préc.</span>';
+  var bon = o.inverse ? d < 0 : d > 0, c = o.neutre ? 'var(--ink-soft)' : (bon ? 'var(--accent)' : 'var(--danger)');
+  return '<span class="kpi-d" style="color:'+c+';">'+(d>0?'▲ +':'▼ ')+fmtNb(d, o.dec||0)+u+' vs sem. préc.</span>';
+}
+function carteKpi(titre, valeur, sous, delta){
+  return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff;"><div class="hint" style="font-size:12px;margin:0;">'+escapeHtml(titre)+'</div>'+
+    '<div style="font-size:26px;font-weight:800;line-height:1.15;margin:2px 0;">'+valeur+'</div>'+(sous?'<div class="hint" style="margin:0;font-size:12px;">'+sous+'</div>':'')+(delta?'<div style="font-size:12px;margin-top:3px;">'+delta+'</div>':'')+'</div>';
+}
+function graphiqueKpi(sem){
+  var max = 1; sem.jours.forEach(function(j){ max = Math.max(max, j.recues, j.sorties, j.livres); });
+  var noms = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'], coul = { recues:'#0f6b57', sorties:'#2563eb', livres:'#e8792e' };
+  var barres = sem.jours.map(function(j, i){
+    function b(k){ return '<div title="'+k+' : '+j[k]+'" style="width:9px;background:'+coul[k]+';height:'+Math.max(2, Math.round(j[k]/max*70))+'px;border-radius:2px 2px 0 0;"></div>'; }
+    return '<div style="flex:1;text-align:center;"><div style="display:flex;align-items:flex-end;justify-content:center;gap:2px;height:76px;">'+b('recues')+b('sorties')+b('livres')+'</div>'+
+      '<div class="hint" style="margin:2px 0 0;font-size:11px;">'+noms[i]+'<br>'+fmtJourCourt(j.jour)+'</div><div style="font-size:11px;">'+j.recues+' · '+j.sorties+' · '+j.livres+'</div></div>';
+  }).join('');
+  return '<div style="display:flex;gap:2px;">'+barres+'</div><div class="hint" style="font-size:11.5px;margin-top:6px;"><span style="color:'+coul.recues+';">■</span> reçues &nbsp; <span style="color:'+coul.sorties+';">■</span> sorties &nbsp; <span style="color:'+coul.livres+';">■</span> BL livrés</div>';
+}
+function librairieDest(parDest){ var k = Object.keys(parDest).sort(function(a,b){ return parDest[b]-parDest[a]; }); return k.length ? k.slice(0,3).map(function(x){ return escapeHtml(x)+' '+parDest[x]; }).join(' · ') : ''; }
+async function afficherKpi(force){
+  var ajd = isoLocal(new Date()); if(!kpiLundi) kpiLundi = lundiDe(ajd);
+  var D = await chargerDonneesKpi(force);
+  var sem = kpiPourSemaine(D, kpiLundi), prec = kpiPourSemaine(D, plusJours(kpiLundi, -7)), inst = kpiInstantane(D), courante = (kpiLundi === lundiDe(ajd));
+  kpiCourant = { sem:sem, prec:prec, inst:inst, courante:courante };
+  var w = semaineISO(kpiLundi);
+  document.getElementById('kpiSemaineLabel').innerHTML = 'Semaine '+w.semaine+' · '+w.annee+'<div class="hint" style="margin:0;font-weight:400;">du '+fmtJourCourt(sem.lundi)+' au '+fmtJourCourt(sem.fin)+'/'+sem.fin.slice(0,4)+(courante?' · en cours':'')+'</div>';
+  document.getElementById('kpiNext').disabled = courante || kpiLundi > lundiDe(ajd);
+  document.getElementById('kpiAvert').textContent = D.manques.length ? '⚠ Données indisponibles : '+D.manques.join(', ')+'. Les chiffres correspondants sont incomplets.' : '';
+  var cmrPct = sem.cmr.recues ? Math.round(sem.cmr.avecCmr / sem.cmr.recues * 100) : null, cmrPrec = prec.cmr.recues ? Math.round(prec.cmr.avecCmr / prec.cmr.recues * 100) : null;
+  var cartes = [
+    carteKpi('Commandes reçues', sem.recues.n, fmtNb(sem.recues.colis)+' colis · '+fmtNb(sem.recues.poids, 1)+' kg', deltaKpi(sem.recues.n, prec.recues.n)),
+    carteKpi('Commandes sorties', sem.sorties.n, librairieDest(sem.sorties.parDest), deltaKpi(sem.sorties.n, prec.sorties.n)),
+    carteKpi('BL livrés', sem.blLivres, sem.blCrees+' BL créé(s)', deltaKpi(sem.blLivres, prec.blLivres)),
+    carteKpi('Retours au dépôt', sem.retours, 'livraisons non abouties', deltaKpi(sem.retours, prec.retours, { inverse:true })),
+    carteKpi('Au dépôt (fin de semaine)', sem.stock.n, fmtNb(sem.stock.colis)+' colis · '+fmtNb(sem.stock.poids, 1)+' kg<br>âge moyen '+fmtNb(sem.stock.ageMoy, 1)+' j', deltaKpi(sem.stock.n, prec.stock.n, { neutre:true })),
+    carteKpi('CMR reçu', cmrPct===null ? '—' : cmrPct+' %', sem.cmr.avecCmr+' / '+sem.cmr.recues+' commandes reçues', cmrPct===null || cmrPrec===null ? '' : deltaKpi(cmrPct, cmrPrec, { unite:' pt' })),
+    carteKpi('Avaries', sem.avaries.commandes, sem.avaries.colis+' colis concerné(s)', deltaKpi(sem.avaries.commandes, prec.avaries.commandes, { inverse:true })),
+    carteKpi('Délai moyen de stockage', sem.delaiSortie.n ? fmtNb(sem.delaiSortie.somme / sem.delaiSortie.n, 1)+' j' : '—', 'des '+sem.delaiSortie.n+' commande(s) sortie(s)', sem.delaiSortie.n && prec.delaiSortie.n ? deltaKpi(sem.delaiSortie.somme / sem.delaiSortie.n, prec.delaiSortie.somme / prec.delaiSortie.n, { inverse:true, dec:1, unite:' j' }) : ''),
+    carteKpi('Enlèvements créés', sem.collectesCreees, 'collectes marchandise', deltaKpi(sem.collectesCreees, prec.collectesCreees)),
+    carteKpi('Tournées de la semaine', sem.tournees.n, sem.tournees.bl+' BL affecté(s)', deltaKpi(sem.tournees.n, prec.tournees.n, { neutre:true }))
+  ].join('');
+  var al = kpiAlertes(sem, inst), icone = { ko:'❌', warn:'⚠️' }, coul = { ko:'var(--danger)', warn:'#9a6700' };
+  var alertes = al.length ? al.map(function(a){ return '<div class="base-row" style="display:block;border-left:4px solid '+coul[a.n]+';padding-left:10px;margin-bottom:8px;"><div><strong>'+icone[a.n]+' '+escapeHtml(a.t)+'</strong></div><div class="hint" style="margin-top:2px;">'+escapeHtml(a.c)+'</div></div>'; }).join('') : '<div class="hint">✅ Rien à signaler.</div>';
+  var enCeMoment = [
+    ['CDE en attente', inst.enAttente.n + (inst.enAttente.n ? ' (plus ancienne : '+inst.enAttente.plusAncienne+' j)' : '')], ['Marchandise à ranger', inst.aRanger],
+    ['BL incomplets', inst.bl.incomplets], ['BL à prendre RDV', inst.bl.rdv], ['BL prêts pour une tournée', inst.bl.prets], ['BL affectés à une tournée', inst.bl.affectes],
+    ['Enlèvements à planifier', inst.collectes.aPlanifier+(inst.collectes.aPlanifier ? ' (dont '+inst.collectes.pretes+' prêt(s))' : '')], ['Fiches de livraison à traiter', inst.fiches]
+  ].map(function(x){ return '<div class="base-row"><span>'+escapeHtml(x[0])+'</span><strong>'+escapeHtml(String(x[1]))+'</strong></div>'; }).join('');
+  document.getElementById('kpiBody').innerHTML =
+    '<div class="card"><h2 style="font-size:15px;">À surveiller</h2>'+alertes+'</div>'+
+    '<div class="card"><h2 style="font-size:15px;">Indicateurs de la semaine</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'+cartes+'</div></div>'+
+    '<div class="card"><h2 style="font-size:15px;">Activité jour par jour</h2>'+graphiqueKpi(sem)+'</div>'+
+    '<div class="card"><h2 style="font-size:15px;">En ce moment</h2><p class="hint" style="margin:0 0 8px;">Photo à l\'instant, quelle que soit la semaine affichée.</p>'+enCeMoment+'</div>'+
+    '<div class="card"><h2 style="font-size:15px;">Comment lire ces chiffres</h2><p class="hint" style="margin:0;">Une semaine va du lundi au dimanche. « Au dépôt » = commandes reçues et pas encore sorties à la fin de la semaine (un retour au dépôt est compté depuis la première réception : estimation). Les variations comparent à la semaine précédente ; ▲ vert = amélioration, ▼ rouge = dégradation (pour les retours, avaries et délais, une baisse est favorable).</p></div>';
+}
+function genererRapportKpiPdf(){
+  if(!kpiCourant){ banner('Ouvre d\'abord le tableau de bord'); return; }
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible'); return; }
+  var k = kpiCourant, sem = k.sem, prec = k.prec, inst = k.inst, w = semaineISO(sem.lundi);
+  var doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4' }), M = 14, y = 16, W = 210;
+  function T(t, x, yy, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||9.5); doc.setTextColor.apply(doc, o.color||[17,24,39]); doc.text(String(t), x, yy, o.align?{align:o.align}:undefined); }
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; }) || {};
+  T('STLS', M, y, { bold:true, size:22 }); T('Tableau de bord hebdomadaire', W-M, y-5, { bold:true, size:14, align:'right' });
+  T('Semaine '+w.semaine+' · '+w.annee+' — du '+autFr(sem.lundi)+' au '+autFr(sem.fin), W-M, y+1, { size:10, align:'right', color:[95,100,110] });
+  T('Dépôt '+(state.currentAgencyCode||'')+(ag.name ? ' — '+ag.name : ''), W-M, y+6.5, { size:9, align:'right', color:[95,100,110] });
+  doc.setDrawColor(15,110,86); doc.setLineWidth(0.6); doc.line(M, y+10, W-M, y+10); y += 18;
+  function entete(titre){ doc.setFillColor(31,41,55); doc.roundedRect(M, y, W-2*M, 6, 1, 1, 'F'); T(titre.toUpperCase(), M+3, y+4.2, { bold:true, size:8.5, color:[255,255,255] }); y += 9; }
+  entete('Indicateurs de la semaine');
+  T('Indicateur', M+1, y, { bold:true, size:8.5, color:[95,100,110] }); T('Semaine', 118, y, { bold:true, size:8.5, color:[95,100,110], align:'right' }); T('Sem. préc.', 148, y, { bold:true, size:8.5, color:[95,100,110], align:'right' }); T('Évolution', W-M-1, y, { bold:true, size:8.5, color:[95,100,110], align:'right' }); y += 2;
+  var cmrP = sem.cmr.recues ? Math.round(sem.cmr.avecCmr/sem.cmr.recues*100) : null, cmrQ = prec.cmr.recues ? Math.round(prec.cmr.avecCmr/prec.cmr.recues*100) : null;
+  var dm = sem.delaiSortie.n ? sem.delaiSortie.somme/sem.delaiSortie.n : null, dq = prec.delaiSortie.n ? prec.delaiSortie.somme/prec.delaiSortie.n : null;
+  var lignes = [
+    ['Commandes reçues', sem.recues.n, prec.recues.n, 0, ''], ['   colis reçus', sem.recues.colis, prec.recues.colis, 0, ''], ['   poids reçu (kg)', sem.recues.poids, prec.recues.poids, 1, ''],
+    ['Commandes sorties', sem.sorties.n, prec.sorties.n, 0, ''], ['BL livrés', sem.blLivres, prec.blLivres, 0, ''], ['BL créés', sem.blCrees, prec.blCrees, 0, ''], ['Retours au dépôt', sem.retours, prec.retours, 0, ''],
+    ['Commandes au dépôt (fin de semaine)', sem.stock.n, prec.stock.n, 0, ''], ['   âge moyen (jours)', sem.stock.ageMoy, prec.stock.ageMoy, 1, ''],
+    ['CMR reçu (% des commandes reçues)', cmrP, cmrQ, 0, ' %'], ['Avaries (commandes)', sem.avaries.commandes, prec.avaries.commandes, 0, ''],
+    ['Délai moyen de stockage des sorties (j)', dm, dq, 1, ''], ['Enlèvements créés', sem.collectesCreees, prec.collectesCreees, 0, ''], ['Tournées', sem.tournees.n, prec.tournees.n, 0, '']
+  ];
+  lignes.forEach(function(l, i){
+    y += 5.6; if(i%2===0){ doc.setFillColor(246,247,248); doc.rect(M, y-4, W-2*M, 5.6, 'F'); }
+    var v = l[1], p = l[2]; T(l[0], M+1, y, { size:9.2 });
+    T(v==null ? '—' : fmtNb(v, l[3])+(l[4]||''), 118, y, { bold:true, size:9.2, align:'right' }); T(p==null ? '—' : fmtNb(p, l[3])+(l[4]||''), 148, y, { size:9.2, align:'right', color:[95,100,110] });
+    var d = (v==null || p==null) ? null : v - p; T(d==null ? '—' : (Math.abs(d)<0.05 ? '=' : (d>0?'+':'-')+fmtNb(Math.abs(d), l[3])), W-M-1, y, { size:9.2, align:'right' });
+  });
+  y += 10; entete('En ce moment');
+  [['CDE en attente', inst.enAttente.n+(inst.enAttente.n ? ' (plus ancienne : '+inst.enAttente.plusAncienne+' j)' : '')], ['Marchandise à ranger', inst.aRanger], ['BL incomplets', inst.bl.incomplets], ['BL à prendre RDV', inst.bl.rdv], ['BL prêts pour une tournée', inst.bl.prets],
+   ['BL affectés à une tournée', inst.bl.affectes], ['Enlèvements à planifier', inst.collectes.aPlanifier+' (dont '+inst.collectes.pretes+' prêt(s))'], ['Fiches de livraison à traiter', inst.fiches]].forEach(function(x){ T(x[0], M+1, y, { size:9.2 }); T(String(x[1]), W-M-1, y, { bold:true, size:9.2, align:'right' }); y += 5.2; });
+  y += 4; entete('À surveiller');
+  var al = kpiAlertes(sem, inst);
+  if(!al.length){ T('Rien à signaler.', M+1, y, { size:9.2 }); y += 6; }
+  al.forEach(function(a){ var lg = doc.splitTextToSize((a.n==='ko' ? '[URGENT] ' : '• ')+a.t+' — '+a.c, W-2*M-4); doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(a.n==='ko' ? 192 : 17, a.n==='ko' ? 57 : 24, a.n==='ko' ? 43 : 39); doc.text(lg, M+2, y); y += 4.6*lg.length + 1; });
+  doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 281, W-M, 281);
+  T('Rapport généré le '+autFr(isoLocal(new Date()))+' par '+currentIdentity()+' — '+STLS_ENTREPRISE.nom, W/2, 285, { size:6.8, color:[95,100,110], align:'center' });
+  doc.save('Tableau_de_bord_S'+w.semaine+'_'+w.annee+'_depot'+(state.currentAgencyCode||'')+'.pdf');
+  banner('Rapport généré');
+}
+document.getElementById('kpiPrev').addEventListener('click', function(){ kpiLundi = plusJours(kpiLundi || lundiDe(isoLocal(new Date())), -7); afficherKpi(false); });
+document.getElementById('kpiNext').addEventListener('click', function(){ var n = plusJours(kpiLundi, 7); if(n <= lundiDe(isoLocal(new Date()))){ kpiLundi = n; afficherKpi(false); } });
+document.getElementById('kpiToday').addEventListener('click', function(){ kpiLundi = lundiDe(isoLocal(new Date())); afficherKpi(false); });
+document.getElementById('kpiRefresh').addEventListener('click', function(){ afficherKpi(true); });
+document.getElementById('btnKpiPdf').addEventListener('click', genererRapportKpiPdf);
 
 // ================= Fiche de livraison en ligne (formulaire public + boîte de réception) =================
 var FICHE_COL = 'stls_fiches_soumissions', FICHE_PUBLIC_COL = 'stls_fiches_public';
@@ -8302,7 +8527,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), funct
 });
 
 function switchTab(name){
-  ['new','attente','ranger','hist','archive','planning','tms','base','clients','contremarques','parametres'].forEach(function(t){
+  ['new','attente','ranger','hist','archive','planning','tms','base','clients','contremarques','parametres','kpi'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
@@ -8331,6 +8556,7 @@ function switchTab(name){
   if(name==='tms'){ renderModulesGrid(); }
   if(name==='clients'){ renderClientsList(); populateClientFicheSelect(); showSubmoduleGrid('clients'); }
   if(name==='contremarques'){ renderContremarquesList(); renderFicheEnLigneCard(); renderFichesRecues(); }
+  if(name==='kpi'){ afficherKpi(true); }
   if(name==='parametres'){ renderSiegesList(); renderDepotsList(); renderTrashList(); showSubmoduleGrid('parametres'); }
   if(name==='base'){ renderEmplacementsList(); }
 }
@@ -8502,6 +8728,7 @@ var TMS_MODULES = [
   { key: 'contremarques', label: 'Gestion Contremarques', icon: '🏠', internalTab: 'contremarques' },
   { key: 'clients', label: 'Gestion Clients', icon: '🏢', internalTab: 'clients' },
   { key: 'planning', label: 'Gestion Planning', icon: '📅', internalTab: 'planning' },
+  { key: 'kpi', label: 'Tableau de bord', icon: '📊', internalTab: 'kpi' },
   { key: 'livraisons', label: 'Gestion Livraisons', icon: '🚚', url: 'livraisons.html' },
   { key: 'facturation', label: 'Gestion Facturation', icon: '🧾', comingSoon: true },
   { key: 'tarifs', label: 'Tarifs', icon: '💶', url: 'tarifs.html' },
@@ -8594,7 +8821,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0085';
+var APP_VERSION = '2026.0086';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
