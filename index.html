@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0086">
+<meta name="app-version" content="2026.0087">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -781,6 +781,34 @@
       <div id="kpiAvert" class="hint" style="margin-top:8px;"></div>
     </div>
     <div id="kpiBody"></div>
+  </section>
+
+  <!-- ===== TAB: INVENTAIRE PAR SCAN ===== -->
+  <section id="tab-inventaire" style="display:none;">
+    <div class="card" id="invAccueil">
+      <h2>📋 Inventaire par scan</h2>
+      <p class="hint" style="margin:0 0 10px;">Scanne un emplacement, puis les palettes et colis qui s'y trouvent. L'application compare avec le stock théorique et signale les écarts. Caméra, douchette ou saisie manuelle.</p>
+      <div class="btn-row" style="margin-top:0;"><button class="btn accent" id="btnInvNouveau" style="width:100%;">▶ Nouvelle session d'inventaire</button></div>
+      <div id="invReprise"></div>
+    </div>
+    <div class="card" id="invSession" style="display:none;">
+      <h2 id="invTitre"></h2>
+      <div style="border:2px solid var(--accent);border-radius:12px;padding:10px;text-align:center;margin-bottom:10px;">
+        <div class="hint" style="margin:0;">Emplacement en cours</div>
+        <div id="invEmp" style="font-size:28px;font-weight:800;letter-spacing:1px;">—</div>
+      </div>
+      <div class="field"><label for="invInput">Scanne ou tape : emplacement (AA-01-01), étiquette ou n° de commande</label>
+        <div style="display:flex;gap:8px;"><input type="text" id="invInput" autocomplete="off" autocapitalize="characters" placeholder="Douchette : le code s'inscrit ici" style="flex:1;"><button class="btn primary" id="btnInvOk" style="width:auto;">OK</button></div></div>
+      <div id="invChoix"></div>
+      <div id="invScanWrap" style="display:none;margin-bottom:10px;"><video id="invScanVideo" playsinline muted style="width:100%;border-radius:10px;"></video><canvas id="invScanCanvas" style="display:none;"></canvas></div>
+      <div class="btn-row"><button class="btn ghost" id="btnInvCam" style="width:auto;">📷 Caméra</button><button class="btn ghost" id="btnInvCamStop" style="width:auto;display:none;">⏹ Arrêter la caméra</button></div>
+      <div id="invCompteurs" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0;"></div>
+      <div id="invDerniers"></div>
+      <div id="invManquantsEmp"></div>
+      <div class="btn-row"><button class="btn ghost" id="btnInvFinEmp" style="width:auto;">✔ Terminer cet emplacement</button><button class="btn danger" id="btnInvTerminer" style="width:auto;">🏁 Terminer l'inventaire</button></div>
+    </div>
+    <div class="card" id="invResultat" style="display:none;"></div>
+    <div class="card" id="invHistorique" style="display:none;"><h2 style="font-size:15px;">Inventaires précédents</h2><div id="invListe"></div></div>
   </section>
 
   <!-- ===== TAB: GESTION CONTREMARQUES ===== -->
@@ -2989,6 +3017,7 @@ function libelleEvenement(e){
     case 'reception': return ['📥', 'Marchandise réceptionnée le '+dateCourte(d.date)];
     case 'reception_annulee': return ['↩️', 'Réception annulée : retour en « CDE en attente »'];
     case 'rangement': return ['📍', 'Rangée : '+itemsTexte(d.items)];
+    case 'inventaire': return ['📋', 'Inventaire du '+dateCourte(d.date)+' : '+(d.constat||'')+((d.de||d.vers) ? ' ('+(d.de||'—')+' → '+(d.vers||'—')+')' : '')+(d.emp ? ' à '+d.emp : '')];
     case 'deplacement': return ['🔀', 'Déplacée : '+(d.mouvements||[]).map(function(m){ return m.item+' '+m.de+' → '+m.vers; }).join(', ')];
     case 'derangement': return ['↩️', 'Remise à ranger : '+(d.items||[]).join(', ')];
     case 'affectation':
@@ -3120,6 +3149,314 @@ document.addEventListener('click', function(ev){
 });
 
 
+
+
+// ================= Inventaire par scan =================
+// Chaque article (palette P1, colis vrac V1, unique U1) est compté à l'emplacement scanné, puis comparé à sa place théorique.
+// Les codes lus sont ceux déjà imprimés : étiquette de commande (?r=…&item=…) et d'emplacement (LOC|AA-01-01).
+var inv = null, invCache = {}, invSauverTimer = null, invSessions = [], invScanStream = null, invScanRAF = null, invDernierScan = { text:null, time:0 }, invEnCours = false;
+var INV_MAX_SCANS = 2500;
+var INV_RES = { ok:['✅','Conforme'], deplace:['🔀','Mal rangé'], sorti:['⛔','Déjà sortie du dépôt'], non_recue:['📭','Pas encore réceptionnée'], corbeille:['🗑','En corbeille'], inconnu:['❓','Étiquette inconnue'], manquant:['🔎','Manquant'] };
+function invCol(){ return (fsReady() && configDocRef) ? configDocRef.collection('inventaires') : null; }
+function invNouvelId(){ return 'inv_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
+function invMaintenant(){ return new Date().toISOString(); }
+async function invRecord(id){ if(invCache[id]) return invCache[id]; var rec = await getReceptionRecord(id); if(rec) invCache[id] = rec; return rec; }
+function invTheorique(d, itemId){ var e = d.emplacements || {}; return e[itemId] || d.emplacement || ''; }
+function invEntree(ln){ ln = String(ln||'').toUpperCase(); return (state.historyIndex||[]).find(function(h){ return String(h.labelNumber||'').toUpperCase()===ln; }); }
+function invSauver(maintenant){
+  if(!inv) return Promise.resolve();
+  lsSet('inventaire-courant', JSON.stringify(inv)); clearTimeout(invSauverTimer);
+  var run = async function(){ var col = invCol(); if(!col) return; try{ await col.doc(inv.id).set(JSON.parse(JSON.stringify(inv))); }catch(e){ console.error('inventaire', e); banner('⚠ Sauvegarde de l\'inventaire impossible ('+((e && e.code)||'erreur')+')'); } };
+  if(maintenant) return run();
+  invSauverTimer = setTimeout(run, 1500); return Promise.resolve();
+}
+async function invOuvrir(){
+  invSessions = []; var col = invCol();
+  if(col){ try{ var sn = await col.get(); sn.forEach(function(d){ invSessions.push(d.data()); }); }catch(e){ console.error('inventaires', e); } }
+  invSessions.sort(function(a, b){ return String(b.debutLe||'').localeCompare(String(a.debutLe||'')); });
+  if(!inv){ var enCours = invSessions.find(function(x){ return x.statut==='en_cours'; }); if(enCours) document.getElementById('invReprise').innerHTML = '<div class="hint" style="margin:10px 0 6px;">Une session est en cours : « '+escapeHtml(enCours.nom)+' » ('+enCours.scans.length+' article(s) compté(s)).</div><div class="btn-row"><button class="btn primary" id="btnInvReprendre" style="width:100%;">↩ Reprendre cette session</button></div>'; else document.getElementById('invReprise').innerHTML = ''; var bR = document.getElementById('btnInvReprendre'); if(bR) bR.addEventListener('click', function(){ inv = enCours; invCache = {}; invAfficher(); }); }
+  invAfficher();
+}
+async function invDemarrer(){
+  if(inv && inv.statut==='en_cours' && !confirm('Une session est déjà en cours. En commencer une nouvelle ?\n(L\'ancienne reste enregistrée et reprenable.)')) return;
+  inv = { id:invNouvelId(), nom:'Inventaire du '+autFr(isoLocal(new Date())), statut:'en_cours', debutLe:invMaintenant(), par:currentIdentity(), parUid:currentUid(), emplacementCourant:'', visites:{}, scans:[], ecarts:[], resume:null };
+  invCache = {}; await invSauver(true); invAfficher();
+  setTimeout(function(){ var i = document.getElementById('invInput'); if(i) i.focus(); }, 100);
+}
+function invChoisirEmplacement(code){
+  code = String(code||'').toUpperCase();
+  if(!EMPLACEMENT_RE.test(code)){ banner('Emplacement invalide : format attendu AA-01-01'); return; }
+  var now = invMaintenant();
+  if(inv.emplacementCourant && inv.visites[inv.emplacementCourant] && !inv.visites[inv.emplacementCourant].finLe) inv.visites[inv.emplacementCourant].finLe = now;
+  inv.emplacementCourant = code;
+  if(!inv.visites[code]) inv.visites[code] = { debutLe:now }; else delete inv.visites[code].finLe;
+  document.getElementById('invManquantsEmp').innerHTML = '';
+  banner('Emplacement '+code+(isEmplacementNonUtilisable(code) ? ' — marqué non utilisable (inventaire possible)' : ''));
+  invSauver(); invAfficher();
+}
+// classe un article scanné : retourne { res, theo, id, client, contremarque }
+async function invClasser(ln, itemId, emp){
+  var h = invEntree(ln);
+  if(!h) return { res:'inconnu', theo:'', note:'Aucune commande '+ln };
+  var base = { id:h.id, client:h.client||'', contremarque:h.contremarque||'' };
+  if(h.deletedAt) return Object.assign(base, { res:'corbeille', theo:'' });
+  if(h.exitedAt) return Object.assign(base, { res:'sorti', theo:'', note:'Sortie le '+jourLocal(h.exitedAt) });
+  if(!h.receivedAt) return Object.assign(base, { res:'non_recue', theo:'' });
+  var rec = await invRecord(h.id);
+  if(!rec) return Object.assign(base, { res:'inconnu', theo:'', note:'Commande illisible' });
+  if(!computeLabels(rec.data).some(function(m){ return m.itemId===itemId; })) return Object.assign(base, { res:'inconnu', theo:'', note:'Article '+itemId+' inexistant sur cette commande' });
+  var theo = invTheorique(rec.data, itemId);
+  return Object.assign(base, { res: theo===emp ? 'ok' : 'deplace', theo:theo });
+}
+async function invCompter(ln, itemId){
+  if(!inv.emplacementCourant){ banner('Scanne d\'abord un emplacement'); return; }
+  ln = String(ln||'').toUpperCase();
+  if(!itemId){   // numéro de commande seul : l'article est évident s'il n'y en a qu'un, sinon on demande lequel
+    var h0 = invEntree(ln);
+    if(h0 && h0.receivedAt && !h0.exitedAt && !h0.deletedAt){
+      var rec0 = await invRecord(h0.id), items0 = rec0 ? computeLabels(rec0.data) : [];
+      if(items0.length===1) itemId = items0[0].itemId;
+      else if(items0.length>1){ invProposerArticles(ln, items0, rec0.data); return; }
+    }
+    if(!itemId) itemId = 'U1';
+  }
+  itemId = String(itemId).toUpperCase();
+  var dej = inv.scans.find(function(x){ return x.ln===ln && x.item===itemId; });
+  if(dej){ banner('Déjà compté : '+ln+' '+itemId+(dej.emp ? ' à '+dej.emp : '')); return; }
+  if(inv.scans.length >= INV_MAX_SCANS){ banner('Limite de '+INV_MAX_SCANS+' articles atteinte : termine cette session'); return; }
+  var c = await invClasser(ln, itemId, inv.emplacementCourant);
+  inv.scans.push({ ln:ln, item:itemId, emp:inv.emplacementCourant, res:c.res, theo:c.theo||'', id:c.id||'', client:c.client||'', contremarque:c.contremarque||'', note:c.note||'', le:invMaintenant() });
+  if(c.res==='ok') playBeep();
+  banner(INV_RES[c.res][0]+' '+ln+' '+itemId+' — '+INV_RES[c.res][1]+(c.res==='deplace' ? ' (théorique : '+(c.theo||'non rangé')+')' : ''));
+  document.getElementById('invChoix').innerHTML = '';
+  invSauver(); invAfficher();
+}
+function invProposerArticles(ln, items, d){
+  var h = '<div class="hint" style="font-weight:600;margin:6px 0;">Commande '+escapeHtml(ln)+' : quel article compter ?</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'+
+    items.map(function(m){ var th = invTheorique(d, m.itemId); return '<button class="btn ghost inv-art" data-ln="'+escapeHtml(ln)+'" data-item="'+m.itemId+'" style="width:auto;padding:8px 12px;">'+escapeHtml(m.posLabel || m.itemId)+(th ? ' <span class="hint">('+escapeHtml(th)+')</span>' : '')+'</button>'; }).join('')+'</div>';
+  document.getElementById('invChoix').innerHTML = h;
+}
+async function invTraiterTexte(text){
+  if(!inv || inv.statut!=='en_cours' || invEnCours) return;
+  text = String(text||'').trim(); if(!text) return;
+  invEnCours = true;
+  try{
+    var m = text.match(/LOC\|([A-Za-z0-9]{2}-[A-Za-z0-9]{2}-[A-Za-z0-9]{2})/);
+    if(m){ invChoisirEmplacement(m[1]); return; }
+    if(EMPLACEMENT_RE.test(text.toUpperCase())){ invChoisirEmplacement(text); return; }
+    try{ var u = new URL(text), ln = u.searchParams.get('r'); if(ln){ await invCompter(ln, u.searchParams.get('item')); return; } }catch(e){}
+    var m2 = text.toUpperCase().match(/^(R\d+)(?:[\s\/:_-]+([PVU]\d+))?$/);
+    if(m2){ await invCompter(m2[1], m2[2] || null); return; }
+    banner('Code non reconnu : scanne une étiquette de commande ou d\'emplacement');
+  } finally { invEnCours = false; }
+}
+// manquants : articles que le système place dans un emplacement visité et qui n'ont été scannés nulle part
+async function invManquantsPour(codes){
+  var vus = {}; inv.scans.forEach(function(x){ vus[x.ln+'|'+x.item] = true; }); var out = [];
+  var cands = (state.historyIndex||[]).filter(function(h){ return !h.deletedAt && h.receivedAt && !h.exitedAt && h.emplacement; });
+  for(var i=0;i<cands.length;i++){
+    var h = cands[i], emps = String(h.emplacement).split(', ');
+    if(!codes.some(function(c){ return emps.indexOf(c)>=0; })) continue;
+    var rec = await invRecord(h.id); if(!rec) continue;
+    computeLabels(rec.data).forEach(function(m){
+      var th = invTheorique(rec.data, m.itemId);
+      if(codes.indexOf(th)>=0 && !vus[String(h.labelNumber).toUpperCase()+'|'+m.itemId]) out.push({ type:'manquant', ln:String(h.labelNumber).toUpperCase(), item:m.itemId, theo:th, id:h.id, client:h.client||'', contremarque:h.contremarque||'' });
+    });
+  }
+  return out;
+}
+async function invCalculerEcarts(){
+  var ec = [];
+  inv.scans.forEach(function(x){ if(x.res!=='ok') ec.push({ type:x.res, ln:x.ln, item:x.item, constate:x.emp, theo:x.theo, id:x.id, client:x.client, contremarque:x.contremarque, note:x.note }); });
+  (await invManquantsPour(Object.keys(inv.visites))).forEach(function(m){ ec.push(m); });
+  ec.forEach(function(e, i){ e.n = i+1; });
+  return ec;
+}
+function invResume(){
+  var ok = inv.scans.filter(function(x){ return x.res==='ok'; }).length, dep = inv.ecarts.filter(function(e){ return e.type==='deplace'; }).length, man = inv.ecarts.filter(function(e){ return e.type==='manquant'; }).length;
+  var ano = inv.ecarts.filter(function(e){ return ['sorti','non_recue','corbeille','inconnu'].indexOf(e.type)>=0; }).length, base = ok + dep + man;
+  return { scannes:inv.scans.length, conformes:ok, deplaces:dep, manquants:man, anomalies:ano, emplacements:Object.keys(inv.visites).length, taux: base ? Math.round(ok / base * 100) : null };
+}
+function invCompteursHtml(){
+  var c = { ok:0, deplace:0, ano:0 }; inv.scans.forEach(function(x){ if(x.res==='ok') c.ok++; else if(x.res==='deplace') c.deplace++; else c.ano++; });
+  function box(v, l, col){ return '<div style="border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;"><div style="font-size:20px;font-weight:800;color:'+col+';">'+v+'</div><div class="hint" style="margin:0;font-size:11px;">'+l+'</div></div>'; }
+  return box(inv.scans.length, 'comptés', 'var(--ink)')+box(c.ok, 'conformes', 'var(--accent)')+box(c.deplace, 'mal rangés', '#9a6700')+box(c.ano, 'anomalies', 'var(--danger)');
+}
+function invAfficher(){
+  var actif = !!(inv && inv.statut==='en_cours'), fini = !!(inv && inv.statut==='terminee');
+  document.getElementById('invAccueil').style.display = (actif || fini) ? 'none' : 'block';
+  document.getElementById('invSession').style.display = actif ? 'block' : 'none';
+  document.getElementById('invResultat').style.display = fini ? 'block' : 'none';
+  document.getElementById('invHistorique').style.display = (!actif && invSessions.length) ? 'block' : 'none';
+  if(actif){
+    document.getElementById('invTitre').textContent = '📋 '+inv.nom;
+    document.getElementById('invEmp').textContent = inv.emplacementCourant || '—';
+    document.getElementById('invCompteurs').innerHTML = invCompteursHtml();
+    var der = inv.scans.slice(-8).reverse();
+    document.getElementById('invDerniers').innerHTML = der.length ? '<div class="hint" style="font-weight:600;margin-bottom:4px;">Derniers articles comptés</div>'+der.map(function(x){
+      var r = INV_RES[x.res]; return '<div class="base-row" style="display:block;"><strong>'+r[0]+' '+escapeHtml(x.ln)+' '+escapeHtml(x.item)+'</strong> <span class="hint">— '+escapeHtml(x.emp)+' · '+escapeHtml(r[1])+(x.res==='deplace' ? ' (théorique : '+escapeHtml(x.theo||'non rangé')+')' : '')+(x.contremarque ? ' · '+escapeHtml(x.contremarque) : '')+'</span></div>'; }).join('') : '<div class="hint">Scanne un emplacement, puis les articles qui s\'y trouvent.</div>';
+  }
+  if(fini) invRendreResultat();
+  document.getElementById('invListe').innerHTML = invSessions.map(function(x){
+    var r = x.resume || {};
+    return '<div class="hist-item"><div class="hd"><span class="nom">'+escapeHtml(x.nom)+'</span><span class="date">'+(x.statut==='en_cours' ? 'en cours' : 'terminé')+'</span></div><div class="sub">'+(x.scans||[]).length+' article(s) · '+Object.keys(x.visites||{}).length+' emplacement(s)'+(r.taux!=null ? ' · conformité '+r.taux+' %' : '')+' · par '+escapeHtml(x.par||'')+'</div><div class="actions"><button class="btn ghost inv-ouvrir" data-id="'+escapeHtml(x.id)+'" style="width:auto;">'+(x.statut==='en_cours' ? 'Reprendre' : 'Ouvrir le bilan')+'</button></div></div>'; }).join('');
+}
+function invLibEcart(e){
+  var r = INV_RES[e.type];
+  var l = r[0]+' <strong>'+escapeHtml(e.ln)+' '+escapeHtml(e.item)+'</strong> — '+escapeHtml(e.contremarque || e.client || '');
+  if(e.type==='deplace') return l+'<div class="hint">trouvé à <strong>'+escapeHtml(e.constate)+'</strong>, théoriquement à '+escapeHtml(e.theo || 'non rangé')+'</div>';
+  if(e.type==='manquant') return l+'<div class="hint">attendu à <strong>'+escapeHtml(e.theo)+'</strong>, non scanné</div>';
+  return l+'<div class="hint">'+escapeHtml(r[1])+' · constaté à '+escapeHtml(e.constate||'—')+(e.note ? ' · '+escapeHtml(e.note) : '')+'</div>';
+}
+function invRendreResultat(){
+  var r = inv.resume || invResume(), ec = inv.ecarts || [];
+  var sections = [['deplace','Articles mal rangés'], ['manquant','Articles manquants'], ['sorti','Marchandise présente alors qu\'elle est sortie'], ['non_recue','Marchandise présente mais non réceptionnée'], ['corbeille','Commandes en corbeille présentes'], ['inconnu','Étiquettes inconnues']];
+  var html = '<h2>🏁 Bilan — '+escapeHtml(inv.nom)+'</h2>'+
+    '<div style="text-align:center;margin:6px 0 12px;"><div style="font-size:34px;font-weight:800;color:'+(r.taux==null ? 'var(--ink)' : (r.taux>=95 ? 'var(--accent)' : (r.taux>=80 ? '#9a6700' : 'var(--danger)')))+';">'+(r.taux==null ? '—' : r.taux+' %')+'</div><div class="hint" style="margin:0;">de conformité</div></div>'+
+    '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;">'+[[r.scannes,'comptés'],[r.conformes,'conformes'],[r.deplaces,'mal rangés'],[r.manquants,'manquants'],[r.anomalies,'anomalies']].map(function(x){ return '<div style="border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;"><div style="font-size:18px;font-weight:800;">'+x[0]+'</div><div class="hint" style="margin:0;font-size:10.5px;">'+x[1]+'</div></div>'; }).join('')+'</div>'+
+    '<div class="hint" style="margin-bottom:8px;">'+r.emplacements+' emplacement(s) visité(s) : '+Object.keys(inv.visites).sort().map(escapeHtml).join(', ')+'. Seuls ces emplacements sont contrôlés : rien n\'est déclaré manquant ailleurs.</div>';
+  sections.forEach(function(sec){
+    var l = ec.filter(function(e){ return e.type===sec[0]; }); if(!l.length) return;
+    html += '<h3 style="font-size:14px;margin:14px 0 6px;">'+sec[1]+' ('+l.length+')</h3>';
+    if(sec[0]==='deplace' && l.some(function(e){ return !e.corrigeLe; })) html += '<div class="btn-row" style="margin:0 0 6px;"><button class="btn accent inv-act" data-act="corrigertous" style="width:100%;">✅ Corriger les emplacements ('+l.filter(function(e){ return !e.corrigeLe; }).length+')</button></div>';
+    html += l.map(function(e){
+      var act = '';
+      if(e.type==='deplace') act = e.corrigeLe ? '<span class="hint" style="color:var(--accent);">✔ emplacement corrigé</span>' : '<button class="btn ghost inv-act" data-act="corriger" data-n="'+e.n+'" style="width:auto;padding:6px 10px;font-size:12.5px;color:var(--accent);border-color:var(--accent);">Corriger → '+escapeHtml(e.constate)+'</button>';
+      if(e.type==='manquant') act = e.signaleLe ? '<span class="hint" style="color:#9a6700;">⚠ signalé introuvable</span>' : '<button class="btn ghost inv-act" data-act="introuvable" data-n="'+e.n+'" style="width:auto;padding:6px 10px;font-size:12.5px;color:#9a6700;border-color:#9a6700;">Signaler introuvable</button>';
+      return '<div class="base-row" style="display:block;">'+invLibEcart(e)+(act ? '<div style="margin-top:4px;">'+act+'</div>' : '')+'</div>';
+    }).join('');
+  });
+  if(!ec.length) html += '<div class="hint" style="margin:10px 0;">✅ Aucun écart constaté sur les emplacements visités.</div>';
+  html += '<div class="btn-row"><button class="btn primary inv-act" data-act="pdf" style="width:auto;">📄 Rapport PDF</button><button class="btn ghost inv-act" data-act="csv" style="width:auto;">⬇ Export CSV</button><button class="btn ghost inv-act" data-act="fermer" style="width:auto;">Fermer</button></div>';
+  document.getElementById('invResultat').innerHTML = html;
+}
+async function invAppliquerDeplacement(e){
+  var h = invEntree(e.ln); if(!h) throw new Error('commande introuvable');
+  var rec = await getReceptionRecord(h.id); if(!rec) throw new Error('commande introuvable');
+  if(rec.data.exitedAt || rec.data.deletedAt) throw new Error('commande sortie ou supprimée depuis');
+  if(isEmplacementNonUtilisable(e.constate)) throw new Error(e.constate+' est marqué non utilisable');
+  if(!rec.data.emplacements) rec.data.emplacements = {};
+  var avant = invTheorique(rec.data, e.item);
+  rec.data.emplacements[e.item] = e.constate;
+  ajouterEvenements(rec.data, [evenement('inventaire', { date:isoLocal(new Date()), constat:'emplacement corrigé', de:avant || 'non rangé', vers:e.constate, session:inv.id })]);
+  await saveReceptionRecord(h.id, rec);
+  ensureEmplacementEntry(e.constate); await saveBase();
+  var ix = state.historyIndex.findIndex(function(x){ return x.id===h.id; }); if(ix>=0) state.historyIndex[ix] = recordToIndexEntry(rec);
+  invCache[h.id] = rec; e.corrigeLe = invMaintenant(); e.corrigePar = currentIdentity();
+}
+async function invActions(act, n){
+  var ec = inv.ecarts || [], e = ec.find(function(x){ return x.n===n; });
+  if(act==='corriger' || act==='corrigertous'){
+    var liste = act==='corriger' ? [e] : ec.filter(function(x){ return x.type==='deplace' && !x.corrigeLe; });
+    if(!liste.length) return;
+    if(act==='corrigertous' && !confirm('Corriger l\'emplacement de '+liste.length+' article(s) ?\nLe stock théorique sera aligné sur ce que tu as constaté, et chaque commande gardera la trace dans son journal.')) return;
+    var ko = [];
+    for(var i=0;i<liste.length;i++){ try{ await invAppliquerDeplacement(liste[i]); }catch(err){ ko.push(liste[i].ln+' '+liste[i].item+' ('+err.message+')'); } }
+    await invSauver(true); renderHistory(); renderToRangeList(); invAfficher();
+    banner(ko.length ? '⚠ '+(liste.length-ko.length)+' corrigé(s), '+ko.length+' refusé(s) : '+ko.join(' ; ') : (liste.length+' emplacement(s) corrigé(s)'));
+  } else if(act==='introuvable'){
+    var h = invEntree(e.ln); if(!h) return;
+    var rec = await getReceptionRecord(h.id); if(!rec) return;
+    ajouterEvenements(rec.data, [evenement('inventaire', { date:isoLocal(new Date()), constat:'introuvable à l\'inventaire', emp:e.theo, session:inv.id })]);
+    await saveReceptionRecord(h.id, rec); e.signaleLe = invMaintenant(); e.signalePar = currentIdentity();
+    await invSauver(true); invAfficher(); banner('Signalé dans le journal de la commande '+e.ln);
+  } else if(act==='pdf') invRapportPdf();
+  else if(act==='csv') invCsv();
+  else if(act==='fermer'){ inv = null; await invOuvrir(); }
+}
+async function invTerminer(){
+  if(!inv.scans.length){ banner('Aucun article compté'); return; }
+  if(!confirm('Terminer l\'inventaire ?\n\n'+inv.scans.length+' article(s) compté(s) dans '+Object.keys(inv.visites).length+' emplacement(s). Les articles attendus dans ces emplacements et non scannés seront déclarés manquants.')) return;
+  var btn = document.getElementById('btnInvTerminer'); btn.disabled = true; btn.textContent = 'Calcul des écarts…';
+  try{
+    var now = invMaintenant(); Object.keys(inv.visites).forEach(function(c){ if(!inv.visites[c].finLe) inv.visites[c].finLe = now; });
+    inv.ecarts = await invCalculerEcarts(); inv.resume = invResume(); inv.statut = 'terminee'; inv.finLe = now; inv.emplacementCourant = '';
+    invStopScan(); await invSauver(true); invAfficher(); window.scrollTo({ top:0, behavior:'smooth' });
+  } finally { btn.disabled = false; btn.textContent = '🏁 Terminer l\'inventaire'; }
+}
+async function invFinEmplacement(){
+  if(!inv.emplacementCourant){ banner('Aucun emplacement en cours'); return; }
+  var code = inv.emplacementCourant, m = await invManquantsPour([code]);
+  var h = document.getElementById('invManquantsEmp');
+  h.innerHTML = m.length ? '<div class="base-row" style="display:block;border-left:4px solid var(--danger);padding-left:10px;margin:8px 0;"><strong>🔎 '+m.length+' article(s) attendu(s) à '+escapeHtml(code)+' et non scanné(s)</strong>'+m.map(function(x){ return '<div class="hint">'+escapeHtml(x.ln)+' '+escapeHtml(x.item)+' — '+escapeHtml(x.contremarque || x.client)+'</div>'; }).join('')+'<div class="hint" style="margin-top:4px;">Cherche-les avant de passer à l\'emplacement suivant : s\'ils sont ailleurs, scanne-les à leur emplacement.</div></div>'
+    : '<div class="hint" style="margin:8px 0;color:var(--accent);">✅ '+escapeHtml(code)+' : rien ne manque.</div>';
+  if(inv.visites[code]) inv.visites[code].finLe = invMaintenant();
+  inv.emplacementCourant = ''; document.getElementById('invEmp').textContent = '—'; invSauver(); invAfficher();
+}
+function invCsv(){
+  var ec = inv.ecarts || [], lignes = [['Type','Commande','Article','Client','Contremarque','Emplacement théorique','Emplacement constaté','Constat','Corrigé le']];
+  ec.forEach(function(e){ lignes.push([INV_RES[e.type][1], e.ln, e.item, e.client||'', e.contremarque||'', e.theo||'', e.constate||'', e.note||'', e.corrigeLe ? jourLocal(e.corrigeLe) : '']); });
+  var csv = '\ufeff' + lignes.map(function(l){ return l.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(';'); }).join('\r\n');
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8' })); a.download = 'inventaire_'+jourLocal(inv.debutLe)+'_depot'+(state.currentAgencyCode||'')+'.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  banner('Export CSV généré');
+}
+function invRapportPdf(){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible'); return; }
+  var r = inv.resume || invResume(), ec = inv.ecarts || [], doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4' }), M = 14, W = 210, y = 16;
+  function T(t, x, yy, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||9.5); doc.setTextColor.apply(doc, o.color||[17,24,39]); doc.text(String(t), x, yy, o.align?{align:o.align}:undefined); }
+  function page(h){ if(y + h > 272){ doc.addPage(); y = 16; } }
+  var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; }) || {};
+  T('STLS', M, y, { bold:true, size:22 }); T("Rapport d'inventaire", W-M, y-5, { bold:true, size:14, align:'right' });
+  T(inv.nom+' — dépôt '+(state.currentAgencyCode||'')+(ag.name ? ' '+ag.name : ''), W-M, y+1, { size:9.5, align:'right', color:[95,100,110] });
+  T('Réalisé par '+(inv.par||'')+' · du '+autFr(jourLocal(inv.debutLe))+(inv.finLe ? ' au '+autFr(jourLocal(inv.finLe)) : ''), W-M, y+6.5, { size:8.8, align:'right', color:[95,100,110] });
+  doc.setDrawColor(15,110,86); doc.setLineWidth(0.6); doc.line(M, y+10, W-M, y+10); y += 18;
+  doc.setFillColor(236,246,242); doc.roundedRect(M, y, W-2*M, 18, 1.5, 1.5, 'F');
+  T('CONFORMITÉ', M+4, y+5.5, { bold:true, size:7.5, color:[95,100,110] }); T(r.taux==null ? '—' : r.taux+' %', M+4, y+13.5, { bold:true, size:18, color:[15,110,86] });
+  [[r.scannes,'comptés'],[r.conformes,'conformes'],[r.deplaces,'mal rangés'],[r.manquants,'manquants'],[r.anomalies,'anomalies']].forEach(function(x, i){ T(String(x[0]), 70+i*26, y+10, { bold:true, size:13, align:'center' }); T(x[1], 70+i*26, y+15, { size:7.5, align:'center', color:[95,100,110] }); });
+  y += 24;
+  var vis = Object.keys(inv.visites).sort().join(', '); var lv = doc.splitTextToSize('Emplacements contrôlés ('+r.emplacements+') : '+(vis||'—')+'. Seuls ces emplacements sont inventoriés.', W-2*M);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(95,100,110); doc.text(lv, M, y); y += 4.2*lv.length + 3;
+  [['deplace','Articles mal rangés'],['manquant','Articles manquants'],['sorti','Marchandise présente alors qu\'elle est sortie'],['non_recue','Marchandise présente mais non réceptionnée'],['corbeille','Commandes en corbeille présentes'],['inconnu','Étiquettes inconnues']].forEach(function(sec){
+    var l = ec.filter(function(e){ return e.type===sec[0]; }); if(!l.length) return;
+    page(14); doc.setFillColor(31,41,55); doc.roundedRect(M, y, W-2*M, 6, 1, 1, 'F'); T((sec[1]+' ('+l.length+')').toUpperCase(), M+3, y+4.2, { bold:true, size:8.3, color:[255,255,255] }); y += 9;
+    l.forEach(function(e, i){
+      page(6); if(i%2===0){ doc.setFillColor(246,247,248); doc.rect(M, y-3.8, W-2*M, 5.4, 'F'); }
+      T(e.ln+' '+e.item, M+1, y, { bold:true, size:8.8 }); T(doc.splitTextToSize(e.contremarque || e.client || '', 52)[0] || '', M+30, y, { size:8.8 });
+      var d = e.type==='deplace' ? 'trouvé à '+e.constate+' · prévu '+(e.theo||'non rangé') : (e.type==='manquant' ? 'attendu à '+e.theo : 'constaté à '+(e.constate||'—')+(e.note ? ' · '+e.note : ''));
+      T(doc.splitTextToSize(d, 78)[0], W-M-1-(e.corrigeLe||e.signaleLe ? 20 : 0), y, { size:8.5, align:'right', color:[55,65,81] });
+      if(e.corrigeLe) T('corrigé', W-M-1, y, { size:8, align:'right', color:[15,110,86], bold:true }); else if(e.signaleLe) T('signalé', W-M-1, y, { size:8, align:'right', color:[154,103,0], bold:true });
+      y += 5.4;
+    });
+    y += 4;
+  });
+  if(!ec.length){ page(8); T('Aucun écart constaté sur les emplacements contrôlés.', M+1, y, { size:9.5 }); y += 8; }
+  var n = doc.getNumberOfPages();
+  for(var p=1;p<=n;p++){ doc.setPage(p); doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 281, W-M, 281); T('Rapport généré le '+autFr(isoLocal(new Date()))+' — '+STLS_ENTREPRISE.nom+' — page '+p+'/'+n, W/2, 285, { size:6.8, color:[95,100,110], align:'center' }); }
+  doc.save('Inventaire_'+jourLocal(inv.debutLe)+'_depot'+(state.currentAgencyCode||'')+'.pdf'); banner('Rapport généré');
+}
+// caméra : même principe que « Ranger » et « Déplacer », indépendante des deux
+async function invStartScan(){
+  try{ invScanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } }); }catch(e){ banner('Impossible d\'accéder à la caméra'); return; }
+  var v = document.getElementById('invScanVideo'); v.srcObject = invScanStream; await v.play();
+  document.getElementById('invScanWrap').style.display = 'block'; document.getElementById('btnInvCam').style.display = 'none'; document.getElementById('btnInvCamStop').style.display = '';
+  invScanLoop();
+}
+function invStopScan(){
+  if(invScanRAF){ cancelAnimationFrame(invScanRAF); invScanRAF = null; }
+  if(invScanStream){ invScanStream.getTracks().forEach(function(t){ t.stop(); }); invScanStream = null; }
+  var w = document.getElementById('invScanWrap'); if(w) w.style.display = 'none';
+  var a = document.getElementById('btnInvCam'), b = document.getElementById('btnInvCamStop'); if(a) a.style.display = ''; if(b) b.style.display = 'none';
+}
+function invScanLoop(){
+  var v = document.getElementById('invScanVideo'), c = document.getElementById('invScanCanvas');
+  if(v.readyState === v.HAVE_ENOUGH_DATA && v.videoWidth){
+    var w = 420, h = Math.round(v.videoHeight * (w / v.videoWidth)) || 320; c.width = w; c.height = h;
+    var ctx = c.getContext('2d'); ctx.drawImage(v, 0, 0, w, h); var code = null;
+    try{ code = window.jsQR(ctx.getImageData(0, 0, w, h).data, w, h); }catch(e){}
+    if(code && code.data){ var now = Date.now(); if(code.data !== invDernierScan.text || (now - invDernierScan.time) > 2500){ invDernierScan = { text:code.data, time:now }; invTraiterTexte(code.data); } }
+  }
+  invScanRAF = requestAnimationFrame(invScanLoop);
+}
+document.getElementById('btnInvNouveau').addEventListener('click', invDemarrer);
+document.getElementById('btnInvOk').addEventListener('click', function(){ var i = document.getElementById('invInput'); var t = i.value; i.value = ''; invTraiterTexte(t); i.focus(); });
+document.getElementById('invInput').addEventListener('keydown', function(ev){ if(ev.key==='Enter'){ ev.preventDefault(); document.getElementById('btnInvOk').click(); } });
+document.getElementById('btnInvCam').addEventListener('click', invStartScan);
+document.getElementById('btnInvCamStop').addEventListener('click', invStopScan);
+document.getElementById('btnInvFinEmp').addEventListener('click', invFinEmplacement);
+document.getElementById('btnInvTerminer').addEventListener('click', invTerminer);
+document.getElementById('invChoix').addEventListener('click', function(ev){ var b = ev.target.closest('.inv-art'); if(b) invCompter(b.getAttribute('data-ln'), b.getAttribute('data-item')); });
+document.getElementById('invResultat').addEventListener('click', function(ev){ var b = ev.target.closest('.inv-act'); if(b) invActions(b.getAttribute('data-act'), parseInt(b.getAttribute('data-n'), 10)); });
+document.getElementById('invListe').addEventListener('click', function(ev){ var b = ev.target.closest('.inv-ouvrir'); if(!b) return; var x = invSessions.find(function(s){ return s.id===b.getAttribute('data-id'); }); if(x){ inv = x; invCache = {}; invAfficher(); window.scrollTo({ top:0, behavior:'smooth' }); } });
 
 // ================= Tableau de bord hebdomadaire =================
 // Semaine = lundi → dimanche (heure locale). Chaque indicateur est comparé à la semaine précédente.
@@ -8527,7 +8864,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), funct
 });
 
 function switchTab(name){
-  ['new','attente','ranger','hist','archive','planning','tms','base','clients','contremarques','parametres','kpi'].forEach(function(t){
+  ['new','attente','ranger','hist','archive','planning','tms','base','clients','contremarques','parametres','kpi','inventaire'].forEach(function(t){
     document.getElementById('tab-'+t).style.display = (t===name)?'block':'none';
   });
   Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function(btn){
@@ -8557,6 +8894,8 @@ function switchTab(name){
   if(name==='clients'){ renderClientsList(); populateClientFicheSelect(); showSubmoduleGrid('clients'); }
   if(name==='contremarques'){ renderContremarquesList(); renderFicheEnLigneCard(); renderFichesRecues(); }
   if(name==='kpi'){ afficherKpi(true); }
+  if(name!=='inventaire'){ invStopScan(); }
+  if(name==='inventaire'){ invOuvrir(); }
   if(name==='parametres'){ renderSiegesList(); renderDepotsList(); renderTrashList(); showSubmoduleGrid('parametres'); }
   if(name==='base'){ renderEmplacementsList(); }
 }
@@ -8729,6 +9068,7 @@ var TMS_MODULES = [
   { key: 'clients', label: 'Gestion Clients', icon: '🏢', internalTab: 'clients' },
   { key: 'planning', label: 'Gestion Planning', icon: '📅', internalTab: 'planning' },
   { key: 'kpi', label: 'Tableau de bord', icon: '📊', internalTab: 'kpi' },
+  { key: 'inventaire', label: 'Inventaire', icon: '📋', internalTab: 'inventaire' },
   { key: 'livraisons', label: 'Gestion Livraisons', icon: '🚚', url: 'livraisons.html' },
   { key: 'facturation', label: 'Gestion Facturation', icon: '🧾', comingSoon: true },
   { key: 'tarifs', label: 'Tarifs', icon: '💶', url: 'tarifs.html' },
@@ -8821,7 +9161,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0086';
+var APP_VERSION = '2026.0087';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
