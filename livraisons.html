@@ -405,7 +405,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0025';
+var APP_VERSION = '2026.0026';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -879,6 +879,9 @@ function renderBLManagePanel(numero, boxId){
     html += '<div class="hint" style="background:#fdecea;border:1px solid #c0392b;border-radius:8px;padding:8px 10px;margin-bottom:10px;color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — Date : '+(b.dateImperative?fmtDate(b.dateImperative):'à fixer')+'</div>';
   }
   html += '<div class="hint" style="margin-bottom:10px;">Statut actuel : <strong style="color:'+statutInfo.color+';">'+statutInfo.icon+' '+statutInfo.label+'</strong></div>';
+  if(b.type==='collecte' && (b.numeroCommandeEnlevement || b.disponibleLe)){
+    html += '<div class="hint" style="margin-bottom:10px;background:#eef6f3;border:1px solid #b9e2d3;border-radius:8px;padding:8px 10px;">📦 Enlèvement'+(b.numeroCommandeEnlevement?' — commande <strong>'+escapeHtml(b.numeroCommandeEnlevement)+'</strong>':'')+(b.disponibleLe?' · marchandise disponible à partir du <strong>'+fmtDate(b.disponibleLe)+'</strong>':'')+'</div>';
+  }
 
   html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Contrôle du BL</div>';
   html += ctrl.checks.map(function(ck){ return '<div class="sub">'+(ck.ok?'🟢':'🔴')+' '+ck.label+'</div>'; }).join('');
@@ -3098,6 +3101,15 @@ async function nextLabelNumberForCollecte(){
   return 'R'+String(n2).padStart(6,'0');
 }
 
+// autorisation d'enlèvement archivée par Gestion Dépôt : on la rouvre telle quelle
+document.getElementById('collecteList').addEventListener('click', async function(ev){
+  var b = ev.target.closest('.col-aut'); if(!b || !collectesColRef) return;
+  try{
+    var sn = await collectesColRef.doc(b.getAttribute('data-num')).collection('documents').doc(b.getAttribute('data-doc')).get();
+    if(!sn.exists){ banner('Document introuvable'); return; }
+    var d = sn.data(), a = document.createElement('a'); a.href = d.dataUrl; a.download = d.nom || 'autorisation.pdf'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }catch(e){ console.error('autorisation', e); banner('Document inaccessible ('+((e && e.code)||'erreur')+')'); }
+});
 document.getElementById('btnNewCollecte').addEventListener('click', function(){
   document.getElementById('collecteFormCard').style.display = 'block';
   document.getElementById('collecteMsg').textContent = '';
@@ -3201,6 +3213,8 @@ function renderCollecteList(){
       '<div class="hd"><span class="nom" style="color:var(--accent);font-weight:700;">'+escapeHtml(c.numero)+'</span></div>'+
       '<div class="sub">Chez '+escapeHtml(c.sourceNom||'—')+' → '+(destLabels[c.destination]||c.destination)+'</div>'+
       '<div class="sub">'+(c.dateCollecte?fmtDate(c.dateCollecte):'date à définir')+(c.creneauCollecte?' · '+escapeHtml(c.creneauCollecte):'')+' · '+(c.poidsEstime||0)+' kg · '+(c.colisEstime||0)+' colis</div>'+
+      (c.numeroCommande?'<div class="sub">Commande <strong>'+escapeHtml(c.numeroCommande)+'</strong>'+(c.disponibleLe?' · marchandise disponible à partir du <strong>'+fmtDate(c.disponibleLe)+'</strong>':'')+'</div>':'')+
+      (c.autorisation && c.autorisation.docId?'<div class="actions"><button class="btn ghost col-aut" data-num="'+escapeHtml(c.numero)+'" data-doc="'+escapeHtml(c.autorisation.docId)+'" style="width:auto;padding:6px 10px;font-size:12.5px;">📄 Autorisation d\'enlèvement</button>'+(c.autorisation.envoyeLe?'<span class="hint" style="align-self:center;">envoyée au client le '+fmtDate(String(c.autorisation.envoyeLe).slice(0,10))+'</span>':'<span class="hint" style="align-self:center;">archivée</span>')+'</div>':'')+
       (c.resultBlNumero?'<div class="sub" style="color:var(--accent);">→ BL '+escapeHtml(c.resultBlNumero)+'</div>':'')+
       (c.resultReceptionLabel?'<div class="sub" style="color:var(--accent);">→ Étiquette '+escapeHtml(c.resultReceptionLabel)+' (CDE en attente)</div>':'')+
     '</div>';
