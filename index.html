@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0088">
+<meta name="app-version" content="2026.0089">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -680,9 +680,18 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <button type="button" class="submodule-tile" data-prefix="clients" data-key="list" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏢</div><div style="font-weight:700;color:var(--ink);">Clients</div></button>
         <button type="button" class="submodule-tile" data-prefix="clients" data-key="fiche" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📋</div><div style="font-weight:700;color:var(--ink);">Fiche client détaillée</div></button>
+        <button type="button" class="submodule-tile" data-prefix="clients" data-key="liens" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔗</div><div style="font-weight:700;color:var(--ink);">Liens contremarques</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="clients" style="display:none;"><button class="btn ghost submodule-back" data-prefix="clients" style="width:100%;">← Retour aux modules Clients</button></div>
+    <div class="submodule-content" id="sub-clients-liens" style="display:none;">
+    <div class="card">
+      <h2>🔗 Liens pour les contremarques</h2>
+      <p class="hint" style="margin:0 0 10px;">Un client qui le souhaite peut donner à ses propres clients (les contremarques) un lien en ligne vers la fiche de livraison. L'entête reprend <strong>son logo</strong> et la fiche calcule le <strong>tarif estimatif</strong> d'après le barème de Tarifs et les déclarations de la contremarque.</p>
+      <div id="liensEtatGeneral" class="hint" style="font-weight:600;"></div>
+    </div>
+    <div id="listLiensClients"></div>
+    </div>
     <div class="submodule-content" id="sub-clients-list" style="display:none;">
     <div class="card">
       <h2>🏢 Clients (<span id="cnt-clients">0000</span>)</h2>
@@ -2728,6 +2737,7 @@ function renderContremarquesList(){
     return '<div class="hist-item" data-idx="'+idx+'" data-nom="'+escapeHtml(cm.nom||'')+'" data-cmid="'+escapeHtml(cm.id||'')+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+'</span></div>'+
       (adr ? '<div class="sub">'+escapeHtml(adr)+'</div>' : '')+
+      (cm.derniereFiche && cm.derniereFiche.clientNom ? '<div class="sub" style="color:var(--accent);">🔗 Fiche reçue via le lien de '+escapeHtml(cm.derniereFiche.clientNom)+(cm.derniereFiche.tarifHT!=null ? ' · tarif annoncé '+escapeHtml(fmtE(cm.derniereFiche.tarifHT))+' HT' : '')+'</div>' : '')+
       (cm.modeReception ? '<div class="sub" style="color:var(--ink-soft);">📦 '+escapeHtml((cm.nbFournisseurs||'?')+' fournisseur(s) · '+(cm.modeReception==='depot' ? 'livraison directe au dépôt' : (cm.nbPointsEnlevement||0)+' point(s) d\'enlèvement')+(cm.colisLongLongueurCm!=null ? ' · plus long '+nbFr(cm.colisLongLongueurCm)+' cm' : '')+(cm.colisLourdPoidsKg!=null ? ' · plus lourd '+nbFr(cm.colisLourdPoidsKg)+' kg' : ''))+'</div>' : '')+
         '<div class="actions">'+
         '<button class="btn ghost" data-act="editcm">Modifier</button>'+
@@ -3811,7 +3821,10 @@ async function basculerFicheEnLigne(actif){
   if(!state.isAdmin) return false;
   var ag = (state.agenciesList||[]).find(function(a){ return a.code===state.currentAgencyCode; });
   try{
-    await db.collection(FICHE_PUBLIC_COL).doc(state.currentAgencyCode).set({ actif:!!actif, agencyName:(ag && ag.name) || state.currentAgencyCode, agence:{ nom:(ag && ag.name) || state.currentAgencyCode, adresse1:(ag && ag.adresse1) || '', cp:(ag && ag.cp) || '', ville:(ag && ag.ville) || '', tel:(ag && ag.telephone) || '' }, majLe:new Date().toISOString(), majPar:currentIdentity() }, { merge:true });
+    var anc = {}; try{ var sn0 = await db.collection(FICHE_PUBLIC_COL).doc(state.currentAgencyCode).get(); if(sn0.exists) anc = sn0.data().agence || {}; }catch(e){}
+    var agence = { nom:(ag && ag.name) || state.currentAgencyCode, adresse1:(ag && ag.adresse1) || '', cp:(ag && ag.cp) || '', ville:(ag && ag.ville) || '', tel:(ag && ag.telephone) || '' };
+    if(typeof anc.lat==='number' && typeof anc.lon==='number'){ agence.lat = anc.lat; agence.lon = anc.lon; }   // position du dépôt déjà connue : conservée
+    await db.collection(FICHE_PUBLIC_COL).doc(state.currentAgencyCode).set({ actif:!!actif, agencyName:(ag && ag.name) || state.currentAgencyCode, agence:agence, majLe:new Date().toISOString(), majPar:currentIdentity() }, { merge:true });
     ficheEnLigneActive = !!actif; return true;
   }catch(e){ banner('⚠ Impossible de modifier l\'interrupteur ('+((e && e.code)||'erreur')+')'); return false; }
 }
@@ -3882,6 +3895,8 @@ function appliquerFicheAContremarque(f, cm){
   FICHE_TEXTES.forEach(function(k){ var nv = String(f[k]==null?'':f[k]).trim(); if(nv) cm[k] = nv; });
   FICHE_COCHES.forEach(function(k){ cm[k] = !!f[k]; });
   cm.derniereFiche = { numero:f.numero, le:new Date().toISOString(), par:currentIdentity() };
+  if(f.clientCode){ cm.derniereFiche.clientCode = f.clientCode; cm.derniereFiche.clientNom = f.clientNom || ''; }
+  if(f.tarifHT!=null){ cm.derniereFiche.tarifHT = f.tarifHT; cm.derniereFiche.tarifTTC = f.tarifTTC; }
 }
 function resumeFicheHtml(f){
   var oui = function(ks){ return ks.filter(function(k){ return f[k]; }).map(function(k){ return FICHE_LIBELLES[k]; }).join(', ') || '—'; };
@@ -3889,7 +3904,7 @@ function resumeFicheHtml(f){
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+
     ln('Accès', oui(['ascenseur','villa','immeuble','bureau','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose?dateCourte(f.datePose):'')+
-    ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
+    ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
 async function renderFichesRecues(){
   var el = document.getElementById('fichesRecuesList'); if(!el) return;
@@ -3900,6 +3915,7 @@ async function renderFichesRecues(){
     return '<div class="hist-item" data-num="'+escapeHtml(f.numero)+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml(f.nom+' '+f.prenom)+'</span><span class="date">'+escapeHtml(dateHeureCourte(f.createdAt))+'</span></div>'+
       '<div class="sub">'+escapeHtml(f.numero)+' · '+escapeHtml(f.cp+' '+f.ville)+(f.ref?' · réf. '+escapeHtml(f.ref):'')+(f.enseigne?' · '+escapeHtml(f.enseigne):'')+'</div>'+
+      (f.clientNom ? '<div class="sub" style="color:var(--accent);">🔗 Reçue via le lien de <strong>'+escapeHtml(f.clientNom)+'</strong>'+(f.tarifHT!=null ? ' · tarif annoncé '+escapeHtml(fmtE(f.tarifHT))+' HT' : '')+'</div>' : '')+
       '<div class="actions"><button class="btn accent fr-ouvrir">Traiter…</button></div>'+
       '<div class="fr-panel" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div></div>';
   }).join('');
@@ -4046,6 +4062,118 @@ async function creerDepuisFiche(f, cm, panel){
   return res;
 }
 
+
+
+// ================= Liens personnalisés pour les contremarques d'un client =================
+// Un document public par client : stls_fiches_clients/<agence>_<code client> (nom, logo, activation). Écriture : administrateur.
+var liensClients = {};
+function clientLienId(code){ return state.currentAgencyCode+'_'+code; }
+function ficheLienClient(code, ref){
+  var u = ficheBaseUrl() + '?a=' + encodeURIComponent(state.currentAgencyCode || '') + '&c=' + encodeURIComponent(code);
+  return ref ? u + '&ref=' + encodeURIComponent(ref) : u;
+}
+async function geocoderBAN(texte, cp){
+  var ctl = new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('delai')); }, 6000); });
+  var r = await Promise.race([fetch('https://api-adresse.data.gouv.fr/search/?q='+encodeURIComponent(texte)+'&limit=1'+(cp ? '&postcode='+encodeURIComponent(cp) : '')), ctl]);
+  if(!r.ok) throw new Error('geocodage'); var j = await r.json(), f = (j.features||[])[0];
+  return f && f.geometry && f.geometry.coordinates ? { lon:f.geometry.coordinates[0], lat:f.geometry.coordinates[1] } : null;
+}
+// le formulaire public calcule la distance dépôt → client : il lui faut la position du dépôt (publiée une fois, au mieux)
+async function assurerCoordonneesDepot(){
+  if(!state.isAdmin || !fsReady()) return;
+  try{
+    var ref = db.collection(FICHE_PUBLIC_COL).doc(state.currentAgencyCode), sn = await ref.get();
+    if(!sn.exists) return; var ag = sn.data().agence || {};
+    if(typeof ag.lat==='number' && typeof ag.lon==='number') return;
+    var a = (state.agenciesList||[]).find(function(x){ return x.code===state.currentAgencyCode; }) || {};
+    var texte = [a.adresse1, a.cp, a.ville].filter(Boolean).join(' '); if(!texte) return;
+    var pos = await geocoderBAN(texte, a.cp); if(!pos) return;
+    await ref.set({ agence:Object.assign({}, ag, { lat:pos.lat, lon:pos.lon }) }, { merge:true });
+  }catch(e){ console.error('coordonnées du dépôt', e); }
+}
+function redimensionnerLogo(file){
+  return new Promise(function(resolve, reject){
+    if(!file || !/^image\//.test(file.type)){ reject(new Error('Choisis un fichier image (PNG, JPEG…)')); return; }
+    var fr = new FileReader();
+    fr.onerror = function(){ reject(new Error('Fichier illisible')); };
+    fr.onload = function(){
+      var img = new Image();
+      img.onerror = function(){ reject(new Error('Image illisible')); };
+      img.onload = function(){
+        var k = Math.min(1, 360/img.width, 140/img.height), w = Math.max(1, Math.round(img.width*k)), h = Math.max(1, Math.round(img.height*k));
+        var c = document.createElement('canvas'); c.width = w; c.height = h; var ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+        var out = c.toDataURL('image/png');
+        if(out.length > 150000){ ctx.globalCompositeOperation = 'destination-over'; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); out = c.toDataURL('image/jpeg', 0.85); }
+        if(out.length > 200000) reject(new Error('Logo trop lourd : choisis une image plus simple')); else resolve(out);
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+async function chargerLiensClients(){
+  liensClients = {};
+  if(!fsReady()) return;
+  try{ var sn = await db.collection('stls_fiches_clients').where('agence','==',state.currentAgencyCode).get(); sn.forEach(function(d){ var x = d.data(); liensClients[x.clientCode] = x; }); }
+  catch(e){ console.error('liens clients', e); }
+}
+async function ecrireLienClient(client, patch){
+  if(!state.isAdmin){ banner('Réservé à l\'administrateur'); return false; }
+  var cur = liensClients[client.code] || {};
+  var doc = Object.assign({ agence:state.currentAgencyCode, clientCode:client.code, clientNom:client.nom, actif:false, logo:'' }, cur, patch, { clientNom:client.nom, majLe:new Date().toISOString(), majPar:currentIdentity() });
+  try{ await db.collection('stls_fiches_clients').doc(clientLienId(client.code)).set(doc); liensClients[client.code] = doc; return true; }
+  catch(e){ console.error('lien client', e); banner('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return false; }
+}
+async function renderLiensClients(){
+  var el = document.getElementById('listLiensClients'), gen = document.getElementById('liensEtatGeneral');
+  el.innerHTML = '<div class="card"><div class="hint">Chargement…</div></div>';
+  await Promise.all([chargerLiensClients(), chargerEtatFicheEnLigne()]);
+  gen.innerHTML = ficheEnLigneActive===null ? '⚠ État du formulaire en ligne indisponible.' : (ficheEnLigneActive ? '🟢 Le formulaire en ligne de l\'agence est <strong>activé</strong> : les liens clients actifs fonctionnent.' : '<span style="color:var(--danger);">🔴 Le formulaire en ligne de l\'agence est <strong>désactivé</strong> : aucun lien client ne fonctionne. Active-le dans Gestion Contremarques › Fiche de livraison en ligne.</span>');
+  var clients = (state.base.clients||[]).slice().sort(function(a, b){ return String(a.nom||'').localeCompare(String(b.nom||''), 'fr', { numeric:true }); });
+  if(!clients.length){ el.innerHTML = '<div class="card"><div class="empty">Aucun client enregistré</div></div>'; return; }
+  el.innerHTML = clients.map(function(c){
+    var l = liensClients[c.code] || {}, actif = l.actif===true, lien = ficheLienClient(c.code);
+    var puce = actif ? '<span style="color:var(--accent);font-weight:700;">🟢 Lien actif</span>' : '<span style="color:var(--ink-soft);font-weight:700;">⚪ Lien inactif</span>';
+    return '<div class="card lc" data-code="'+escapeHtml(c.code)+'"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><h2 style="margin:0;font-size:16px;">'+escapeHtml(c.nom)+' <span class="code">'+escapeHtml(c.code||'')+'</span></h2>'+puce+'</div>'+
+      '<div style="margin:10px 0;display:flex;align-items:center;gap:12px;"><div style="width:140px;min-height:56px;border:1px dashed var(--line-strong);border-radius:10px;display:flex;align-items:center;justify-content:center;padding:6px;background:#fff;">'+(l.logo ? '<img src="'+escapeHtml(l.logo)+'" alt="Logo" style="max-width:128px;max-height:56px;">' : '<span class="hint" style="margin:0;">Pas de logo</span>')+'</div>'+
+        (state.isAdmin ? '<div><label class="btn ghost" style="width:auto;display:inline-block;padding:8px 12px;cursor:pointer;margin:0;">Choisir le logo<input type="file" class="lc-logo" accept="image/*" style="display:none;"></label>'+(l.logo ? ' <button class="btn ghost lc-logo-retirer" style="width:auto;padding:8px 12px;">Retirer</button>' : '')+'<div class="hint" style="margin:4px 0 0;">PNG ou JPEG ; il est réduit automatiquement.</div></div>' : '')+'</div>'+
+      (state.isAdmin ? '<div class="btn-row" style="margin-top:0;"><button class="btn '+(actif ? 'ghost' : 'accent')+' lc-toggle" style="width:auto;">'+(actif ? '⏸ Désactiver le lien' : '▶ Activer le lien pour ses contremarques')+'</button></div>' : '<div class="hint">Seul un administrateur peut activer ou désactiver ce lien.</div>')+
+      '<div class="field" style="margin-top:10px;"><label>Lien à transmettre aux contremarques de '+escapeHtml(c.nom)+'</label><input type="text" readonly class="lc-lien" value="'+escapeHtml(lien)+'"'+(actif ? '' : ' style="color:var(--ink-soft);background:#f4f3ee;"')+'></div>'+
+      (actif ? '<div class="btn-row"><button class="btn accent lc-copier" style="width:auto;">Copier le lien</button><button class="btn ghost lc-partager" style="width:auto;">Partager…</button><button class="btn ghost lc-apercu" style="width:auto;">👁 Aperçu</button></div>' : '<div class="hint">Le lien ne fonctionnera qu\'une fois activé.</div>')+'</div>';
+  }).join('');
+}
+function clientDeCarte(ev){ var c = ev.target.closest('.lc'); return c ? (state.base.clients||[]).find(function(x){ return x.code===c.getAttribute('data-code'); }) : null; }
+document.getElementById('listLiensClients').addEventListener('click', async function(ev){
+  var c = clientDeCarte(ev); if(!c) return;
+  if(ev.target.closest('.lc-toggle')){
+    var l = liensClients[c.code] || {}, cible = !(l.actif===true);
+    if(!cible && !confirm('Désactiver le lien de « '+c.nom+' » ?\n\nLes liens déjà transmis à ses contremarques cesseront de fonctionner.')) return;
+    if(await ecrireLienClient(c, { actif:cible })){ if(cible) assurerCoordonneesDepot(); banner(cible ? 'Lien activé pour '+c.nom : 'Lien désactivé'); renderLiensClients(); }
+  } else if(ev.target.closest('.lc-logo-retirer')){
+    if(confirm('Retirer le logo de « '+c.nom+' » ?') && await ecrireLienClient(c, { logo:'' })){ banner('Logo retiré'); renderLiensClients(); }
+  } else if(ev.target.closest('.lc-copier')){
+    banner((await copierTexte(ficheLienClient(c.code))) ? 'Lien copié' : 'Copie impossible : sélectionne le lien et copie-le');
+  } else if(ev.target.closest('.lc-partager')){
+    var u = ficheLienClient(c.code);
+    if(navigator.share){ try{ await navigator.share({ title:'Fiche de livraison '+c.nom, text:'Merci de renseigner votre fiche de livraison :', url:u }); return; }catch(e){ if(e && e.name==='AbortError') return; } }
+    window.location.href = 'mailto:?subject='+encodeURIComponent('Votre fiche de livraison')+'&body='+encodeURIComponent('Bonjour,\n\nMerci de renseigner votre fiche de livraison en ligne :\n'+u+'\n\nCordialement');
+  } else if(ev.target.closest('.lc-apercu')){
+    window.open(ficheLienClient(c.code), '_blank');
+  }
+});
+document.getElementById('listLiensClients').addEventListener('change', async function(ev){
+  var inp = ev.target.closest('.lc-logo'); if(!inp) return;
+  var c = clientDeCarte(ev); if(!c || !inp.files || !inp.files[0]) return;
+  try{ var logo = await redimensionnerLogo(inp.files[0]); if(await ecrireLienClient(c, { logo:logo })){ banner('Logo enregistré pour '+c.nom); renderLiensClients(); } }
+  catch(e){ banner('⚠ '+(e && e.message ? e.message : 'Logo refusé')); }
+});
+
+// ---------- fiche reçue via un lien client : provenance et tarif annoncé ----------
+function tarifResumeTexte(f){
+  if(f.tarifHT==null) return '';
+  return fmtE(f.tarifHT)+' HT — '+fmtE(f.tarifTTC)+' TTC · équipe de '+f.tarifPersonnes+' · zone '+f.tarifZone+' (~'+f.tarifDistanceKm+' km)'+(f.tarifComplements ? ' · '+f.tarifComplements : '');
+}
+function fmtE(n){ return (Math.round(Number(n)*100)/100).toFixed(2).replace('.', ',')+' €'; }
 
 // ================= Autorisations d'enlèvement : consultation et envoi au client =================
 async function lireAutorisationArchivee(a){
@@ -8979,6 +9107,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='destinations'){ renderDestinationsAdmin(); }
     if(btn.getAttribute('data-key')==='nettoyagebl'){ renderNettoyageBL(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
+    if(btn.getAttribute('data-key')==='liens'){ renderLiensClients(); }
   });
 });
 Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), function(btn){
@@ -9285,7 +9414,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0088';
+var APP_VERSION = '2026.0089';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
