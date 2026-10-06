@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0089">
+<meta name="app-version" content="2026.0090">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -4139,7 +4139,9 @@ async function renderLiensClients(){
         (state.isAdmin ? '<div><label class="btn ghost" style="width:auto;display:inline-block;padding:8px 12px;cursor:pointer;margin:0;">Choisir le logo<input type="file" class="lc-logo" accept="image/*" style="display:none;"></label>'+(l.logo ? ' <button class="btn ghost lc-logo-retirer" style="width:auto;padding:8px 12px;">Retirer</button>' : '')+'<div class="hint" style="margin:4px 0 0;">PNG ou JPEG ; il est réduit automatiquement.</div></div>' : '')+'</div>'+
       (state.isAdmin ? '<div class="btn-row" style="margin-top:0;"><button class="btn '+(actif ? 'ghost' : 'accent')+' lc-toggle" style="width:auto;">'+(actif ? '⏸ Désactiver le lien' : '▶ Activer le lien pour ses contremarques')+'</button></div>' : '<div class="hint">Seul un administrateur peut activer ou désactiver ce lien.</div>')+
       '<div class="field" style="margin-top:10px;"><label>Lien à transmettre aux contremarques de '+escapeHtml(c.nom)+'</label><input type="text" readonly class="lc-lien" value="'+escapeHtml(lien)+'"'+(actif ? '' : ' style="color:var(--ink-soft);background:#f4f3ee;"')+'></div>'+
-      (actif ? '<div class="btn-row"><button class="btn accent lc-copier" style="width:auto;">Copier le lien</button><button class="btn ghost lc-partager" style="width:auto;">Partager…</button><button class="btn ghost lc-apercu" style="width:auto;">👁 Aperçu</button></div>' : '<div class="hint">Le lien ne fonctionnera qu\'une fois activé.</div>')+'</div>';
+      (actif ? '<div class="btn-row"><button class="btn accent lc-copier" style="width:auto;">Copier le lien</button><button class="btn ghost lc-partager" style="width:auto;">Partager…</button><button class="btn ghost lc-apercu" style="width:auto;">👁 Aperçu</button></div>'+
+        '<div class="field" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);"><label>Étiquette pour la Zebra (100 × 150 mm)</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="number" class="lc-qte" min="1" max="100" value="1" style="width:78px;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;"><span class="hint" style="margin:0;">exemplaire(s)</span><button class="btn primary lc-etiquette" style="width:auto;">🏷 Imprimer l\'étiquette</button></div><div class="hint" style="margin-top:4px;">Nom du client, invitation à scanner et QR code de ce lien.</div></div>'
+        : '<div class="hint">Le lien ne fonctionnera qu\'une fois activé : l\'étiquette sera ensuite disponible ici.</div>')+'</div>';
   }).join('');
 }
 function clientDeCarte(ev){ var c = ev.target.closest('.lc'); return c ? (state.base.clients||[]).find(function(x){ return x.code===c.getAttribute('data-code'); }) : null; }
@@ -4159,6 +4161,11 @@ document.getElementById('listLiensClients').addEventListener('click', async func
     window.location.href = 'mailto:?subject='+encodeURIComponent('Votre fiche de livraison')+'&body='+encodeURIComponent('Bonjour,\n\nMerci de renseigner votre fiche de livraison en ligne :\n'+u+'\n\nCordialement');
   } else if(ev.target.closest('.lc-apercu')){
     window.open(ficheLienClient(c.code), '_blank');
+  } else if(ev.target.closest('.lc-etiquette')){
+    var qte = parseInt(ev.target.closest('.lc').querySelector('.lc-qte').value, 10);
+    if(!(qte >= 1 && qte <= 100)){ banner('Indique un nombre d\'exemplaires entre 1 et 100'); return; }
+    if(!((liensClients[c.code]||{}).actif===true)){ banner('Active d\'abord le lien : une étiquette ne doit pas porter un lien inactif'); return; }
+    genererEtiquetteLienClient(c, qte);
   }
 });
 document.getElementById('listLiensClients').addEventListener('change', async function(ev){
@@ -4167,6 +4174,73 @@ document.getElementById('listLiensClients').addEventListener('change', async fun
   try{ var logo = await redimensionnerLogo(inp.files[0]); if(await ecrireLienClient(c, { logo:logo })){ banner('Logo enregistré pour '+c.nom); renderLiensClients(); } }
   catch(e){ banner('⚠ '+(e && e.message ? e.message : 'Logo refusé')); }
 });
+
+
+// ================= Étiquette Zebra du lien d'un client (100 × 150 mm, comme les étiquettes de réception) =================
+var TEXTE_ETIQUETTE_LIEN = 'Vous souhaitez vous faire livrer votre marchandise, scannez ce QR Code et complétez les informations';
+// QR dessiné en VECTORIEL (carrés nets) : reste parfaitement lisible quelle que soit la résolution de l'imprimante thermique
+function qrMatrice(texte){
+  var temp = document.createElement('div'); temp.style.position = 'absolute'; temp.style.left = '-9999px'; document.body.appendChild(temp);
+  try{ var q = new QRCode(temp, { text:texte, width:200, height:200, correctLevel:QRCode.CorrectLevel.M }), m = q._oQRCode; if(!m || !m.getModuleCount) return null;
+    var n = m.getModuleCount(), lignes = []; for(var r=0;r<n;r++){ var l = []; for(var c=0;c<n;c++) l.push(!!m.isDark(r, c)); lignes.push(l); } return lignes;
+  }catch(e){ return null; } finally { document.body.removeChild(temp); }
+}
+function dessinerQrVectoriel(doc, texte, x, y, taille){
+  var mat = qrMatrice(texte), quiet = 4;
+  if(!mat){   // repli : image du QR si la structure interne de la bibliothèque n'est pas disponible
+    var img = buildQrImageFromText(texte); if(img) doc.addImage(img, 'PNG', x, y, taille, taille); return !!img;
+  }
+  var n = mat.length, cell = taille / (n + 2*quiet), chev = cell*0.03;
+  doc.setFillColor(0,0,0);
+  for(var r=0;r<n;r++){   // les modules sombres contigus d'une même ligne sont regroupés (pas de fines coutures à l'impression)
+    var c = 0; while(c < n){ if(mat[r][c]){ var d = c; while(c < n && mat[r][c]) c++; doc.rect(x+(d+quiet)*cell, y+(r+quiet)*cell, (c-d)*cell + chev, cell + chev, 'F'); } else c++; }
+  }
+  return true;
+}
+// plus grande taille de police pour laquelle le texte tient : d'abord 2 lignes (de 30 à 13 pt), puis 3 lignes plus petites
+// (de 12 à 9 pt) ; on ne tronque qu'en dernier recours, pour qu'aucune partie du nom ne disparaisse sans nécessité
+function ajusterTexte(doc, texte, largeur){
+  doc.setFont('helvetica', 'bold');
+  var paliers = [[30, 13, 2], [12, 9, 3]];
+  for(var p=0;p<paliers.length;p++){
+    for(var t = paliers[p][0]; t >= paliers[p][1]; t--){
+      doc.setFontSize(t); var l = doc.splitTextToSize(String(texte), largeur);
+      if(l.length <= paliers[p][2] && l.every(function(x){ return doc.getTextWidth(x) <= largeur + 0.01; })) return { size:t, lines:l };
+    }
+  }
+  doc.setFontSize(9); var lf = doc.splitTextToSize(String(texte), largeur).slice(0, 3);
+  lf[2] = (lf[2]||'').replace(/\s*\S{0,3}$/, '…');
+  return { size:9, lines:lf };
+}
+function dessinerEtiquetteLienClient(doc, nom, url){
+  var W = 100, H = 150;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.4); doc.rect(2, 2, W-4, H-4);
+  // nom du client : grand, centré, sur une ou deux lignes
+  var f = ajusterTexte(doc, nom, 88);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(f.size); doc.setTextColor(0,0,0);
+  var hmm = f.size * 0.3528, haut = 7 + (22 - (hmm*1.15*f.lines.length)) / 2 + hmm*0.85;   // centré verticalement dans la zone 7–29 mm
+  doc.text(f.lines, W/2, haut, { align:'center', lineHeightFactor:1.15 });
+  doc.setLineWidth(0.5); doc.line(8, 32, W-8, 32);
+  // invitation
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12.5); doc.setTextColor(0,0,0);
+  doc.text(doc.splitTextToSize(TEXTE_ETIQUETTE_LIEN, 84), W/2, 39.5, { align:'center', lineHeightFactor:1.3 });
+  // QR code du lien
+  dessinerQrVectoriel(doc, url, (W-64)/2, 66, 64);
+  // lien imprimé en secours (QR illisible, appareil sans scanner)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(0,0,0);
+  doc.text(doc.splitTextToSize(url, 86), W/2, 134.5, { align:'center', lineHeightFactor:1.2 });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+  doc.text('Livraison réalisée par STLS', W/2, 144.5, { align:'center' });
+}
+function genererEtiquetteLienClient(client, qte){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible'); return; }
+  if(typeof QRCode==='undefined'){ banner('Générateur de QR code indisponible : vérifie ta connexion et recharge la page'); return; }
+  var url = ficheLienClient(client.code), doc = new window.jspdf.jsPDF({ unit:'mm', format:[100, 150] });
+  for(var i=0;i<qte;i++){ if(i>0) doc.addPage([100, 150], 'portrait'); dessinerEtiquetteLienClient(doc, client.nom, url); }
+  var base = String(client.code||'client').replace(/[^A-Za-z0-9_-]+/g, '_');
+  downloadPdf(doc, 'etiquette_lien_'+base+'_'+qte+'ex.pdf');
+  banner(qte+' étiquette(s) pour '+client.nom+' — PDF 100 × 150 mm téléchargé');
+}
 
 // ---------- fiche reçue via un lien client : provenance et tarif annoncé ----------
 function tarifResumeTexte(f){
@@ -9414,7 +9488,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0089';
+var APP_VERSION = '2026.0090';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
