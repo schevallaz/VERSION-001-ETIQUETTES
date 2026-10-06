@@ -109,7 +109,11 @@ function dessinerAutorisationEnlevement(d){
   // ----- 4. personne autorisée -----
   barre("4. Personne autorisée à enlever la marchandise");
   ligne('Transporteur', "STLS, représentée par le conducteur qu'elle désigne lors de la planification");
-  T("Nom du conducteur : ________________________________", M+1, y+4.2, { size:9.2 }); T("Pièce d'identité à présenter : oui", M+112, y+4.2, { size:8.4, color:GRIS }); y += 7;
+  if(d.conducteur){
+    ligne('Conducteur désigné', d.conducteur+(d.conducteurTel ? ' — '+d.conducteurTel : ''));
+    if(d.enlevementPrevu) ligne('Enlèvement prévu le', autFr(d.enlevementPrevu));
+    T("Pièce d'identité à présenter : oui", M+1, y+3.4, { size:8.4, color:GRIS }); y += 5.4;
+  } else { T("Nom du conducteur : ________________________________", M+1, y+4.2, { size:9.2 }); T("Pièce d'identité à présenter : oui", M+112, y+4.2, { size:8.4, color:GRIS }); y += 7; }
   // ----- 5. marchandise -----
   barre('5. Marchandise à enlever');
   var m = []; if(d.colis!=null) m.push(d.colis+' colis'); if(d.poidsKg!=null) m.push(autNb(d.poidsKg)+' kg au total');
@@ -125,7 +129,7 @@ function dessinerAutorisationEnlevement(d){
   doc.setFont('helvetica','normal'); doc.setFontSize(8.4); doc.setTextColor(55,65,81); doc.text(lt, M+2, y+4.3); y += 3.7*lt.length + 5.6;
   // ----- émission et signatures -----
   T('Fait à '+lieu+', le '+autFr(d.aut && d.aut.emisLe), M, y+3, { bold:true, size:9.5 });
-  T('Document généré électroniquement'+(d.valideLe ? ' — demande validée en ligne le '+autFr(d.valideLe)+' par '+(c.demandeur||'le client') : ''), M, y+7.6, { size:7.6, color:GRIS });
+  T('Document généré électroniquement'+(d.valideLe ? ' — demande validée en ligne le '+autFr(d.valideLe)+' par '+(c.demandeur||'le client') : '')+(d.miseAJourLe ? ' — version n° '+(d.version||2)+' mise à jour le '+autFr(d.miseAJourLe)+' (conducteur désigné)' : ''), M, y+7.6, { size:7.6, color:GRIS });
   y += 10;
   var bw = (CW-6)/2; doc.setDrawColor(150,152,160); doc.setLineWidth(0.3);
   doc.rect(M, y, bw, 19); doc.rect(M+bw+6, y, bw, 19);
