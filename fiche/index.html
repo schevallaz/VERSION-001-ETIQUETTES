@@ -22,6 +22,7 @@
   .field input[type=text], .field input[type=tel], .field input[type=email], .field input[type=date], .field input[type=number], .field textarea{ width:100%; padding:11px; border:1px solid var(--line-strong); border-radius:9px; font-size:16px; background:#fff; font-family:inherit; }
   .field textarea{ min-height:84px; resize:vertical; }
   .field.err input, .field.err textarea{ border-color:var(--red); background:#fdf2f0; }
+  .aide{ font-size:12px; color:var(--soft); margin-top:3px; line-height:1.35; }
   .msgerr{ color:var(--red); font-size:12.5px; margin-top:3px; display:none; }
   .field.err .msgerr{ display:block; }
   .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
@@ -50,6 +51,93 @@
   <div class="pied"><strong>SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS)</strong> – EURL au capital de 5 000 €<br>RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A<br>938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume<br>Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr</div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+// ================= Autorisation d'enlèvement (PDF A4) — même fonction dans le formulaire et dans l'application =================
+// d = { aut:{numero, emisLe, valideJusquau, lieu}, commande, dispo, client:{enseigne, ref, nom, prenom, tel1, tel2, mail, adresse1, adresse2, cp, ville, demandeur},
+//       agence:{nom, adresse1, cp, ville, tel, mail}, fournisseur, adresse, horaires, colis, poidsKg, longCm, lourdKg, valideLe }
+var STLS_ENTREPRISE = { nom:'SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS)', forme:'EURL au capital de 5 000 €', rcs:'RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A', adresse:'938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume', contact:'Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr' };
+var AUTORISATION_VALIDITE_JOURS = 30;
+function autFr(iso){ var v = String(iso||'').slice(0,10).split('-'); return v.length===3 ? v[2]+'/'+v[1]+'/'+v[0] : ''; }
+function autPlusJours(iso, n){ var p = String(iso).slice(0,10).split('-'); var d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2] + n)); return d.toISOString().slice(0,10); }
+function autNb(x){ return String(x).replace('.', ','); }
+function dessinerAutorisationEnlevement(d){
+  var doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+  var W = 210, M = 12, CW = W - 2*M, SOMBRE = [31,41,55], GRIS = [95,100,110], BORD = [209,213,219], VERT = [15,110,86], y = 0;
+  function T(t, x, yy, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||9.5); doc.setTextColor.apply(doc, o.color||[17,24,39]); doc.text(String(t), x, yy, o.align?{align:o.align}:undefined); }
+  function coupe(t, w, size){ doc.setFontSize(size||9.5); return doc.splitTextToSize(String(t==null?'':t), w); }
+  function barre(titre){ y += 2; doc.setFillColor.apply(doc, SOMBRE); doc.roundedRect(M, y, CW, 5.6, 1, 1, 'F'); T(titre.toUpperCase(), M+3, y+3.9, { bold:true, size:8.3, color:[255,255,255] }); y += 7.6; }
+  function ligne(label, val, hint){
+    var l = coupe(val || '—', CW-52, 9.2); T(label, M+1, y+3.5, { bold:true, size:8.2, color:GRIS });
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.2); doc.setTextColor(17,24,39); doc.text(l, M+50, y+3.5);
+    y += Math.max(5.1, 4.1*l.length + 1.2);
+  }
+  var c = d.client || {}, a = d.agence || {}, lieu = (d.aut && d.aut.lieu) || a.ville || 'Saint-Maximin-la-Sainte-Baume';
+  // ----- en-tête : logo + titre -----
+  T('STLS', M, 18, { bold:true, size:28, color:SOMBRE });
+  T('SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE', M, 22.4, { bold:true, size:5.9, color:GRIS });
+  T("AUTORISATION D'ENLÈVEMENT", W-M, 15, { bold:true, size:15, align:'right' });
+  T('de marchandise', W-M, 20, { size:10, align:'right', color:GRIS });
+  T('N° '+((d.aut && d.aut.numero) || ''), W-M, 25.2, { bold:true, size:9.5, align:'right', color:VERT });
+  doc.setDrawColor.apply(doc, VERT); doc.setLineWidth(0.6); doc.line(M, 27.5, W-M, 27.5);
+  y = 30;
+  // ----- référence bien en vue -----
+  doc.setFillColor(236,246,242); doc.setDrawColor(185,226,211); doc.setLineWidth(0.3); doc.roundedRect(M, y, CW, 16, 1.5, 1.5, 'FD');
+  T('NUMÉRO DE COMMANDE', M+4, y+5, { bold:true, size:7.5, color:GRIS });
+  var nc = coupe(d.commande, 95, 15); doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor.apply(doc, VERT); doc.text(nc[0] + (nc.length>1?'…':''), M+4, y+12.4);
+  T('DISPONIBLE À PARTIR DU', M+112, y+5, { bold:true, size:7.5, color:GRIS }); T(autFr(d.dispo), M+112, y+11.8, { bold:true, size:12 });
+  T("VALABLE JUSQU'AU", M+112+37, y+5, { bold:true, size:7.5, color:GRIS }); T(autFr(d.aut && d.aut.valideJusquau), M+112+37, y+11.8, { bold:true, size:12 });
+  y += 17;
+  // ----- 1. client donneur d'ordre -----
+  barre("1. Client donneur d'ordre (expéditeur de l'autorisation)");
+  ligne('Client / enseigne', c.enseigne || ((c.nom||'')+' '+(c.prenom||'')).trim());
+  ligne('Référence du dossier', c.ref);
+  ligne('Bénéficiaire (contremarque)', ((c.nom||'')+' '+(c.prenom||'')).trim());
+  ligne('Coordonnées', [c.tel1, c.tel2, c.mail].filter(Boolean).join('  ·  '));
+  ligne('Adresse de livraison', [c.adresse1, c.adresse2, [c.cp, c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+  ligne('Demande validée par', c.demandeur);
+  // ----- 2. transport et agence -----
+  barre('2. Entreprise de transport et agence concernée');
+  ligne('Entreprise de transport', 'STLS — Société de Transport Livraison et Stockage (EURL)');
+  ligne('Siège et coordonnées', STLS_ENTREPRISE.adresse+' — 06 58 30 16 87');
+  ligne('Agence concernée', [a.nom, [a.adresse1, [a.cp, a.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '), a.tel].filter(Boolean).join(' — '));
+  // ----- 3. point d'enlèvement -----
+  barre("3. Point d'enlèvement");
+  ligne('Fournisseur / magasin', d.fournisseur);
+  ligne('Adresse complète', d.adresse);
+  ligne('Horaires et contraintes', d.horaires);
+  // ----- 4. personne autorisée -----
+  barre("4. Personne autorisée à enlever la marchandise");
+  ligne('Transporteur', "STLS, représentée par le conducteur qu'elle désigne lors de la planification");
+  T("Nom du conducteur : ________________________________", M+1, y+4.2, { size:9.2 }); T("Pièce d'identité à présenter : oui", M+112, y+4.2, { size:8.4, color:GRIS }); y += 7;
+  // ----- 5. marchandise -----
+  barre('5. Marchandise à enlever');
+  var m = []; if(d.colis!=null) m.push(d.colis+' colis'); if(d.poidsKg!=null) m.push(autNb(d.poidsKg)+' kg au total');
+  ligne('Quantité', m.join(' — ') || 'À confirmer sur place');
+  if(d.longCm!=null) ligne('Colis le plus long', autNb(d.longCm)+' cm');
+  if(d.lourdKg!=null) ligne('Colis le plus lourd', autNb(d.lourdKg)+' kg');
+  // ----- 6. autorisation (mention légale) -----
+  barre('6. Autorisation');
+  var texte = "Le client donneur d'ordre désigné ci-dessus autorise la société STLS, ainsi que le conducteur qu'elle désigne, à retirer pour son compte la marchandise décrite au présent document auprès du point d'enlèvement indiqué, sur présentation du présent document et du numéro de commande « "+(d.commande||'')+" ». "+
+    "Cette autorisation est valable à compter du "+autFr(d.dispo)+" et jusqu'au "+autFr(d.aut && d.aut.valideJusquau)+" inclus ; passé ce délai, elle est caduque. Elle est strictement limitée à la commande référencée, personnelle et non cessible. "+
+    "Le client certifie l'exactitude des informations communiquées et demeure responsable de la mise à disposition de la marchandise au point d'enlèvement. STLS ne peut être tenue responsable d'un enlèvement refusé en raison d'une information inexacte ou d'une marchandise non disponible.";
+  var lt = coupe(texte, CW-4, 8.4); doc.setFillColor(249,250,251); doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.rect(M, y, CW, 3.7*lt.length + 3.6, 'FD');
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.4); doc.setTextColor(55,65,81); doc.text(lt, M+2, y+4.3); y += 3.7*lt.length + 5.6;
+  // ----- émission et signatures -----
+  T('Fait à '+lieu+', le '+autFr(d.aut && d.aut.emisLe), M, y+3, { bold:true, size:9.5 });
+  T('Document généré électroniquement'+(d.valideLe ? ' — demande validée en ligne le '+autFr(d.valideLe)+' par '+(c.demandeur||'le client') : ''), M, y+7.6, { size:7.6, color:GRIS });
+  y += 10;
+  var bw = (CW-6)/2; doc.setDrawColor(150,152,160); doc.setLineWidth(0.3);
+  doc.rect(M, y, bw, 19); doc.rect(M+bw+6, y, bw, 19);
+  T('Signature du client donneur d\'ordre', M+2, y+4.2, { size:8, color:GRIS }); T('Cachet et signature de l\'entreprise de transport', M+bw+8, y+4.2, { size:8, color:GRIS });
+  // ----- pied de page -----
+  doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 281, W-M, 281);
+  T(STLS_ENTREPRISE.nom+' – '+STLS_ENTREPRISE.forme, W/2, 285, { bold:true, size:6.4, color:[55,65,81], align:'center' });
+  T(STLS_ENTREPRISE.rcs+' – '+STLS_ENTREPRISE.adresse, W/2, 288, { size:6.4, color:GRIS, align:'center' });
+  return doc;
+}
+
+</script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script>
@@ -61,7 +149,7 @@ var firebaseConfig = {
   messagingSenderId: "521206560933",
   appId: "1:521206560933:web:22bead871abbd50d19354c"
 };
-var db = null, agence = '', nomAgence = '', refCommande = '', enseigne = '', envoye = false;
+var db = null, agence = '', nomAgence = '', refCommande = '', enseigne = '', envoye = false, agenceInfo = {};
 function qs(n){ try{ return (new URLSearchParams(location.search).get(n) || '').trim(); }catch(e){ return ''; } }
 function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
 function el(id){ return document.getElementById(id); }
@@ -72,7 +160,8 @@ var JOURS = [['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi
 var ACCES = [['ascenseur','Ascenseur'],['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['escalier','Escalier'],['accesDifficile','Accès difficile'],['accesAutre','Autre']];
 var OPTIONS = [['optDeballage','Déballage *'],['optRepriseEmballages','Reprise des emballages *'],['optMontageSimple','Montage simple *'],['optMiseEnPlace','Mise en place *'],['optEvacuation','Évacuation ancien matériel *']];
 function cb(id, lib){ return '<label class="case"><input type="checkbox" id="'+id+'"> '+lib+'</label>'; }
-function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+(o.attrs?' '+o.attrs:'')+'><div class="msgerr" id="e-'+id+'"></div></div>'; }
+function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+(o.attrs?' '+o.attrs:'')+'>'+(o.aide?'<div class="aide">'+o.aide+'</div>':'')+'<div class="msgerr" id="e-'+id+'"></div></div>'; }
+function aujourdhuiISO(){ var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 function zone(id, lib, max){ return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+'</label><textarea id="'+id+'" maxlength="'+max+'"></textarea></div>'; }
 
 
@@ -85,7 +174,9 @@ function blocEnlevement(i){
     '<label class="l" style="color:var(--dark);">Point d\'enlèvement n° '+(i+1)+'</label>'+
     champ(p+'fournisseur','Nom / enseigne du fournisseur',{req:1,max:80})+
     champ(p+'adresse','Adresse complète du point d\'enlèvement',{req:1,max:200})+
+    champ(p+'numeroCommande','Numéro de commande',{req:1,max:60,aide:'C\'est la référence de votre commande chez ce fournisseur ou dans ce magasin. Elle autorise STLS à retirer la marchandise : saisissez-la exactement comme sur votre bon de commande (lettres, chiffres, tirets… tout format est accepté).'})+
     '<div class="row2">'+champ(p+'colis','Nombre de colis à enlever',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+champ(p+'poids','Poids total à enlever (kg)',{req:1,max:8,inputmode:'decimal'})+'</div>'+
+    champ(p+'dispo','Date de disponibilité de la marchandise',{req:1,type:'date',attrs:'min="'+aujourdhuiISO()+'"',aide:'À partir de quand la marchandise peut être retirée à cet endroit (aujourd\'hui ou une date à venir). Choisissez la date dans le calendrier.'})+
     zone(p+'horaires','Horaires d\'ouverture et contraintes éventuelles',200)+
   '</div>';
 }
@@ -201,6 +292,13 @@ function validerSaisie(){
       if(!valeur(p+'adresse')) ko(p+'adresse','Champ obligatoire');
       var cn = nombre(p+'colis'); if(valeur(p+'colis')==='') ko(p+'colis','Champ obligatoire'); else if(!(Number.isInteger(cn) && cn >= 1 && cn <= 9999)) ko(p+'colis','Nombre entier ≥ 1');
       if(valeur(p+'poids')==='') ko(p+'poids','Champ obligatoire'); else if(!(NUM_RE.test(valeur(p+'poids')) && nombre(p+'poids') > 0 && nombre(p+'poids') <= 99999)) ko(p+'poids','Poids invalide (ex. 120 ou 85,5)');
+      // numéro de commande : format libre, seule contrainte = non vide
+      if(!valeur(p+'numeroCommande')) ko(p+'numeroCommande','Merci de saisir votre numéro de commande : sans cette référence, l\'enlèvement ne pourra pas être autorisé.');
+      // date de disponibilité : choisie dans le calendrier, aujourd'hui ou dans le futur
+      var dv = valeur(p+'dispo');
+      if(!dv) ko(p+'dispo','Merci de choisir la date à partir de laquelle la marchandise peut être enlevée.');
+      else if(!/^\d{4}-\d{2}-\d{2}$/.test(dv)) ko(p+'dispo','Date invalide : utilisez le calendrier.');
+      else if(dv < aujourdhuiISO()) ko(p+'dispo','Cette date est déjà passée. Choisissez aujourd\'hui ou une date à venir.');
     }
   }
   if(valeur('colisLongLongueurCm')==='') ko('colisLongLongueurCm','Champ obligatoire'); else if(!(NUM_RE.test(valeur('colisLongLongueurCm')) && nombre('colisLongLongueurCm') > 0 && nombre('colisLongLongueurCm') <= 2000)) ko('colisLongLongueurCm','Longueur invalide (cm)');
@@ -235,7 +333,9 @@ async function envoyer(){
   if(doc.modeReception !== 'depot'){
     doc.nbPointsEnlevement = nombre('nbPointsEnlevement'); doc.enlevements = [];
     for(var i=0;i<doc.nbPointsEnlevement;i++){
-      var p = 'enl'+i+'-', e = { fournisseur:valeur(p+'fournisseur'), adresse:valeur(p+'adresse'), colis:nombre(p+'colis'), poidsKg:arrondi(nombre(p+'poids')) };
+      var p = 'enl'+i+'-', e = { fournisseur:valeur(p+'fournisseur'), adresse:valeur(p+'adresse'), colis:nombre(p+'colis'), poidsKg:arrondi(nombre(p+'poids')),
+        numeroCommande:valeur(p+'numeroCommande'), dateDisponibilite:valeur(p+'dispo'),
+        autNumero:'AE-'+numero+'-'+(i+1), autEmisLe:doc.createdAt, autValideJusquau:autPlusJours(valeur(p+'dispo'), AUTORISATION_VALIDITE_JOURS) };
       if(valeur(p+'horaires')) e.horaires = valeur(p+'horaires');
       doc.enlevements.push(e);
     }
@@ -259,6 +359,23 @@ async function envoyer(){
     al.textContent = (e && e.code==='permission-denied') ? 'Ce formulaire n\'accepte plus de réponses pour le moment. Merci de contacter STLS au 06 58 30 16 87.' : 'Votre fiche n\'a pas pu être envoyée. Vérifiez votre connexion et réessayez, ou contactez STLS au 06 58 30 16 87.';
   }
 }
+// une autorisation par point d'enlèvement, générée à partir des mêmes données que celles archivées par STLS
+function donneesAutorisation(d, i){
+  var e = d.enlevements[i];
+  return { aut:{ numero:e.autNumero, emisLe:e.autEmisLe, valideJusquau:e.autValideJusquau, lieu:agenceInfo.ville || '' }, commande:e.numeroCommande, dispo:e.dateDisponibilite,
+    client:{ enseigne:d.enseigne, ref:d.ref, nom:d.nom, prenom:d.prenom, tel1:d.tel1, tel2:d.tel2, mail:d.mail, adresse1:d.adresse1, adresse2:d.adresse2, cp:d.cp, ville:d.ville, demandeur:d.demandeur },
+    agence:agenceInfo, fournisseur:e.fournisseur, adresse:e.adresse, horaires:e.horaires, colis:e.colis, poidsKg:e.poidsKg, longCm:d.colisLongLongueurCm, lourdKg:d.colisLourdPoidsKg, valideLe:d.createdAt };
+}
+function telechargerAutorisation(d, i){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ alert('Le générateur de PDF n\'est pas disponible pour le moment. STLS vous transmettra ce document.'); return; }
+  try{ dessinerAutorisationEnlevement(donneesAutorisation(d, i)).save('Autorisation_enlevement_'+d.enlevements[i].autNumero+'.pdf'); }
+  catch(e){ console.error('autorisation', e); alert('Le document n\'a pas pu être généré. STLS vous le transmettra.'); }
+}
+function autorisationsHtml(d){
+  if(!d || !(d.enlevements||[]).length) return '';
+  return '<div class="recap noprint"><h3>Mes autorisations d\'enlèvement</h3><p class="sous">Un document officiel par point d\'enlèvement, à présenter lors du retrait. STLS en conserve une copie.</p>'+
+    d.enlevements.map(function(e, i){ return '<div style="margin:8px 0;"><div style="font-size:14px;"><strong>'+esc(e.fournisseur)+'</strong> — commande '+esc(e.numeroCommande)+'</div><button class="btn ghost btn-aut" data-i="'+i+'" style="margin-top:4px;">Télécharger l\'autorisation n° '+(i+1)+' (PDF)</button></div>'; }).join('')+'</div>';
+}
 function afficherConfirmation(numero, d){
   var ln = function(l, v){ return v ? '<div class="ln"><b>'+esc(l)+'</b><span>'+esc(v)+'</span></div>' : ''; };
   var oui = function(list){ return list.filter(function(x){ return d[x[0]]; }).map(function(x){ return x[1].replace(' *',''); }).join(', '); };
@@ -270,15 +387,17 @@ function afficherConfirmation(numero, d){
       ln('Accès', oui(ACCES))+ln('Précisions', d.accesPrecisions)+ln('Étages', d.etage)+ln('Options', oui(OPTIONS))+ln('Date de la pose', d.datePose ? d.datePose.split('-').reverse().join('/') : '')+
       ln('Jours possibles', jours)+ln('Contraintes', d.contraintes)+
       '<h3>Marchandise &amp; enlèvements</h3>'+ln('Fournisseurs', String(d.nbFournisseurs))+ln('Mode de réception', (MODES.filter(function(m){ return m[0]===d.modeReception; })[0]||['',''])[1])+
-      (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
+      (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — commande '+e.numeroCommande+' — disponible le '+e.dateDisponibilite.split('-').reverse().join('/')+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
       ln('Colis le plus long', d.colisLongLongueurCm+' cm'+(d.colisLongLargeurCm?' × '+d.colisLongLargeurCm+' cm':'')+(d.colisLongHauteurCm?' × '+d.colisLongHauteurCm+' cm':'')+(d.colisLongDescription?' — '+d.colisLongDescription:''))+
       ln('Colis le plus lourd', d.colisLourdPoidsKg+' kg'+(d.colisLourdDescription?' — '+d.colisLourdDescription:''))+
       '<h3>Confirmation</h3>'+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
   }
   aff('<div class="msg"><h1 style="font-size:24px;text-align:center;">✅ Fiche envoyée</h1><p class="sous">Numéro : <strong>'+esc(numero)+'</strong></p>'+
     '<p>Votre fiche de livraison a bien été transmise à STLS'+(nomAgence?' — '+esc(nomAgence):'')+'. Nous vous recontacterons pour organiser la livraison.</p></div>'+recap+
+    autorisationsHtml(d)+
     '<button class="btn ghost noprint" id="btnImprimer" style="margin-top:14px;">Imprimer / enregistrer en PDF</button>');
   el('btnImprimer').addEventListener('click', function(){ window.print(); });
+  document.querySelectorAll('.btn-aut').forEach(function(b){ b.addEventListener('click', function(){ telechargerAutorisation(d, parseInt(b.getAttribute('data-i'), 10)); }); });
 }
 async function demarrer(){
   agence = qs('a'); refCommande = qs('ref').slice(0,60); enseigne = qs('e').slice(0,60);
@@ -289,6 +408,7 @@ async function demarrer(){
     var snap = await db.collection('stls_fiches_public').doc(agence).get();
     if(!snap.exists || snap.data().actif !== true){ msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez STLS pour en obtenir un nouveau.'); return; }
     nomAgence = snap.data().agencyName || '';
+    agenceInfo = Object.assign({ nom:nomAgence }, snap.data().agence || {});
   }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
   afficherFormulaire();
 }
