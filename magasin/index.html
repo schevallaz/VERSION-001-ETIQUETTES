@@ -1,1 +1,480 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fiche de livraison – Magasin partenaire | STLS</title>
+<style>
+  :root{ --bg:#f5f4ee; --card:#fff; --ink:#1c1c1a; --soft:#6b6a63; --line:#e2e0d6; --line-strong:#cfccbe; --accent:#0f6b57; --dark:#1f2937; --red:#c0392b; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:16px; line-height:1.4; }
+  #app{ max-width:680px; margin:0 auto; padding:calc(14px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom)); }
+  .entete{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:6px 0 4px; }
+  .logo{ font-weight:900; font-size:34px; letter-spacing:2px; line-height:1; color:var(--dark); }
+  .logo small{ display:block; font-size:8.5px; letter-spacing:.5px; color:var(--soft); font-weight:700; margin-top:5px; }
+  h1{ font-size:18px; margin:0; text-transform:uppercase; letter-spacing:.4px; text-align:right; }
+  .sous{ color:var(--soft); margin:6px 0 4px; font-size:14px; }
+  .ref{ background:#e1f5ee; border:1px solid #b9e2d3; border-radius:10px; padding:8px 12px; margin:10px 0; font-size:14px; }
+  h2{ font-size:13px; text-transform:uppercase; background:var(--dark); color:#fff; padding:8px 12px; border-radius:6px; margin:20px 0 10px; letter-spacing:.3px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  .field{ margin-bottom:12px; }
+  .field label.l{ display:block; font-size:12.5px; color:var(--soft); margin-bottom:4px; font-weight:700; }
+  .field input[type=text], .field input[type=tel], .field input[type=email], .field input[type=date], .field input[type=number], .field textarea{ width:100%; padding:11px; border:1px solid var(--line-strong); border-radius:9px; font-size:16px; background:#fff; font-family:inherit; }
+  .field textarea{ min-height:84px; resize:vertical; }
+  .field.err input, .field.err textarea{ border-color:var(--red); background:#fdf2f0; }
+  .logo-client{ max-height:58px; max-width:210px; display:block; }
+  .logo.client-nom{ font-size:24px; letter-spacing:.5px; }
+  .tarifBox{ border:2px solid var(--accent); border-radius:12px; padding:14px; background:#f3faf7; }
+  .tarifMontant{ font-size:30px; font-weight:800; color:var(--accent); line-height:1.1; }
+  .tarifLigne{ display:flex; justify-content:space-between; gap:10px; font-size:14px; padding:3px 0; border-bottom:1px solid #dcece6; }
+  .tarifLigne:last-child{ border-bottom:none; }
+  .tarifLigne strong{ white-space:nowrap; }
+  .aide{ font-size:12px; color:var(--soft); margin-top:3px; line-height:1.35; }
+  .msgerr{ color:var(--red); font-size:12.5px; margin-top:3px; display:none; }
+  .field.err .msgerr{ display:block; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:480px){ .row2{ grid-template-columns:1fr; } }
+  .cases{ display:flex; flex-wrap:wrap; gap:10px 18px; margin:4px 0 8px; }
+  .case{ display:inline-flex; align-items:center; gap:8px; font-size:15px; cursor:pointer; }
+  .case input{ width:20px; height:20px; accent-color:var(--dark); }
+  .note{ font-size:12.5px; color:#4b5563; line-height:1.5; margin:4px 0 8px; }
+  .certif{ font-size:13px; color:#374151; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; margin-bottom:10px; }
+  .btn{ padding:15px; border-radius:12px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-size:16px; font-weight:700; font-family:inherit; width:100%; cursor:pointer; }
+  .btn:disabled{ opacity:.55; }
+  .btn.ghost{ background:#fff; color:var(--accent); }
+  .alerte{ background:#fdf2f0; border:1px solid #f0c9c3; color:#8a2c20; border-radius:10px; padding:10px 12px; margin:12px 0; font-size:14px; display:none; }
+  .msg{ text-align:center; padding:30px 10px; }
+  .recap h3{ font-size:13px; text-transform:uppercase; margin:16px 0 6px; color:var(--dark); border-bottom:1px solid var(--line); padding-bottom:4px; }
+  .recap .ln{ display:flex; gap:10px; font-size:14px; padding:2px 0; } .recap .ln b{ min-width:150px; color:var(--soft); font-weight:600; }
+  .piege{ position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+  .pied{ text-align:center; font-size:11px; color:var(--soft); margin-top:22px; line-height:1.6; border-top:1px solid var(--line); padding-top:12px; }
+  @media print{ body{ background:#fff; } .noprint{ display:none !important; } .card{ border:none; } }
 
+  .field select{ width:100%; padding:11px; border:1px solid var(--line-strong); border-radius:9px; font-size:16px; background:#fff; font-family:inherit; }
+  .field.err select{ border-color:var(--red); background:#fdf2f0; }
+  .lvcard{ border:1px solid var(--line); border-radius:12px; padding:12px; margin:8px 0; background:#fff; }
+  .lvtag{ display:inline-block; background:#e1f5ee; border:1px solid #b9e2d3; border-radius:999px; padding:4px 10px; font-size:13px; font-weight:700; color:var(--accent); margin-top:8px; }
+  .warnbox{ background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:10px; padding:10px 12px; margin:10px 0; font-size:14px; }
+  .ln{ display:flex; gap:10px; font-size:14px; padding:2px 0; } .ln b{ min-width:130px; color:var(--soft); font-weight:600; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="entete"><div class="logo" id="logoEntete">STLS<small>SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE</small></div><h1>Fiche de livraison<br>Magasin partenaire</h1></div>
+  <div id="contenu"><div class="msg"><p class="sous">Chargement…</p></div></div>
+  <div class="pied"><strong>SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS)</strong> – EURL au capital de 5 000 €<br>RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A<br>938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume<br>Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr</div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c"
+};
+var db = null, agence = '', nomAgence = '', refCommande = '', enseigne = '', envoye = false, agenceInfo = {};
+function qs(n){ try{ return (new URLSearchParams(location.search).get(n) || '').trim(); }catch(e){ return ''; } }
+function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+function el(id){ return document.getElementById(id); }
+function aff(html){ el('contenu').innerHTML = html; }
+function msgPage(titre, texte){ aff('<div class="msg"><h1 style="text-align:center;font-size:22px;">'+esc(titre)+'</h1><p class="sous">'+texte+'</p></div>'); }
+
+var JOURS = [['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi','Jeudi'],['vendredi','Vendredi'],['samedi','Samedi'],['dimanche','Dimanche']];
+var ACCES = [['ascenseur','Ascenseur'],['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['escalier','Escalier'],['accesDifficile','Accès difficile'],['accesAutre','Autre']];
+var OPTIONS = [['optDeballage','Déballage *'],['optRepriseEmballages','Reprise des emballages *'],['optMontageSimple','Montage simple *'],['optMiseEnPlace','Mise en place *'],['optEvacuation','Évacuation ancien matériel *']];
+function cb(id, lib){ return '<label class="case"><input type="checkbox" id="'+id+'"> '+lib+'</label>'; }
+function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+(o.attrs?' '+o.attrs:'')+'>'+(o.aide?'<div class="aide">'+o.aide+'</div>':'')+'<div class="msgerr" id="e-'+id+'"></div></div>'; }
+function aujourdhuiISO(){ var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function zone(id, lib, max){ return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+'</label><textarea id="'+id+'" maxlength="'+max+'"></textarea></div>'; }
+
+
+
+// ================= Tarif estimatif : même moteur que Tarifs › Calculateur (barème publié par Tarifs) =================
+var clientCode = '', clientConf = null, tarifDoc = null, distanceCache = {}, tarifMinuteur = null, tarifEnCours = 0, dernierTarif = null;
+function poidsCoefficient(poids, params){ if(poids<=10) return params.coeffEtageBase; return params.coeffEtageBase + params.coeffEtageBande*Math.ceil((poids-10)/30); }
+function determinerPersonnel(poidsLourd, paliers){
+  var t = (paliers||[]).slice().sort(function(a,b){ if(a.poidsMax==null) return 1; if(b.poidsMax==null) return -1; return a.poidsMax-b.poidsMax; });
+  for(var i=0;i<t.length;i++){ if(t[i].poidsMax==null || poidsLourd<=t[i].poidsMax) return t[i].personnes; }
+  return t.length ? t[t.length-1].personnes : 1;
+}
+function calculerPrestation(params, zone, input){
+  var minCoutLivreur = params.salaireLivreurHeure/60;
+  var LT = (zone.minLivraison * minCoutLivreur * params.coeffLivreurMin) + zone.carburantKm;
+  var LV1 = LT * params.coeffLV1, LV2 = LT*params.coeffLV2 + LV1, LV3 = LT*params.coeffLV3 + LV2;
+  var coeffColis = (input.colisLong||0) > params.colisLongBase ? params.coeffColisLong : params.coeffColisCourt;
+  var coutEtageUnitaire = LV1 * poidsCoefficient(input.poids||0, params) * coeffColis;
+  var surchargeEtage = coutEtageUnitaire * (input.nbEtages||0) * (input.ascenseur ? 1 : params.coeffSansAscenseur);
+  return { LT:LT, LV1:LV1+surchargeEtage, LV2:LV2+surchargeEtage, LV3:LV3+surchargeEtage, surchargeEtage:surchargeEtage, personnesNecessaires:determinerPersonnel(input.colisLourd||0, params.paliersPersonnel) };
+}
+function zoneDistance(distance, params, zones){
+  if(!zones || !zones.length) return null;
+  var z = zones.find(function(x){ return distance>=x.kmDe && distance<=x.kmA; });
+  if(z) return { zone:z, extraKm:0 };
+  var max = zones.slice().sort(function(a,b){ return b.kmA-a.kmA; })[0];
+  if(distance <= max.kmA) return { zone:max, extraKm:0 };
+  var extra = distance - max.kmA, minParKm = max.kmA ? (max.minLivraison / max.kmA) : 0;
+  return { zone:{ code:max.code+'+', kmDe:max.kmDe, kmA:distance, carburantKm:max.carburantKm + extra*params.tarifKmSupplementaire, minLivraison:max.minLivraison + extra*minParKm }, extraKm:extra };
+}
+// les 5 options de la fiche = les 5 compléments de Tarifs (par identifiant, à défaut par nom)
+var OPTION_COMPLEMENT = [['optDeballage','cp_deballage',/d[ée]ball/i],['optRepriseEmballages','cp_reprise_embal',/reprise/i],['optMontageSimple','cp_montage',/montage/i],['optMiseEnPlace','cp_mise_place',/mise en place/i],['optEvacuation','cp_evacuation',/[ée]vacu/i]];
+function complementsChoisis(options, complements){
+  var out = [];
+  OPTION_COMPLEMENT.forEach(function(o){
+    if(!options[o[0]]) return;
+    var c = (complements||[]).find(function(x){ return x.id===o[1]; }) || (complements||[]).find(function(x){ return o[2].test(x.nom||''); });
+    if(c) out.push({ nom:c.nom, prixHT:c.prixHT });
+  });
+  return out;
+}
+function avecDelai(p, ms){ return Promise.race([p, new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('delai')); }, ms||7000); })]); }
+async function geocoder(q, cp){
+  var r = await avecDelai(fetch('https://api-adresse.data.gouv.fr/search/?q='+encodeURIComponent(q)+'&limit=1'+(cp ? '&postcode='+encodeURIComponent(cp) : '')));
+  if(!r.ok) throw new Error('geocodage'); var j = await r.json(), ft = (j.features||[])[0];
+  return ft && ft.geometry && ft.geometry.coordinates ? { lon:ft.geometry.coordinates[0], lat:ft.geometry.coordinates[1] } : null;
+}
+function volOiseauKm(a, b){
+  var R = 6371, rad = Math.PI/180, dLat = (b.lat-a.lat)*rad, dLon = (b.lon-a.lon)*rad;
+  var h = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+async function coordsDepot(){
+  if(typeof agenceInfo.lat==='number' && typeof agenceInfo.lon==='number') return { lat:agenceInfo.lat, lon:agenceInfo.lon };
+  var adr = [agenceInfo.adresse1, agenceInfo.cp, agenceInfo.ville].filter(Boolean).join(' ');
+  return adr ? await geocoder(adr, agenceInfo.cp) : null;
+}
+// distance route dépôt → adresse, arrondie au km SUPÉRIEUR (jamais sous-estimée) ; à défaut vol d'oiseau × 1,3
+
+function fmtE(n){ return (Math.round(n*100)/100).toFixed(2).replace('.', ',')+' €'; }
+
+function personnaliserEntete(){
+  var box = el('logoEntete'), nom = clientConf.clientNom || ''; box.innerHTML = '';
+  if(typeof clientConf.logo==='string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(clientConf.logo)){
+    var img = document.createElement('img'); img.className = 'logo-client'; img.alt = nom; img.src = clientConf.logo; box.appendChild(img);
+  } else { box.className = 'logo client-nom'; box.appendChild(document.createTextNode(nom)); }
+  var sm = document.createElement('small'); sm.textContent = 'Livraison réalisée par STLS'; box.appendChild(sm);
+  document.title = 'Fiche de livraison – '+nom;
+}
+
+// ================= FICHE MAGASIN PARTENAIRE =================
+// Une fiche = un point d'enlèvement : le magasin partenaire, dont l'adresse vient de la base client de l'agence.
+// Tarif : moteur de Tarifs (LT = trottoir ; LV1/LV2/LV3 = manutention). Distance : magasin → client ;
+// cumul agence → magasin → client quand l'enlèvement ET le client sont chacun à plus de 10 km de l'agence.
+var MAX_LV3_KG = 120, DELAI_POSE_JOURS = 3, SEUIL_CUMUL_KM = 10;
+var FAMILLES_DEFAUT = ['Cuisine','Salle de bain','Dressing','Électroménager','Canapé','Meubles','Autre'];
+var magasin = {}, familles = [], memoClient = null, distanceCacheP = {}, dernierTarifP = null;
+var BATIMENTS = [['villa','Maison / Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['accesAutre','Autre']];
+var ACCES_CASES = [['cour','Cour intérieure'],['prive','Accès privé'],['etroite','Rue étroite'],['pente','Rue en pente'],['stationnement','Stationnement possible'],['autorisation','Autorisation nécessaire'],['utilitaire','Accès utilitaire / PL possible']];
+var MOYENS = [['transpalette','Transpalette'],['diable','Diable'],['chariot','Chariot'],['montecharge','Monte-charge'],['montemeuble','Monte-meuble'],['quai','Quai'],['hayon','Hayon'],['grue','Grue'],['moyenautre','Autre']];
+var OPTIONS_P = [['optDeballage','Déballage'],['optRepriseEmballages','Reprise des emballages'],['optMontageSimple','Montage simple'],['optMiseEnPlace','Mise en place'],['optEvacuation','Évacuation ancien matériel']];
+
+function nombre(id){ var v = valeur(id).replace(',', '.'); return v==='' ? NaN : Number(v); }
+function valeur(id){ var e = el(id); return e ? String(e.value||'').trim() : ''; }
+function coche(id){ var e = el(id); return !!(e && e.checked); }
+function erreur(id, texte){ var f = el('f-'+id); if(!f) return; f.classList.add('err'); var m = el('e-'+id); if(m) m.textContent = texte; }
+function numeroFiche(){
+  var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); }, alea = '';
+  try{ var a = new Uint32Array(2); (window.crypto||window.msCrypto).getRandomValues(a); alea = (a[0].toString(36)+a[1].toString(36)).toUpperCase().slice(0,6); }catch(e){ alea = Math.random().toString(36).slice(2,8).toUpperCase(); }
+  return 'FL'+String(d.getFullYear()).slice(2)+p(d.getMonth()+1)+p(d.getDate())+'-'+alea;
+}
+function arrondi(x){ return Math.round(x*100)/100; }
+function adresseMagasin(){ return ([magasin.adresse1, magasin.adresse2].filter(Boolean).join(', ') + ', ' + magasin.cp + ' ' + magasin.ville).slice(0, 200); }
+function departementDepuisCp(cp){ return /^\d{5}$/.test(cp) ? cp.slice(0, 2) : ''; }
+function prixOption(id){
+  if(!tarifDoc) return null; var o = OPTION_COMPLEMENT.filter(function(x){ return x[0]===id; })[0]; if(!o) return null;
+  var l = tarifDoc.params.complements || [], c = l.filter(function(x){ return x.id===o[1]; })[0] || l.filter(function(x){ return o[2].test(x.nom||''); })[0];
+  return c ? c.prixHT : null;
+}
+function niveauLV(kg){ if(tarifDoc) return Math.min(3, Math.max(1, determinerPersonnel(kg, tarifDoc.params.paliersPersonnel))); return kg <= 30 ? 1 : (kg <= 80 ? 2 : 3); }
+function prestationChoisie(){ return coche('prest-LV') ? 'LV' : 'LT'; }
+
+// ---------- distance : magasin → client (cumul agence → magasin → client si les deux dépassent 10 km de l'agence) ----------
+async function routeKm(a, b){
+  try{
+    var r = await avecDelai(fetch('https://router.project-osrm.org/route/v1/driving/'+a.lon+','+a.lat+';'+b.lon+','+b.lat+'?overview=false'));
+    var j = await r.json(); if(!r.ok || !j.routes || !j.routes[0]) throw new Error('route');
+    return { km:j.routes[0].distance/1000, route:true };
+  }catch(e){ return { km:volOiseauKm(a, b)*1.3, route:false }; }
+}
+async function coordsMagasin(){
+  if(typeof magasin.lat==='number' && typeof magasin.lon==='number') return { lat:magasin.lat, lon:magasin.lon };
+  return await geocoder([magasin.adresse1, magasin.cp, magasin.ville].filter(Boolean).join(' '), magasin.cp);
+}
+async function estimerDistancePartenaire(adresse1, cp, ville){
+  var cle = [adresse1, cp, ville].join('|').toLowerCase(); if(distanceCacheP[cle]) return distanceCacheP[cle];
+  var res;
+  try{
+    var dest = await geocoder([adresse1, cp, ville].filter(Boolean).join(' '), cp);
+    if(!dest) return { km:null, raison:'Adresse non reconnue : STLS vous confirmera le tarif.' };
+    var mag = await coordsMagasin(), dep = await coordsDepot();
+    if(!mag) return { km:null, raison:'Magasin non localisé : STLS vous confirmera le tarif.' };
+    if(!dep) return { km:null, raison:'Dépôt non localisé : STLS vous confirmera le tarif.' };
+    var t = await Promise.all([routeKm(mag, dest), routeKm(dep, mag), routeKm(dep, dest)]), mc = t[0], am = t[1], ac = t[2];
+    var cumul = am.km > SEUIL_CUMUL_KM && ac.km > SEUIL_CUMUL_KM, total = cumul ? am.km + mc.km : mc.km;
+    res = { km:Math.ceil(total), mode:cumul ? 'cumul' : 'magasin-client', methode:(mc.route && am.route && ac.route) ? 'itinéraire routier' : 'estimation (distance à vol d\'oiseau majorée)',
+      detail:{ magasinClient:Math.ceil(mc.km), agenceMagasin:Math.ceil(am.km), agenceClient:Math.ceil(ac.km) } };
+  }catch(e){ return { km:null, raison:'Calcul de la distance indisponible : STLS vous confirmera le tarif.' }; }
+  distanceCacheP[cle] = res; return res;
+}
+
+// ---------- tarif ----------
+function lireDeclarationsP(){
+  var etage = parseInt(valeur('etage'), 10); if(!(etage>=0)) etage = 0;
+  var options = {}; OPTIONS_P.forEach(function(o){ options[o[0]] = coche(o[0]); });
+  return { prestation:prestationChoisie(), adresse1:valeur('adresse1'), cp:valeur('cp'), ville:valeur('ville'), etage:etage, ascenseur:valeur('ascenseur')==='oui',
+    poidsTotal:nombre('poidsTotalKg'), colisLourd:nombre('colisLourdPoidsKg'), colisLong:nombre('colisLongLongueurCm'), options:options };
+}
+function declarationsCompletesP(d){ return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
+async function calculerTarifP(d){
+  if(d.prestation==='LV' && d.colisLourd > MAX_LV3_KG) return { statut:'devis', raison:'Colis le plus lourd supérieur à '+MAX_LV3_KG+' kg : devis obligatoire.' };
+  if(!tarifDoc) return { statut:'indisponible', raison:'Le barème de STLS n\'est pas disponible pour le moment : STLS vous confirmera le tarif.' };
+  var dist = await estimerDistancePartenaire(d.adresse1, d.cp, d.ville);
+  if(dist.km==null) return { statut:'a_confirmer', raison:dist.raison };
+  var zr = zoneDistance(dist.km, tarifDoc.params, tarifDoc.zones); if(!zr) return { statut:'a_confirmer', raison:'Zone non définie : STLS vous confirmera le tarif.' };
+  var lv = d.prestation==='LV';
+  var r = calculerPrestation(tarifDoc.params, zr.zone, { poids:d.poidsTotal, colisLourd:d.colisLourd, colisLong:d.colisLong, nbEtages:lv ? d.etage : 0, ascenseur:d.ascenseur });
+  var equipe = lv ? Math.min(3, Math.max(1, r.personnesNecessaires)) : null, base = lv ? r['LV'+equipe] : r.LT;
+  var comps = lv ? complementsChoisis(d.options, tarifDoc.params.complements) : [], totComp = comps.reduce(function(s, c){ return s + c.prixHT; }, 0), ht = base + totComp, alertes = [];
+  if(lv && d.etage>0 && !d.ascenseur) alertes.push('Livraison à l\'étage sans ascenseur : un supplément est inclus.');
+  return { statut:'ok', prestation:d.prestation, km:dist.km, mode:dist.mode, methode:dist.methode, detail:dist.detail, zone:zr.zone.code, equipe:equipe, baseHT:base, surchargeEtage:lv ? r.surchargeEtage : 0,
+    complements:comps, montantHT:ht, tva:ht*0.2, ttc:ht*1.2, alertes:alertes, versionTarif:tarifDoc.publieLe||'', calculeLe:new Date().toISOString() };
+}
+function tarifHtmlP(t){
+  if(t.statut==='devis') return '<div class="warnbox"><strong>Devis obligatoire.</strong><br>'+esc(t.raison)+' Votre fiche sera transmise à STLS pour chiffrage : aucun prix n\'est affiché.</div>';
+  if(t.statut!=='ok') return '<div class="note"><strong>Tarif à confirmer par STLS.</strong><br>'+esc(t.raison||'')+'</div>';
+  var l = function(a, b){ return '<div class="tarifLigne"><span>'+a+'</span><strong>'+b+'</strong></div>'; };
+  var lib = t.prestation==='LV' ? 'Livraison dans la pièce — équipe de '+t.equipe+' personne'+(t.equipe>1?'s':'')+' (LV'+t.equipe+')' : 'Livraison trottoir (LT)';
+  return '<div class="tarifBox"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--soft);">Tarif estimatif de votre livraison</div>'+
+    '<div class="tarifMontant">'+fmtE(t.montantHT)+' <span style="font-size:15px;font-weight:600;">HT</span></div><div style="font-size:14px;margin-bottom:8px;">soit <strong>'+fmtE(t.ttc)+' TTC</strong> (TVA 20 %)</div>'+
+    l(lib+' · zone '+esc(t.zone)+' (~'+t.km+' km)', fmtE(t.baseHT))+(t.surchargeEtage>0 ? l('&nbsp;&nbsp;dont étage(s)', fmtE(t.surchargeEtage)) : '')+
+    t.complements.map(function(c){ return l(esc(c.nom), fmtE(c.prixHT)); }).join('')+
+    (t.alertes.length ? '<div class="aide" style="margin-top:8px;">'+t.alertes.map(esc).join('<br>')+'</div>' : '')+
+    '<div class="aide" style="margin-top:8px;">Distance retenue : '+(t.mode==='cumul' ? 'agence → magasin → votre adresse' : 'du magasin à votre adresse')+' ('+esc(t.methode)+'). Tarif estimatif, confirmé par STLS à la réception de votre fiche.</div></div>';
+}
+async function afficherTarifP(){
+  var zoneT = el('tarifResultat'); if(!zoneT) return null; var d = lireDeclarationsP();
+  if(!declarationsCompletesP(d)){ zoneT.innerHTML = '<div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div>'; dernierTarifP = null; return null; }
+  var seq = ++tarifEnCours; zoneT.innerHTML = '<div class="aide">Calcul de votre tarif…</div>';
+  var t = await calculerTarifP(d); if(seq !== tarifEnCours) return null;
+  dernierTarifP = t; zoneT.innerHTML = tarifHtmlP(t); return t;
+}
+function planifierTarifP(){ clearTimeout(tarifMinuteur); tarifMinuteur = setTimeout(function(){ afficherTarifP(); }, 700); }
+
+// ---------- affichage ----------
+function majPrestation(){
+  var lv = prestationChoisie()==='LV'; el('blocLV').style.display = lv ? 'block' : 'none';
+  var kg = nombre('colisLourdPoidsKg'), tag = el('lvtag'), w = el('warn120');
+  if(lv && kg > 0){
+    if(kg > MAX_LV3_KG){ tag.style.display = 'none'; w.style.display = 'block'; }
+    else { w.style.display = 'none'; var n = niveauLV(kg); tag.style.display = 'inline-block'; tag.textContent = 'Équipe nécessaire : LV'+n+' — '+n+' livreur'+(n>1?'s':''); }
+  } else { tag.style.display = 'none'; w.style.display = 'none'; }
+}
+function majDatePose(){
+  var v = valeur('datePose'), a = el('alertePose'); if(!a) return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(v)){ a.style.display = 'none'; return; }
+  var j = Math.round((new Date(v+'T00:00:00') - new Date(aujourdhuiISO()+'T00:00:00')) / 86400000);
+  a.style.display = j < DELAI_POSE_JOURS ? 'block' : 'none';
+}
+function afficherFormulaire(){
+  var aujourdhui = aujourdhuiISO();
+  var fam = '<div class="field" id="f-famille"><label class="l" for="famille">Famille de marchandise *</label><select id="famille"><option value="">— Choisir —</option>'+familles.map(function(f){ return '<option>'+esc(f)+'</option>'; }).join('')+'</select><div class="msgerr" id="e-famille"></div></div>';
+  var opts = OPTIONS_P.map(function(o){ var p = prixOption(o[0]); return cb(o[0], o[1]+(p!=null ? ' ('+fmtE(p)+' HT)' : '')+' *'); }).join('');
+  aff(
+    '<p class="sous">Vous avez acheté votre marchandise chez <strong>'+esc(magasin.nom)+'</strong>. STLS se charge de l\'enlever en magasin et de vous la livrer : renseignez cette fiche, votre tarif estimatif s\'affiche automatiquement.'+(nomAgence?' ('+esc(nomAgence)+')':'')+'</p>'+
+    '<form id="fiche" novalidate autocomplete="on">'+
+    '<h2>1. Adresse d\'enlèvement</h2><div class="card"><div class="note" style="margin-top:0;">Magasin partenaire de STLS : l\'adresse d\'enlèvement est enregistrée, vous n\'avez rien à saisir. Aucune autorisation n\'est nécessaire : <strong>votre numéro de commande suffit</strong> pour retirer la marchandise.</div>'+
+      '<div class="ln"><b>Magasin</b> '+esc(magasin.nom)+'</div><div class="ln"><b>Adresse</b> '+esc(adresseMagasin())+'</div>'+(magasin.tel ? '<div class="ln"><b>Téléphone</b> '+esc(magasin.tel)+'</div>' : '')+'</div>'+
+    '<h2>2. Client — destinataire de la livraison</h2><div class="card">'+
+      '<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+      '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel'})+'</div>'+
+      champ('mail','Mail',{req:1,type:'email',max:120,ac:'email',aide:'Nécessaire pour vous transmettre la confirmation et le tarif.'})+
+      '<div class="row2">'+champ('adresse1','Adresse de livraison',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Complément d\'adresse',{max:160,ac:'address-line2'})+'</div>'+
+      '<div class="row2">'+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code'})+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+'</div>'+
+      champ('departement','Département',{req:1,max:3,inputmode:'numeric'})+
+    '</div>'+
+    '<h2>3. Votre commande et votre marchandise</h2><div class="card">'+
+      '<div class="row2">'+champ('numeroCommande','Numéro de commande',{req:1,max:60,aide:'Indiqué sur votre facture ou votre bon de commande : il permet le retrait au magasin.'})+fam+'</div>'+
+      champ('dispo','Date de disponibilité de la commande',{req:1,type:'date',attrs:'min="'+aujourdhui+'"',aide:'Date à laquelle votre commande est disponible en magasin.'})+
+      '<div class="row2">'+champ('poidsTotalKg','Poids global de la commande (kg)',{req:1,max:8,inputmode:'decimal'})+champ('nbColisTotal','Nombre total de colis',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>'+
+      '<div class="row2">'+champ('colisLourdPoidsKg','Colis le plus lourd (kg)',{req:1,max:8,inputmode:'decimal'})+champ('colisLongLongueurCm','Colis le plus long (cm)',{req:1,max:6,inputmode:'decimal'})+'</div>'+
+      '<div class="row2">'+champ('colisLongLargeurCm','Largeur (cm)',{req:1,max:6,inputmode:'decimal'})+champ('colisLongHauteurCm','Hauteur (cm)',{req:1,max:6,inputmode:'decimal'})+'</div>'+
+      zone('description','Description / références',200)+
+    '</div>'+
+    '<h2>4. Prestation souhaitée</h2><div class="card">'+
+      '<div class="lvcard"><label class="case"><input type="radio" name="prestation" id="prest-LT" value="LT" checked> <strong>Livraison trottoir (LT)</strong></label><div class="aide">Transport de votre marchandise du magasin à votre adresse : vous vous chargez de la manutention à partir du camion (déchargement au bord du trottoir). Aucune autre information nécessaire : ni étage, ni prestation complémentaire.</div></div>'+
+      '<div class="lvcard"><label class="case"><input type="radio" name="prestation" id="prest-LV" value="LV"> <strong>Livraison dans la pièce de votre choix — LV1 / LV2 / LV3</strong></label><div class="aide">STLS assure la manutention. Le nombre de livreurs est déterminé par le poids du colis le plus lourd : LV1 = 1 personne (maxi 30 kg) · LV2 = 2 personnes (maxi 80 kg) · LV3 = 3 personnes (maxi 120 kg). Au-delà de 120 kg : devis obligatoire.</div>'+
+        '<div class="lvtag" id="lvtag" style="display:none;"></div><div class="warnbox" id="warn120" style="display:none;"><strong>Colis le plus lourd supérieur à 120 kg : devis obligatoire.</strong> Votre fiche sera transmise à STLS pour chiffrage.</div></div>'+
+      '<div id="blocLV" style="display:none;">'+
+        '<div class="row2"><div class="field" id="f-batiment"><label class="l" for="batiment">Type de bâtiment *</label><select id="batiment"><option value="">— Choisir —</option>'+BATIMENTS.map(function(b){ return '<option value="'+b[0]+'">'+b[1]+'</option>'; }).join('')+'</select><div class="msgerr" id="e-batiment"></div></div>'+champ('etage','Étage de livraison',{req:1,max:3,inputmode:'numeric',aide:'0 pour le rez-de-chaussée.'})+'</div>'+
+        '<div class="row2"><div class="field" id="f-ascenseur"><label class="l" for="ascenseur">Ascenseur *</label><select id="ascenseur"><option value="">— Choisir —</option><option value="non">Non</option><option value="oui">Oui</option></select><div class="msgerr" id="e-ascenseur"></div></div>'+champ('ascDim','Dimensions de l\'ascenseur (L × l × h cm)',{max:40,aide:'Facultatif.'})+'</div>'+
+        '<div class="row2">'+champ('largeurPassage','Largeur de passage mini (cm)',{max:5,inputmode:'numeric'})+champ('distVehicule','Distance véhicule → livraison (m)',{max:4,inputmode:'numeric'})+'</div>'+
+        '<label class="l" style="font-size:12.5px;color:var(--soft);font-weight:700;">Accès</label><div class="cases">'+ACCES_CASES.map(function(a){ return cb('acc-'+a[0], a[1]); }).join('')+'</div>'+
+        '<label class="l" style="font-size:12.5px;color:var(--soft);font-weight:700;">Moyens de manutention disponibles sur place</label><div class="cases">'+MOYENS.map(function(m){ return cb('moy-'+m[0], m[1]); }).join('')+'</div>'+
+        zone('accesPrecisions','Précisions (interphone, stationnement, ascenseur…)',300)+
+        '<label class="l" style="font-size:12.5px;color:var(--soft);font-weight:700;">Prestations complémentaires</label><div class="cases">'+opts+'</div>'+
+        '<div class="note"><strong>* Informations importantes concernant les options :</strong><br><strong>Montage simple :</strong> durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.<br><strong>Mise en place :</strong> positionnement du mobilier ou de l\'équipement <strong>sans aucune fixation</strong>.<br><strong>Évacuation ancien matériel :</strong> uniquement si le matériel est <strong>transportable et préalablement emballé</strong>.</div>'+
+      '</div>'+
+      champ('datePose','Date de pose',{type:'date',attrs:'min="'+aujourdhui+'"',aide:'Facultatif. Cette date est <strong>indicative</strong> : elle nous aide à organiser la livraison, mais ne nous engage pas.'})+
+      '<div class="warnbox" id="alertePose" style="display:none;margin-top:0;"><strong>Délai inférieur à '+DELAI_POSE_JOURS+' jours.</strong> STLS ne pourra pas forcément s\'organiser : cette date est une information et n\'engage STLS à rien.</div>'+
+      '<label class="l" style="font-size:12.5px;color:var(--soft);font-weight:700;">Jours de livraison possibles</label><div class="cases">'+cb('joursTous','Tous')+JOURS.map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+
+      zone('contraintes','Informations complémentaires / contraintes',600)+
+    '</div>'+
+    '<h2>5. Votre tarif estimatif</h2><div class="card"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>'+
+    '<h2>6. Confirmation</h2><div class="card">'+
+      '<div class="piege" aria-hidden="true"><label>Site web <input type="text" id="siteweb" tabindex="-1" autocomplete="off"></label></div>'+
+      '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> J\'ai vérifié les informations de livraison</label><div class="msgerr" id="e-certifie"></div></div>'+
+      '<div class="field" id="f-certifieMarchandise"><label class="case"><input type="checkbox" id="certifieMarchandise"> J\'ai vérifié les informations de marchandise et d\'enlèvement</label><div class="msgerr" id="e-certifieMarchandise"></div></div>'+
+      champ('demandeur','Nom du demandeur',{req:1,max:80})+
+      '<div class="aide">Date : '+aujourdhui.split('-').reverse().join('/')+'</div>'+
+    '</div>'+
+    '<div class="alerte" id="alerte"></div><button type="submit" class="btn" id="btnEnvoyer">ENVOYER MA FICHE</button></form>');
+  var f = el('fiche');
+  f.addEventListener('input', function(ev){
+    planifierTarifP(); majPrestation(); majDatePose();
+    if(ev.target && ev.target.id==='cp' && /^\d{5}$/.test(valeur('cp')) && !valeur('departement')) el('departement').value = departementDepuisCp(valeur('cp'));
+  });
+  f.addEventListener('change', function(){ planifierTarifP(); majPrestation(); majDatePose(); });
+  el('btnTarif').addEventListener('click', afficherTarifP);
+  f.addEventListener('submit', function(ev){ ev.preventDefault(); envoyer(); });
+  if(memoClient){   // fiche dupliquée : les informations du client sont reprises, la commande est à saisir
+    ['nom','prenom','tel1','tel2','mail','adresse1','adresse2','cp','ville','departement','demandeur'].forEach(function(k){ if(memoClient[k] && el(k)) el(k).value = memoClient[k]; });
+  }
+  majPrestation();
+}
+
+// ---------- validation ----------
+function validerSaisie(){
+  document.querySelectorAll('.field.err').forEach(function(f){ f.classList.remove('err'); });
+  var n = 0, premier = '';
+  function ko(id, t){ erreur(id, t); n++; if(!premier) premier = id; }
+  ['nom','prenom','adresse1','ville','demandeur','numeroCommande'].forEach(function(id){ if(!valeur(id)) ko(id, 'Champ obligatoire'); });
+  var tel = valeur('tel1').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
+  if(!valeur('tel1')) ko('tel1','Champ obligatoire'); else if(!/^0[1-9]\d{8}$/.test(tel)) ko('tel1','Numéro invalide (10 chiffres, ex. 06 12 34 56 78)');
+  var tel2 = valeur('tel2').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
+  if(valeur('tel2') && !/^0[1-9]\d{8}$/.test(tel2)) ko('tel2','Numéro invalide');
+  if(!valeur('mail')) ko('mail','Champ obligatoire'); else if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide');
+  if(!valeur('departement')) ko('departement','Champ obligatoire'); else if(!/^(2A|2B|\d{2,3})$/i.test(valeur('departement'))) ko('departement','Département invalide (ex. 83)');
+  if(!valeur('cp')) ko('cp','Champ obligatoire'); else if(!/^\d{5}$/.test(valeur('cp'))) ko('cp','Code postal invalide (5 chiffres)');
+  if(!valeur('famille')) ko('famille','Merci de choisir une famille');
+  if(!valeur('dispo')) ko('dispo','Champ obligatoire'); else if(!/^\d{4}-\d{2}-\d{2}$/.test(valeur('dispo'))) ko('dispo','Date invalide'); else if(valeur('dispo') < aujourdhuiISO()) ko('dispo','Cette date est passée');
+  if(valeur('datePose') && !/^\d{4}-\d{2}-\d{2}$/.test(valeur('datePose'))) ko('datePose','Date invalide');
+  function num(id, max, entier){
+    if(valeur(id)==='') { ko(id,'Champ obligatoire'); return NaN; } var x = nombre(id);
+    if(!(x > 0 && x <= max) || (entier && !Number.isInteger(x))){ ko(id, entier ? 'Nombre entier de 1 à '+max : 'Valeur invalide (maximum '+max+')'); return NaN; } return x;
+  }
+  var pt = num('poidsTotalKg', 50000), nc = num('nbColisTotal', 9999, true), pl = num('colisLourdPoidsKg', 5000);
+  num('colisLongLongueurCm', 2000); num('colisLongLargeurCm', 1000); num('colisLongHauteurCm', 1000);
+  if(pt > 0 && pl > 0 && pl > pt) ko('colisLourdPoidsKg','Le colis le plus lourd ne peut pas dépasser le poids global');
+  if(prestationChoisie()==='LV'){
+    if(!valeur('batiment')) ko('batiment','Merci de choisir un type de bâtiment');
+    if(valeur('etage')==='') ko('etage','Champ obligatoire'); else if(!/^\d{1,3}$/.test(valeur('etage'))) ko('etage','Nombre invalide');
+    if(!valeur('ascenseur')) ko('ascenseur','Merci de répondre');
+  }
+  if(!coche('certifie')) ko('certifie','Merci de confirmer avoir vérifié les informations de livraison');
+  if(!coche('certifieMarchandise')) ko('certifieMarchandise','Merci de confirmer avoir vérifié les informations de marchandise');
+  return { n:n, premier:premier };
+}
+
+// ---------- envoi ----------
+async function envoyer(){
+  if(envoye) return;
+  var v = validerSaisie(), al = el('alerte');
+  if(v.n){ al.style.display = 'block'; al.textContent = 'Merci de corriger '+v.n+' champ(s) signalé(s) en rouge.'; var f = el('f-'+v.premier); if(f) f.scrollIntoView({ behavior:'smooth', block:'center' }); return; }
+  al.style.display = 'none';
+  if(valeur('siteweb')){ envoye = true; afficherConfirmation('FL000000-X', null, null); return; }   // piège à robots
+  var btn = el('btnEnvoyer'); btn.disabled = true; btn.textContent = 'Envoi en cours…';
+  var tarifFinal = null; try{ var dcl = lireDeclarationsP(); if(declarationsCompletesP(dcl)) tarifFinal = await calculerTarifP(dcl); }catch(e){ console.error('tarif', e); }   // le tarif enregistré correspond exactement à la fiche envoyée
+  var numero = numeroFiche(), lv = prestationChoisie()==='LV', tel = function(id){ return valeur(id).replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0'); };
+  var doc = { numero:numero, agence:agence, ref:(refCommande || valeur('numeroCommande')).slice(0, 60), enseigne:String(magasin.nom||'').slice(0, 60),
+    nom:valeur('nom'), prenom:valeur('prenom'), tel1:tel('tel1'), tel2:tel('tel2'), adresse1:valeur('adresse1'), adresse2:valeur('adresse2'), departement:valeur('departement').toUpperCase(), cp:valeur('cp'), ville:valeur('ville'), mail:valeur('mail'),
+    datePose:valeur('datePose'), joursTous:coche('joursTous'), demandeur:valeur('demandeur'), certifie:true, certifieMarchandise:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString(),
+    typeFiche:'magasin_partenaire', clientCode:clientCode, clientNom:String(clientConf.clientNom||'').slice(0, 80), famille:valeur('famille').slice(0, 60), prestation:lv ? 'LV' : 'LT', devisObligatoire:!!(lv && nombre('colisLourdPoidsKg') > MAX_LV3_KG),
+    nbFournisseurs:1, modeReception:'enlevement', nbPointsEnlevement:1,
+    enlevements:[{ fournisseur:String(magasin.nom||'').slice(0, 80), adresse:adresseMagasin(), colis:nombre('nbColisTotal'), poidsKg:arrondi(nombre('poidsTotalKg')), numeroCommande:valeur('numeroCommande'), dateDisponibilite:valeur('dispo') }],
+    colisLongLongueurCm:arrondi(nombre('colisLongLongueurCm')), colisLongLargeurCm:arrondi(nombre('colisLongLargeurCm')), colisLongHauteurCm:arrondi(nombre('colisLongHauteurCm')), colisLourdPoidsKg:arrondi(nombre('colisLourdPoidsKg')),
+    poidsTotalKg:arrondi(nombre('poidsTotalKg')), nbColisTotal:nombre('nbColisTotal') };
+  JOURS.forEach(function(j){ doc[j[0]] = coche(j[0]); });
+  var desc = valeur('description'); doc.contraintes = ((desc ? 'Description / références : '+desc+'\n' : '') + valeur('contraintes')).slice(0, 1600);
+  if(lv){
+    doc.etage = valeur('etage'); doc.ascenseur = valeur('ascenseur')==='oui';
+    BATIMENTS.forEach(function(b){ doc[b[0]] = valeur('batiment')===b[0]; });
+    doc.accesDifficile = coche('acc-cour') || coche('acc-etroite') || coche('acc-pente') || coche('acc-autorisation');
+    OPTIONS_P.forEach(function(o){ doc[o[0]] = coche(o[0]); });
+    var p = [];
+    if(valeur('accesPrecisions')) p.push(valeur('accesPrecisions'));
+    var ac = ACCES_CASES.filter(function(a){ return coche('acc-'+a[0]); }).map(function(a){ return a[1]; }); if(ac.length) p.push('Accès : '+ac.join(', '));
+    var mo = MOYENS.filter(function(m){ return coche('moy-'+m[0]); }).map(function(m){ return m[1]; }); if(mo.length) p.push('Moyens sur place : '+mo.join(', '));
+    if(valeur('ascDim')) p.push('Ascenseur : '+valeur('ascDim')); if(valeur('largeurPassage')) p.push('Passage mini : '+valeur('largeurPassage')+' cm'); if(valeur('distVehicule')) p.push('Distance véhicule → livraison : '+valeur('distVehicule')+' m');
+    if(p.length) doc.accesPrecisions = p.join(' | ').slice(0, 600);
+  }
+  if(tarifFinal && tarifFinal.statut==='ok'){
+    doc.tarifHT = arrondi(tarifFinal.montantHT); doc.tarifTTC = arrondi(tarifFinal.ttc); doc.tarifBaseHT = arrondi(tarifFinal.baseHT); doc.tarifZone = String(tarifFinal.zone).slice(0, 10);
+    doc.tarifDistanceKm = tarifFinal.km; doc.tarifDistanceMode = tarifFinal.mode; doc.tarifVersion = String(tarifFinal.versionTarif||'').slice(0, 40); doc.tarifCalculeLe = tarifFinal.calculeLe;
+    if(tarifFinal.equipe) doc.tarifPersonnes = tarifFinal.equipe;
+    var lc = tarifFinal.complements.map(function(c){ return c.nom+' ('+fmtE(c.prixHT)+' HT)'; }).join(' ; ').slice(0, 300); if(lc) doc.tarifComplements = lc;
+  }
+  ['ref','enseigne','tel2','adresse2','mail','etage','accesPrecisions','datePose','contraintes'].forEach(function(k){ if(!doc[k]) delete doc[k]; });
+  try{
+    await db.collection('stls_fiches_soumissions').doc(numero).set(doc);
+    envoye = true; afficherConfirmation(numero, doc, tarifFinal);
+  }catch(e){
+    console.error('envoi fiche', e);
+    btn.disabled = false; btn.textContent = 'ENVOYER MA FICHE'; al.style.display = 'block';
+    al.textContent = (e && e.code==='permission-denied') ? 'Ce formulaire n\'accepte plus de réponses pour le moment. Merci de contacter STLS au 06 58 30 16 87.' : 'Votre fiche n\'a pas pu être envoyée. Vérifiez votre connexion et réessayez, ou contactez STLS au 06 58 30 16 87.';
+  }
+}
+function afficherConfirmation(numero, d, tarif){
+  var ln = function(l, v){ return v ? '<div class="ln"><b>'+esc(l)+'</b><span>'+esc(v)+'</span></div>' : ''; };
+  var recap = '';
+  if(d){
+    var e = d.enlevements[0];
+    recap = '<div class="recap"><h3>Récapitulatif</h3>'+ln('Client', d.nom+' '+d.prenom)+ln('Téléphone', d.tel1+(d.tel2?' / '+d.tel2:''))+ln('Mail', d.mail)+ln('Adresse de livraison', d.adresse1+(d.adresse2?', '+d.adresse2:'')+' — '+d.cp+' '+d.ville)+
+      '<h3>Commande</h3>'+ln('Enlèvement', e.fournisseur+' — '+e.adresse)+ln('Numéro de commande', e.numeroCommande)+ln('Famille', d.famille)+ln('Disponible le', e.dateDisponibilite.split('-').reverse().join('/'))+
+      ln('Marchandise', e.colis+' colis, '+e.poidsKg+' kg · le plus lourd '+d.colisLourdPoidsKg+' kg · le plus long '+d.colisLongLongueurCm+' cm')+
+      ln('Prestation', d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : 'Livraison trottoir (LT)')+(d.devisObligatoire ? ln('Devis', 'obligatoire (colis de plus de '+MAX_LV3_KG+' kg)') : '')+ln('Étage', d.etage)+ln('Précisions', d.accesPrecisions)+ln('Date de pose', d.datePose ? d.datePose.split('-').reverse().join('/')+' (indicative)' : '')+
+      (d.tarifTTC!=null ? '<h3>Tarif estimatif</h3>'+ln('Montant', fmtE(d.tarifHT)+' HT — '+fmtE(d.tarifTTC)+' TTC')+ln('Zone', d.tarifZone+' (~'+d.tarifDistanceKm+' km)')+ln('Options', d.tarifComplements) : '')+'</div>';
+  }
+  aff('<div class="msg"><h1 style="text-align:center;font-size:22px;">Merci, votre fiche est envoyée</h1><p class="sous">Numéro de fiche : <strong>'+esc(numero)+'</strong><br>STLS la traite et vous contacte pour organiser votre livraison. Conservez ce numéro.</p></div>'+recap+
+    '<div class="card noprint"><button type="button" class="btn ghost" id="btnDupliquer">Une autre commande ? Dupliquer cette fiche</button><div class="aide" style="margin-top:6px;">Vos coordonnées sont reprises : il ne reste qu\'à saisir la nouvelle commande (une fiche par point d\'enlèvement).</div></div>'+
+    '<div class="card noprint"><button type="button" class="btn ghost" onclick="window.print()">Imprimer cette confirmation</button></div>');
+  var b = el('btnDupliquer');
+  if(b) b.addEventListener('click', function(){
+    memoClient = d ? { nom:d.nom, prenom:d.prenom, tel1:d.tel1, tel2:d.tel2||'', mail:d.mail||'', adresse1:d.adresse1, adresse2:d.adresse2||'', cp:d.cp, ville:d.ville, departement:d.departement, demandeur:d.demandeur } : null;
+    envoye = false; dernierTarifP = null; afficherFormulaire(); window.scrollTo({ top:0 });
+  });
+}
+
+// ---------- démarrage ----------
+async function demarrer(){
+  agence = qs('a'); clientCode = qs('c').slice(0, 40); refCommande = qs('ref').slice(0, 60);
+  if(!agence || !clientCode){ msgPage('Lien incomplet', 'Scannez le QR code ou utilisez le lien transmis par le magasin pour accéder à la fiche de livraison.'); return; }
+  try{ firebase.initializeApp(firebaseConfig); db = firebase.firestore(); }
+  catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+  try{
+    var snap = await db.collection('stls_fiches_public').doc(agence).get();
+    if(!snap.exists || snap.data().actif !== true){ msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez STLS pour en obtenir un nouveau.'); return; }
+    nomAgence = snap.data().agencyName || ''; agenceInfo = Object.assign({ nom:nomAgence }, snap.data().agence || {});
+    familles = (Array.isArray(snap.data().familles) && snap.data().familles.length) ? snap.data().familles.map(String).filter(Boolean).slice(0, 30) : FAMILLES_DEFAUT.slice();
+  }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+  try{
+    var sc = await db.collection('stls_fiches_clients').doc(agence+'_'+clientCode).get();
+    var m = sc.exists ? (sc.data().magasin || {}) : {};
+    if(!sc.exists || sc.data().partenaireActif !== true || !m.adresse1 || !/^\d{5}$/.test(String(m.cp||'')) || !m.ville){
+      msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez le magasin ou STLS pour en obtenir un nouveau.'); return;
+    }
+    clientConf = sc.data(); magasin = Object.assign({ nom:String(clientConf.clientNom||'') }, m); if(!magasin.nom) magasin.nom = String(clientConf.clientNom||'Magasin partenaire');
+  }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+  try{
+    var st = await db.collection('stls_devis_public').doc(agence).get();
+    if(st.exists && st.data().params && st.data().zones && st.data().zones.length) tarifDoc = st.data();
+  }catch(e){ console.error('barème', e); }
+  personnaliserEntete();
+  afficherFormulaire();
+}
+demarrer();
+</script>
+</body>
+</html>
