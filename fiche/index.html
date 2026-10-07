@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fiche de livraison – Contremarque | STLS</title>
+<style>
+  :root{ --bg:#f5f4ee; --card:#fff; --ink:#1c1c1a; --soft:#6b6a63; --line:#e2e0d6; --line-strong:#cfccbe; --accent:#0f6b57; --dark:#1f2937; --red:#c0392b; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:16px; line-height:1.4; }
+  #app{ max-width:680px; margin:0 auto; padding:calc(14px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom)); }
+  .entete{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:6px 0 4px; }
+  .logo{ font-weight:900; font-size:34px; letter-spacing:2px; line-height:1; color:var(--dark); }
+  .logo small{ display:block; font-size:8.5px; letter-spacing:.5px; color:var(--soft); font-weight:700; margin-top:5px; }
+  h1{ font-size:18px; margin:0; text-transform:uppercase; letter-spacing:.4px; text-align:right; }
+  .sous{ color:var(--soft); margin:6px 0 4px; font-size:14px; }
+  .ref{ background:#e1f5ee; border:1px solid #b9e2d3; border-radius:10px; padding:8px 12px; margin:10px 0; font-size:14px; }
+  h2{ font-size:13px; text-transform:uppercase; background:var(--dark); color:#fff; padding:8px 12px; border-radius:6px; margin:20px 0 10px; letter-spacing:.3px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  .field{ margin-bottom:12px; }
+  .field label.l{ display:block; font-size:12.5px; color:var(--soft); margin-bottom:4px; font-weight:700; }
+  .field input[type=text], .field input[type=tel], .field input[type=email], .field input[type=date], .field input[type=number], .field textarea{ width:100%; padding:11px; border:1px solid var(--line-strong); border-radius:9px; font-size:16px; background:#fff; font-family:inherit; }
+  .field textarea{ min-height:84px; resize:vertical; }
+  .field.err input, .field.err textarea{ border-color:var(--red); background:#fdf2f0; }
+  .logo-client{ max-height:58px; max-width:210px; display:block; }
+  .logo.client-nom{ font-size:24px; letter-spacing:.5px; }
+  .tarifBox{ border:2px solid var(--accent); border-radius:12px; padding:14px; background:#f3faf7; }
+  .tarifMontant{ font-size:30px; font-weight:800; color:var(--accent); line-height:1.1; }
+  .tarifLigne{ display:flex; justify-content:space-between; gap:10px; font-size:14px; padding:3px 0; border-bottom:1px solid #dcece6; }
+  .tarifLigne:last-child{ border-bottom:none; }
+  .tarifLigne strong{ white-space:nowrap; }
+  .aide{ font-size:12px; color:var(--soft); margin-top:3px; line-height:1.35; }
+  .msgerr{ color:var(--red); font-size:12.5px; margin-top:3px; display:none; }
+  .field.err .msgerr{ display:block; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:480px){ .row2{ grid-template-columns:1fr; } }
+  .cases{ display:flex; flex-wrap:wrap; gap:10px 18px; margin:4px 0 8px; }
+  .case{ display:inline-flex; align-items:center; gap:8px; font-size:15px; cursor:pointer; }
+  .case input{ width:20px; height:20px; accent-color:var(--dark); }
+  .note{ font-size:12.5px; color:#4b5563; line-height:1.5; margin:4px 0 8px; }
+  .certif{ font-size:13px; color:#374151; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; margin-bottom:10px; }
+  .btn{ padding:15px; border-radius:12px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-size:16px; font-weight:700; font-family:inherit; width:100%; cursor:pointer; }
+  .btn:disabled{ opacity:.55; }
+  .btn.ghost{ background:#fff; color:var(--accent); }
+  .alerte{ background:#fdf2f0; border:1px solid #f0c9c3; color:#8a2c20; border-radius:10px; padding:10px 12px; margin:12px 0; font-size:14px; display:none; }
+  .msg{ text-align:center; padding:30px 10px; }
+  .recap h3{ font-size:13px; text-transform:uppercase; margin:16px 0 6px; color:var(--dark); border-bottom:1px solid var(--line); padding-bottom:4px; }
+  .recap .ln{ display:flex; gap:10px; font-size:14px; padding:2px 0; } .recap .ln b{ min-width:150px; color:var(--soft); font-weight:600; }
+  .piege{ position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+  .pied{ text-align:center; font-size:11px; color:var(--soft); margin-top:22px; line-height:1.6; border-top:1px solid var(--line); padding-top:12px; }
+  @media print{ body{ background:#fff; } .noprint{ display:none !important; } .card{ border:none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="entete"><div class="logo" id="logoEntete">STLS<small>SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE</small></div><h1>Fiche de livraison<br>Contremarque</h1></div>
+  <div id="contenu"><div class="msg"><p class="sous">Chargement…</p></div></div>
+  <div class="pied"><strong>SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS)</strong> – EURL au capital de 5 000 €<br>RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A<br>938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume<br>Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+// ================= Autorisation d'enlèvement (PDF A4) — même fonction dans le formulaire et dans l'application =================
+// d = { aut:{numero, emisLe, valideJusquau, lieu}, commande, dispo, client:{enseigne, ref, nom, prenom, tel1, tel2, mail, adresse1, adresse2, cp, ville, demandeur},
+//       agence:{nom, adresse1, cp, ville, tel, mail}, fournisseur, adresse, horaires, colis, poidsKg, longCm, lourdKg, valideLe }
+var STLS_ENTREPRISE = { nom:'SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE (STLS)', forme:'EURL au capital de 5 000 €', rcs:'RCS Draguignan 790 485 247 – SIRET 790 485 247 00031 – APE 4941A', adresse:'938 chemin du Grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume', contact:'Tél. 06 58 30 16 87 – s.chevallaz@stls.fr – www.stls.fr' };
+var AUTORISATION_VALIDITE_JOURS = 30;
+function autFr(iso){ var v = String(iso||'').slice(0,10).split('-'); return v.length===3 ? v[2]+'/'+v[1]+'/'+v[0] : ''; }
+function autPlusJours(iso, n){ var p = String(iso).slice(0,10).split('-'); var d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2] + n)); return d.toISOString().slice(0,10); }
+function autNb(x){ return String(x).replace('.', ','); }
+function dessinerAutorisationEnlevement(d){
+  var doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+  var W = 210, M = 12, CW = W - 2*M, SOMBRE = [31,41,55], GRIS = [95,100,110], BORD = [209,213,219], VERT = [15,110,86], y = 0;
+  function T(t, x, yy, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||9.5); doc.setTextColor.apply(doc, o.color||[17,24,39]); doc.text(String(t), x, yy, o.align?{align:o.align}:undefined); }
+  function coupe(t, w, size){ doc.setFontSize(size||9.5); return doc.splitTextToSize(String(t==null?'':t), w); }
+  function barre(titre){ y += 2; doc.setFillColor.apply(doc, SOMBRE); doc.roundedRect(M, y, CW, 5.6, 1, 1, 'F'); T(titre.toUpperCase(), M+3, y+3.9, { bold:true, size:8.3, color:[255,255,255] }); y += 7.6; }
+  function ligne(label, val, hint){
+    var l = coupe(val || '—', CW-52, 9.2); T(label, M+1, y+3.5, { bold:true, size:8.2, color:GRIS });
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.2); doc.setTextColor(17,24,39); doc.text(l, M+50, y+3.5);
+    y += Math.max(5.1, 4.1*l.length + 1.2);
+  }
+  var c = d.client || {}, a = d.agence || {}, lieu = (d.aut && d.aut.lieu) || a.ville || 'Saint-Maximin-la-Sainte-Baume';
+  // ----- en-tête : logo + titre -----
+  T('STLS', M, 18, { bold:true, size:28, color:SOMBRE });
+  T('SOCIÉTÉ DE TRANSPORT LIVRAISON ET STOCKAGE', M, 22.4, { bold:true, size:5.9, color:GRIS });
+  T("AUTORISATION D'ENLÈVEMENT", W-M, 15, { bold:true, size:15, align:'right' });
+  T('de marchandise', W-M, 20, { size:10, align:'right', color:GRIS });
+  T('N° '+((d.aut && d.aut.numero) || ''), W-M, 25.2, { bold:true, size:9.5, align:'right', color:VERT });
+  doc.setDrawColor.apply(doc, VERT); doc.setLineWidth(0.6); doc.line(M, 27.5, W-M, 27.5);
+  y = 30;
+  // ----- référence bien en vue -----
+  doc.setFillColor(236,246,242); doc.setDrawColor(185,226,211); doc.setLineWidth(0.3); doc.roundedRect(M, y, CW, 16, 1.5, 1.5, 'FD');
+  T('NUMÉRO DE COMMANDE', M+4, y+5, { bold:true, size:7.5, color:GRIS });
+  var nc = coupe(d.commande, 95, 15); doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor.apply(doc, VERT); doc.text(nc[0] + (nc.length>1?'…':''), M+4, y+12.4);
+  T('DISPONIBLE À PARTIR DU', M+112, y+5, { bold:true, size:7.5, color:GRIS }); T(autFr(d.dispo), M+112, y+11.8, { bold:true, size:12 });
+  T("VALABLE JUSQU'AU", M+112+37, y+5, { bold:true, size:7.5, color:GRIS }); T(autFr(d.aut && d.aut.valideJusquau), M+112+37, y+11.8, { bold:true, size:12 });
+  y += 17;
+  // ----- 1. client donneur d'ordre -----
+  barre("1. Client donneur d'ordre (expéditeur de l'autorisation)");
+  ligne('Client / enseigne', c.enseigne || ((c.nom||'')+' '+(c.prenom||'')).trim());
+  ligne('Référence du dossier', c.ref);
+  ligne('Bénéficiaire (contremarque)', ((c.nom||'')+' '+(c.prenom||'')).trim());
+  ligne('Coordonnées', [c.tel1, c.tel2, c.mail].filter(Boolean).join('  ·  '));
+  ligne('Adresse de livraison', [c.adresse1, c.adresse2, [c.cp, c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+  ligne('Demande validée par', c.demandeur);
+  // ----- 2. transport et agence -----
+  barre('2. Entreprise de transport et agence concernée');
+  ligne('Entreprise de transport', 'STLS — Société de Transport Livraison et Stockage (EURL)');
+  ligne('Siège et coordonnées', STLS_ENTREPRISE.adresse+' — 06 58 30 16 87');
+  ligne('Agence concernée', [a.nom, [a.adresse1, [a.cp, a.ville].filter(Boolean).join(' ')].filter(Boolean).join(', '), a.tel].filter(Boolean).join(' — '));
+  // ----- 3. point d'enlèvement -----
+  barre("3. Point d'enlèvement");
+  ligne('Fournisseur / magasin', d.fournisseur);
+  ligne('Adresse complète', d.adresse);
+  ligne('Horaires et contraintes', d.horaires);
+  // ----- 4. personne autorisée -----
+  barre("4. Personne autorisée à enlever la marchandise");
+  ligne('Transporteur', "STLS, représentée par le conducteur qu'elle désigne lors de la planification");
+  if(d.conducteur){
+    ligne('Conducteur désigné', d.conducteur+(d.conducteurTel ? ' — '+d.conducteurTel : ''));
+    if(d.enlevementPrevu) ligne('Enlèvement prévu le', autFr(d.enlevementPrevu));
+    T("Pièce d'identité à présenter : oui", M+1, y+3.4, { size:8.4, color:GRIS }); y += 5.4;
+  } else { T("Nom du conducteur : ________________________________", M+1, y+4.2, { size:9.2 }); T("Pièce d'identité à présenter : oui", M+112, y+4.2, { size:8.4, color:GRIS }); y += 7; }
+  // ----- 5. marchandise -----
+  barre('5. Marchandise à enlever');
+  var m = []; if(d.colis!=null) m.push(d.colis+' colis'); if(d.poidsKg!=null) m.push(autNb(d.poidsKg)+' kg au total');
+  ligne('Quantité', m.join(' — ') || 'À confirmer sur place');
+  if(d.longCm!=null) ligne('Colis le plus long', autNb(d.longCm)+' cm');
+  if(d.lourdKg!=null) ligne('Colis le plus lourd', autNb(d.lourdKg)+' kg');
+  // ----- 6. autorisation (mention légale) -----
+  barre('6. Autorisation');
+  var texte = "Le client donneur d'ordre désigné ci-dessus autorise la société STLS, ainsi que le conducteur qu'elle désigne, à retirer pour son compte la marchandise décrite au présent document auprès du point d'enlèvement indiqué, sur présentation du présent document et du numéro de commande « "+(d.commande||'')+" ». "+
+    "Cette autorisation est valable à compter du "+autFr(d.dispo)+" et jusqu'au "+autFr(d.aut && d.aut.valideJusquau)+" inclus ; passé ce délai, elle est caduque. Elle est strictement limitée à la commande référencée, personnelle et non cessible. "+
+    "Le client certifie l'exactitude des informations communiquées et demeure responsable de la mise à disposition de la marchandise au point d'enlèvement. STLS ne peut être tenue responsable d'un enlèvement refusé en raison d'une information inexacte ou d'une marchandise non disponible.";
+  var lt = coupe(texte, CW-4, 8.4); doc.setFillColor(249,250,251); doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.rect(M, y, CW, 3.7*lt.length + 3.6, 'FD');
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.4); doc.setTextColor(55,65,81); doc.text(lt, M+2, y+4.3); y += 3.7*lt.length + 5.6;
+  // ----- émission et signatures -----
+  T('Fait à '+lieu+', le '+autFr(d.aut && d.aut.emisLe), M, y+3, { bold:true, size:9.5 });
+  T('Document généré électroniquement'+(d.valideLe ? ' — demande validée en ligne le '+autFr(d.valideLe)+' par '+(c.demandeur||'le client') : '')+(d.miseAJourLe ? ' — version n° '+(d.version||2)+' mise à jour le '+autFr(d.miseAJourLe)+' (conducteur désigné)' : ''), M, y+7.6, { size:7.6, color:GRIS });
+  y += 10;
+  var bw = (CW-6)/2; doc.setDrawColor(150,152,160); doc.setLineWidth(0.3);
+  doc.rect(M, y, bw, 19); doc.rect(M+bw+6, y, bw, 19);
+  T('Signature du client donneur d\'ordre', M+2, y+4.2, { size:8, color:GRIS }); T('Cachet et signature de l\'entreprise de transport', M+bw+8, y+4.2, { size:8, color:GRIS });
+  // ----- pied de page -----
+  doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 281, W-M, 281);
+  T(STLS_ENTREPRISE.nom+' – '+STLS_ENTREPRISE.forme, W/2, 285, { bold:true, size:6.4, color:[55,65,81], align:'center' });
+  T(STLS_ENTREPRISE.rcs+' – '+STLS_ENTREPRISE.adresse, W/2, 288, { size:6.4, color:GRIS, align:'center' });
+  return doc;
+}
+
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+var firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c"
+};
+var db = null, agence = '', nomAgence = '', refCommande = '', enseigne = '', envoye = false, agenceInfo = {};
+function qs(n){ try{ return (new URLSearchParams(location.search).get(n) || '').trim(); }catch(e){ return ''; } }
+function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+function el(id){ return document.getElementById(id); }
+function aff(html){ el('contenu').innerHTML = html; }
+function msgPage(titre, texte){ aff('<div class="msg"><h1 style="text-align:center;font-size:22px;">'+esc(titre)+'</h1><p class="sous">'+texte+'</p></div>'); }
+
+var JOURS = [['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi','Jeudi'],['vendredi','Vendredi'],['samedi','Samedi'],['dimanche','Dimanche']];
+var ACCES = [['ascenseur','Ascenseur'],['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['escalier','Escalier'],['accesDifficile','Accès difficile'],['accesAutre','Autre']];
+var OPTIONS = [['optDeballage','Déballage *'],['optRepriseEmballages','Reprise des emballages *'],['optMontageSimple','Montage simple *'],['optMiseEnPlace','Mise en place *'],['optEvacuation','Évacuation ancien matériel *']];
+function cb(id, lib){ return '<label class="case"><input type="checkbox" id="'+id+'"> '+lib+'</label>'; }
+function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+(o.attrs?' '+o.attrs:'')+'>'+(o.aide?'<div class="aide">'+o.aide+'</div>':'')+'<div class="msgerr" id="e-'+id+'"></div></div>'; }
+function aujourdhuiISO(){ var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function zone(id, lib, max){ return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+'</label><textarea id="'+id+'" maxlength="'+max+'"></textarea></div>'; }
+
+
+
+// ================= Tarif estimatif : même moteur que Tarifs › Calculateur (barème publié par Tarifs) =================
+var clientCode = '', clientConf = null, tarifDoc = null, distanceCache = {}, tarifMinuteur = null, tarifEnCours = 0, dernierTarif = null;
+function poidsCoefficient(poids, params){ if(poids<=10) return params.coeffEtageBase; return params.coeffEtageBase + params.coeffEtageBande*Math.ceil((poids-10)/30); }
+function determinerPersonnel(poidsLourd, paliers){
+  var t = (paliers||[]).slice().sort(function(a,b){ if(a.poidsMax==null) return 1; if(b.poidsMax==null) return -1; return a.poidsMax-b.poidsMax; });
+  for(var i=0;i<t.length;i++){ if(t[i].poidsMax==null || poidsLourd<=t[i].poidsMax) return t[i].personnes; }
+  return t.length ? t[t.length-1].personnes : 1;
+}
+function calculerPrestation(params, zone, input){
+  var minCoutLivreur = params.salaireLivreurHeure/60;
+  var LT = (zone.minLivraison * minCoutLivreur * params.coeffLivreurMin) + zone.carburantKm;
+  var LV1 = LT * params.coeffLV1, LV2 = LT*params.coeffLV2 + LV1, LV3 = LT*params.coeffLV3 + LV2;
+  var coeffColis = (input.colisLong||0) > params.colisLongBase ? params.coeffColisLong : params.coeffColisCourt;
+  var coutEtageUnitaire = LV1 * poidsCoefficient(input.poids||0, params) * coeffColis;
+  var surchargeEtage = coutEtageUnitaire * (input.nbEtages||0) * (input.ascenseur ? 1 : params.coeffSansAscenseur);
+  return { LV1:LV1+surchargeEtage, LV2:LV2+surchargeEtage, LV3:LV3+surchargeEtage, surchargeEtage:surchargeEtage, personnesNecessaires:determinerPersonnel(input.colisLourd||0, params.paliersPersonnel) };
+}
+function zoneDistance(distance, params, zones){
+  if(!zones || !zones.length) return null;
+  var z = zones.find(function(x){ return distance>=x.kmDe && distance<=x.kmA; });
+  if(z) return { zone:z, extraKm:0 };
+  var max = zones.slice().sort(function(a,b){ return b.kmA-a.kmA; })[0];
+  if(distance <= max.kmA) return { zone:max, extraKm:0 };
+  var extra = distance - max.kmA, minParKm = max.kmA ? (max.minLivraison / max.kmA) : 0;
+  return { zone:{ code:max.code+'+', kmDe:max.kmDe, kmA:distance, carburantKm:max.carburantKm + extra*params.tarifKmSupplementaire, minLivraison:max.minLivraison + extra*minParKm }, extraKm:extra };
+}
+// les 5 options de la fiche = les 5 compléments de Tarifs (par identifiant, à défaut par nom)
+var OPTION_COMPLEMENT = [['optDeballage','cp_deballage',/d[ée]ball/i],['optRepriseEmballages','cp_reprise_embal',/reprise/i],['optMontageSimple','cp_montage',/montage/i],['optMiseEnPlace','cp_mise_place',/mise en place/i],['optEvacuation','cp_evacuation',/[ée]vacu/i]];
+function complementsChoisis(options, complements){
+  var out = [];
+  OPTION_COMPLEMENT.forEach(function(o){
+    if(!options[o[0]]) return;
+    var c = (complements||[]).find(function(x){ return x.id===o[1]; }) || (complements||[]).find(function(x){ return o[2].test(x.nom||''); });
+    if(c) out.push({ nom:c.nom, prixHT:c.prixHT });
+  });
+  return out;
+}
+function avecDelai(p, ms){ return Promise.race([p, new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('delai')); }, ms||7000); })]); }
+async function geocoder(q, cp){
+  var r = await avecDelai(fetch('https://api-adresse.data.gouv.fr/search/?q='+encodeURIComponent(q)+'&limit=1'+(cp ? '&postcode='+encodeURIComponent(cp) : '')));
+  if(!r.ok) throw new Error('geocodage'); var j = await r.json(), ft = (j.features||[])[0];
+  return ft && ft.geometry && ft.geometry.coordinates ? { lon:ft.geometry.coordinates[0], lat:ft.geometry.coordinates[1] } : null;
+}
+function volOiseauKm(a, b){
+  var R = 6371, rad = Math.PI/180, dLat = (b.lat-a.lat)*rad, dLon = (b.lon-a.lon)*rad;
+  var h = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+async function coordsDepot(){
+  if(typeof agenceInfo.lat==='number' && typeof agenceInfo.lon==='number') return { lat:agenceInfo.lat, lon:agenceInfo.lon };
+  var adr = [agenceInfo.adresse1, agenceInfo.cp, agenceInfo.ville].filter(Boolean).join(' ');
+  return adr ? await geocoder(adr, agenceInfo.cp) : null;
+}
+// distance route dépôt → adresse, arrondie au km SUPÉRIEUR (jamais sous-estimée) ; à défaut vol d'oiseau × 1,3
+async function estimerDistance(adresse1, cp, ville){
+  var cle = [adresse1, cp, ville].join('|').toLowerCase(); if(distanceCache[cle]) return distanceCache[cle];
+  var res;
+  try{
+    var dest = await geocoder([adresse1, cp, ville].filter(Boolean).join(' '), cp);
+    if(!dest){ res = { km:null, raison:'Adresse non reconnue : STLS vous confirmera le tarif.' }; }
+    else {
+      var dep = await coordsDepot();
+      if(!dep){ res = { km:null, raison:'Dépôt non localisé : STLS vous confirmera le tarif.' }; }
+      else {
+        var km, methode;
+        try{
+          var r = await avecDelai(fetch('https://router.project-osrm.org/route/v1/driving/'+dep.lon+','+dep.lat+';'+dest.lon+','+dest.lat+'?overview=false'));
+          var j = await r.json(); if(!r.ok || !j.routes || !j.routes[0]) throw new Error('route');
+          km = j.routes[0].distance/1000; methode = 'itinéraire routier';
+        }catch(e){ km = volOiseauKm(dep, dest)*1.3; methode = 'estimation (distance à vol d\'oiseau majorée)'; }
+        res = { km:Math.ceil(km), methode:methode };
+      }
+    }
+  }catch(e){ res = { km:null, raison:'Calcul de la distance indisponible : STLS vous confirmera le tarif.' }; }
+  if(res.km!=null) distanceCache[cle] = res;
+  return res;
+}
+function lireDeclarations(){
+  var options = {}; OPTION_COMPLEMENT.forEach(function(o){ options[o[0]] = coche(o[0]); });
+  var etage = parseInt(valeur('etage'), 10); if(!(etage>=0)) etage = 0;
+  return { adresse1:valeur('adresse1'), cp:valeur('cp'), ville:valeur('ville'), etage:etage, ascenseur:coche('ascenseur'),
+    poidsTotal:nombre('poidsTotalKg'), colisLourd:nombre('colisLourdPoidsKg'), colisLong:nombre('colisLongLongueurCm'), options:options };
+}
+function declarationsCompletes(d){ return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
+async function calculerTarif(d){
+  if(!tarifDoc) return { statut:'indisponible', raison:'Le barème de STLS n\'est pas disponible pour le moment : STLS vous confirmera le tarif.' };
+  var dist = await estimerDistance(d.adresse1, d.cp, d.ville);
+  if(dist.km==null) return { statut:'a_confirmer', raison:dist.raison };
+  var zr = zoneDistance(dist.km, tarifDoc.params, tarifDoc.zones); if(!zr) return { statut:'a_confirmer', raison:'Zone non définie : STLS vous confirmera le tarif.' };
+  var r = calculerPrestation(tarifDoc.params, zr.zone, { poids:d.poidsTotal, colisLourd:d.colisLourd, colisLong:d.colisLong, nbEtages:d.etage, ascenseur:d.ascenseur });
+  var equipe = Math.min(3, Math.max(1, r.personnesNecessaires)), base = r['LV'+equipe];
+  var comps = complementsChoisis(d.options, tarifDoc.params.complements), totComp = comps.reduce(function(s, c){ return s + c.prixHT; }, 0);
+  var ht = base + totComp, alertes = [];
+  if(r.personnesNecessaires>3) alertes.push('Le colis le plus lourd nécessite plus de 3 personnes : STLS confirmera l\'équipe et le tarif.');
+  if(d.etage>0 && !d.ascenseur) alertes.push('Livraison à l\'étage sans ascenseur : un supplément est inclus.');
+  return { statut:'ok', km:dist.km, methode:dist.methode, zone:zr.zone.code, equipe:equipe, personnes:r.personnesNecessaires, baseHT:base, surchargeEtage:r.surchargeEtage, complements:comps, totalComplements:totComp,
+    montantHT:ht, tva:ht*0.2, ttc:ht*1.2, alertes:alertes, versionTarif:tarifDoc.publieLe||'', calculeLe:new Date().toISOString() };
+}
+function fmtE(n){ return (Math.round(n*100)/100).toFixed(2).replace('.', ',')+' €'; }
+function tarifHtml(t){
+  if(t.statut!=='ok') return '<div class="note"><strong>Tarif à confirmer par STLS.</strong><br>'+esc(t.raison||'')+'</div>';
+  var l = function(a, b){ return '<div class="tarifLigne"><span>'+a+'</span><strong>'+b+'</strong></div>'; };
+  return '<div class="tarifBox"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--soft);">Tarif estimatif de votre prestation</div>'+
+    '<div class="tarifMontant">'+fmtE(t.montantHT)+' <span style="font-size:15px;font-weight:600;">HT</span></div><div style="font-size:14px;margin-bottom:8px;">soit <strong>'+fmtE(t.ttc)+' TTC</strong> (TVA 20 %)</div>'+
+    l('Livraison — équipe de '+t.equipe+' personne'+(t.equipe>1?'s':'')+' · zone '+esc(t.zone)+' (~'+t.km+' km)', fmtE(t.baseHT))+
+    (t.surchargeEtage>0 ? l('&nbsp;&nbsp;dont étage'+'(s)', fmtE(t.surchargeEtage)) : '')+
+    t.complements.map(function(c){ return l(esc(c.nom), fmtE(c.prixHT)); }).join('')+
+    (t.alertes.length ? '<div class="aide" style="margin-top:8px;">'+t.alertes.map(esc).join('<br>')+'</div>' : '')+
+    '<div class="aide" style="margin-top:8px;">Tarif estimatif calculé d\'après vos déclarations (distance : '+esc(t.methode)+'). Il est confirmé par STLS à la réception de votre fiche.</div></div>';
+}
+async function afficherTarif(force){
+  var d = lireDeclarations(), zone = el('tarifResultat'); if(!zone) return null;
+  if(!declarationsCompletes(d)){ zone.innerHTML = '<div class="aide">Renseignez votre adresse (code postal et ville), la marchandise (poids total, colis le plus long et le plus lourd) : votre tarif s\'affichera ici.</div>'; dernierTarif = null; return null; }
+  var seq = ++tarifEnCours; zone.innerHTML = '<div class="aide">Calcul de votre tarif…</div>';
+  var t = await calculerTarif(d); if(seq !== tarifEnCours) return null;
+  dernierTarif = t; zone.innerHTML = tarifHtml(t); return t;
+}
+function planifierTarif(){ clearTimeout(tarifMinuteur); tarifMinuteur = setTimeout(function(){ afficherTarif(); }, 700); }
+function personnaliserEntete(){
+  var box = el('logoEntete'), nom = clientConf.clientNom || ''; box.innerHTML = '';
+  if(typeof clientConf.logo==='string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/.test(clientConf.logo)){
+    var img = document.createElement('img'); img.className = 'logo-client'; img.alt = nom; img.src = clientConf.logo; box.appendChild(img);
+  } else { box.className = 'logo client-nom'; box.appendChild(document.createTextNode(nom)); }
+  var sm = document.createElement('small'); sm.textContent = 'Livraison réalisée par STLS'; box.appendChild(sm);
+  document.title = 'Fiche de livraison – '+nom;
+}
+
+var MAX_ENL = 10;
+var MODES = [['depot','La marchandise est livrée directement au dépôt STLS (aucun enlèvement à prévoir)'],['enlevement','STLS doit effectuer un ou plusieurs enlèvements chez les fournisseurs'],['mixte','Mixte : une partie est livrée au dépôt, une partie doit être enlevée']];
+function radioMode(v, lib){ return '<label class="case"><input type="radio" name="modeReception" value="'+v+'"> '+lib+'</label>'; }
+function blocEnlevement(i){
+  var p = 'enl'+i+'-';
+  return '<div class="enl" data-i="'+i+'" style="border:1px solid var(--line-strong);border-radius:10px;padding:12px;margin:10px 0;">'+
+    '<label class="l" style="color:var(--dark);">Point d\'enlèvement n° '+(i+1)+'</label>'+
+    champ(p+'fournisseur','Nom / enseigne du fournisseur',{req:1,max:80})+
+    champ(p+'adresse','Adresse complète du point d\'enlèvement',{req:1,max:200})+
+    champ(p+'numeroCommande','Numéro de commande',{req:1,max:60,aide:'C\'est la référence de votre commande chez ce fournisseur ou dans ce magasin. Elle autorise STLS à retirer la marchandise : saisissez-la exactement comme sur votre bon de commande (lettres, chiffres, tirets… tout format est accepté).'})+
+    '<div class="row2">'+champ(p+'colis','Nombre de colis à enlever',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+champ(p+'poids','Poids total à enlever (kg)',{req:1,max:8,inputmode:'decimal'})+'</div>'+
+    champ(p+'dispo','Date de disponibilité de la marchandise',{req:1,type:'date',attrs:'min="'+aujourdhuiISO()+'"',aide:'À partir de quand la marchandise peut être retirée à cet endroit (aujourd\'hui ou une date à venir). Choisissez la date dans le calendrier.'})+
+    zone(p+'horaires','Horaires d\'ouverture et contraintes éventuelles',200)+
+  '</div>';
+}
+function modeChoisi(){ var r = document.querySelector('input[name="modeReception"]:checked'); return r ? r.value : ''; }
+// autant de blocs que de points d'enlèvement déclarés ; les saisies déjà faites sont conservées
+function majEnlevements(){
+  var n = parseInt(valeur('nbPointsEnlevement'), 10); if(!(n >= 1)) n = 0; if(n > MAX_ENL) n = MAX_ENL;
+  var conteneur = el('listeEnlevements'), saisies = {};
+  conteneur.querySelectorAll('input, textarea').forEach(function(x){ saisies[x.id] = x.value; });
+  var html = ''; for(var i=0;i<n;i++) html += blocEnlevement(i);
+  conteneur.innerHTML = html;
+  conteneur.querySelectorAll('input, textarea').forEach(function(x){ if(saisies[x.id]!=null) x.value = saisies[x.id]; });
+}
+function majModeReception(){
+  var enl = modeChoisi()==='enlevement' || modeChoisi()==='mixte';
+  el('blocEnlevements').style.display = enl ? 'block' : 'none';
+  if(enl) majEnlevements();
+}
+function nombre(id){ var v = valeur(id).replace(',', '.'); return v==='' ? NaN : Number(v); }
+var NUM_RE = /^\d+([.,]\d{1,2})?$/;
+
+function afficherFormulaire(){
+  var aujourdhui = new Date().toISOString().slice(0,10);
+  aff(
+    '<p class="sous">Merci de renseigner les informations nécessaires à la bonne organisation de votre livraison.'+(nomAgence?' ('+esc(nomAgence)+')':'')+'</p>'+
+    ((refCommande||enseigne) ? '<div class="ref">'+(enseigne?'<div><strong>'+esc(enseigne)+'</strong></div>':'')+(refCommande?'<div>Référence de commande : <strong>'+esc(refCommande)+'</strong></div>':'')+'</div>' : '')+
+    '<form id="fiche" novalidate autocomplete="on">'+
+    '<h2>1. Informations de la contremarque</h2><div class="card">'+
+      '<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+      '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel'})+'</div>'+
+      '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
+      '<div class="row2">'+champ('departement','Département',{req:1,max:3,inputmode:'numeric'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code'})+'</div>'+
+      '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email'})+'</div>'+
+    '</div>'+
+    '<h2>2. Accès à l\'adresse</h2><div class="card">'+
+      '<div class="cases">'+ACCES.map(function(a){ return cb(a[0], a[1]); }).join('')+'</div>'+
+      zone('accesPrecisions','Précisions utiles (interphone, stationnement, ascenseur…)',600)+
+      champ('etage','Nombre d\'étages',{max:3,inputmode:'numeric'})+
+    '</div>'+
+    '<h2>3. Options souhaitées</h2><div class="card">'+
+      '<div class="cases">'+OPTIONS.map(function(o){ return cb(o[0], o[1]); }).join('')+'</div>'+
+      '<div class="note"><strong>* Informations importantes concernant les options :</strong><br>'+
+        '<strong>Montage simple :</strong> durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.<br>'+
+        '<strong>Mise en place :</strong> positionnement du mobilier ou de l\'équipement <strong>sans aucune fixation</strong>.<br>'+
+        '<strong>Évacuation ancien matériel :</strong> uniquement si le matériel est <strong>transportable et préalablement emballé</strong>.<br>'+
+        'Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires.</div>'+
+      champ('datePose','Date de la pose',{type:'date'})+
+    '</div>'+
+    '<h2>4. Jours de livraison possibles</h2><div class="card"><div class="cases">'+cb('joursTous','Tous')+JOURS.map(function(j){ return cb(j[0], j[1]); }).join('')+'</div></div>'+
+    '<h2>5. Informations complémentaires / contraintes</h2><div class="card">'+zone('contraintes','',1500)+'</div>'+
+    '<h2>6. Marchandise &amp; enlèvements</h2><div class="card">'+
+      champ('nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+
+      '<div class="field" id="f-modeReception"><label class="l">Mode de réception de la marchandise *</label><div class="cases" style="flex-direction:column;gap:10px;">'+MODES.map(function(m){ return radioMode(m[0], m[1]); }).join('')+'</div><div class="msgerr" id="e-modeReception"></div></div>'+
+      '<div id="blocEnlevements" style="display:none;">'+
+        champ('nbPointsEnlevement','Nombre de points d\'enlèvement distincts',{req:1,type:'number',attrs:'min="1" max="'+MAX_ENL+'" step="1"',inputmode:'numeric'})+
+        '<div id="listeEnlevements"></div>'+
+      '</div>'+
+      '<label class="l" style="margin-top:6px;">Colis le plus long</label>'+
+      '<div class="row2">'+champ('colisLongLongueurCm','Longueur (cm)',{req:1,max:8,inputmode:'decimal'})+champ('colisLongLargeurCm','Largeur (cm)',{max:8,inputmode:'decimal'})+'</div>'+
+      '<div class="row2">'+champ('colisLongHauteurCm','Hauteur (cm)',{max:8,inputmode:'decimal'})+champ('colisLongDescription','Description ou référence',{max:200})+'</div>'+
+      '<label class="l" style="margin-top:6px;">Colis le plus lourd</label>'+
+      '<div class="row2">'+champ('colisLourdPoidsKg','Poids (kg)',{req:1,max:8,inputmode:'decimal'})+champ('colisLourdDescription','Description ou référence',{max:200})+'</div>'+
+      (clientConf ? '<label class="l" style="margin-top:6px;">Ensemble de la commande</label><div class="row2">'+champ('poidsTotalKg','Poids total estimé (kg)',{req:1,max:8,inputmode:'decimal',aide:'Poids de l\'ensemble de la marchandise à livrer (une estimation suffit). Il sert au calcul de votre tarif.'})+champ('nbColisTotal','Nombre total de colis',{type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>' : '')+
+    '</div>'+
+    (clientConf ? '<h2>7. Votre tarif estimatif</h2><div class="card" id="cardTarif"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations : adresse, étage et ascenseur, marchandise et options choisies. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>' : '')+
+    '<h2>'+(clientConf ? '8' : '7')+'. Confirmation</h2><div class="card">'+
+      '<div class="certif">Je certifie que les informations communiquées sont exactes et permettent d\'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu\'une nouvelle facturation.</div>'+
+      '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> J\'ai vérifié les informations de livraison</label><div class="msgerr" id="e-certifie"></div></div>'+
+      '<div class="field" id="f-certifieMarchandise"><label class="case"><input type="checkbox" id="certifieMarchandise"> J\'ai vérifié les informations de marchandise et d\'enlèvements</label><div class="msgerr" id="e-certifieMarchandise"></div></div>'+
+      champ('demandeur','Nom du demandeur',{req:1,max:80})+
+      '<div class="field"><label class="l">Date</label><div>'+aujourdhui.split('-').reverse().join('/')+'</div></div>'+
+    '</div>'+
+    '<div class="piege" aria-hidden="true"><label>Ne pas remplir <input type="text" id="siteweb" tabindex="-1" autocomplete="off"></label></div>'+
+    '<div class="alerte" id="alerte"></div>'+
+    '<button class="btn" id="btnEnvoyer" type="submit">ENVOYER MA FICHE</button>'+
+    '</form>'
+  );
+  // « Tous » coche / décoche les jours
+  el('joursTous').addEventListener('change', function(){ JOURS.forEach(function(j){ el(j[0]).checked = el('joursTous').checked; }); });
+  JOURS.forEach(function(j){ el(j[0]).addEventListener('change', function(){ if(!el(j[0]).checked) el('joursTous').checked = false; }); });
+  document.querySelectorAll('input[name="modeReception"]').forEach(function(r){ r.addEventListener('change', majModeReception); });
+  el('nbPointsEnlevement').addEventListener('input', majEnlevements);
+  if(clientConf){
+    el('fiche').addEventListener('input', planifierTarif); el('fiche').addEventListener('change', planifierTarif);
+    el('btnTarif').addEventListener('click', function(){ afficherTarif(true); });
+  }
+  el('fiche').addEventListener('submit', function(ev){ ev.preventDefault(); envoyer(); });
+}
+
+function valeur(id){ var e = el(id); return e ? String(e.value||'').trim() : ''; }
+function coche(id){ var e = el(id); return !!(e && e.checked); }
+function erreur(id, texte){ var f = el('f-'+id); if(!f) return; f.classList.add('err'); var m = el('e-'+id); if(m) m.textContent = texte; }
+function validerSaisie(){
+  document.querySelectorAll('.field.err').forEach(function(f){ f.classList.remove('err'); });
+  var n = 0, premier = '';
+  function ko(id, t){ erreur(id, t); n++; if(!premier) premier = id; }
+  ['nom','prenom','adresse1','ville','demandeur'].forEach(function(id){ if(!valeur(id)) ko(id, 'Champ obligatoire'); });
+  var tel = valeur('tel1').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
+  if(!valeur('tel1')) ko('tel1','Champ obligatoire'); else if(!/^0[1-9]\d{8}$/.test(tel)) ko('tel1','Numéro invalide (10 chiffres, ex. 06 12 34 56 78)');
+  var tel2 = valeur('tel2').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
+  if(valeur('tel2') && !/^0[1-9]\d{8}$/.test(tel2)) ko('tel2','Numéro invalide');
+  if(!valeur('departement')) ko('departement','Champ obligatoire'); else if(!/^(2A|2B|\d{2,3})$/i.test(valeur('departement'))) ko('departement','Département invalide (ex. 83)');
+  if(!valeur('cp')) ko('cp','Champ obligatoire'); else if(!/^\d{5}$/.test(valeur('cp'))) ko('cp','Code postal invalide (5 chiffres)');
+  if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide');
+  if(valeur('etage') && !/^\d{1,3}$/.test(valeur('etage'))) ko('etage','Nombre invalide');
+  if(valeur('datePose') && !/^\d{4}-\d{2}-\d{2}$/.test(valeur('datePose'))) ko('datePose','Date invalide');
+  // section 6 : marchandise et enlèvements
+  var nf = nombre('nbFournisseurs');
+  if(valeur('nbFournisseurs')==='') ko('nbFournisseurs','Champ obligatoire'); else if(!(Number.isInteger(nf) && nf >= 1 && nf <= 99)) ko('nbFournisseurs','Nombre entier de 1 à 99');
+  var mode = modeChoisi();
+  if(!mode) ko('modeReception','Merci de choisir un mode de réception');
+  var nbEnl = 0;
+  if(mode==='enlevement' || mode==='mixte'){   // le détail des enlèvements n'est exigé que s'il y en a
+    var np = nombre('nbPointsEnlevement'); nbEnl = np;
+    if(valeur('nbPointsEnlevement')==='') ko('nbPointsEnlevement','Champ obligatoire'); else if(!(Number.isInteger(np) && np >= 1 && np <= MAX_ENL)) ko('nbPointsEnlevement','Nombre entier de 1 à '+MAX_ENL);
+    else for(var i=0;i<np;i++){
+      var p = 'enl'+i+'-';
+      if(!valeur(p+'fournisseur')) ko(p+'fournisseur','Champ obligatoire');
+      if(!valeur(p+'adresse')) ko(p+'adresse','Champ obligatoire');
+      var cn = nombre(p+'colis'); if(valeur(p+'colis')==='') ko(p+'colis','Champ obligatoire'); else if(!(Number.isInteger(cn) && cn >= 1 && cn <= 9999)) ko(p+'colis','Nombre entier ≥ 1');
+      if(valeur(p+'poids')==='') ko(p+'poids','Champ obligatoire'); else if(!(NUM_RE.test(valeur(p+'poids')) && nombre(p+'poids') > 0 && nombre(p+'poids') <= 99999)) ko(p+'poids','Poids invalide (ex. 120 ou 85,5)');
+      // numéro de commande : format libre, seule contrainte = non vide
+      if(!valeur(p+'numeroCommande')) ko(p+'numeroCommande','Merci de saisir votre numéro de commande : sans cette référence, l\'enlèvement ne pourra pas être autorisé.');
+      // date de disponibilité : choisie dans le calendrier, aujourd'hui ou dans le futur
+      var dv = valeur(p+'dispo');
+      if(!dv) ko(p+'dispo','Merci de choisir la date à partir de laquelle la marchandise peut être enlevée.');
+      else if(!/^\d{4}-\d{2}-\d{2}$/.test(dv)) ko(p+'dispo','Date invalide : utilisez le calendrier.');
+      else if(dv < aujourdhuiISO()) ko(p+'dispo','Cette date est déjà passée. Choisissez aujourd\'hui ou une date à venir.');
+    }
+  }
+  if(valeur('colisLongLongueurCm')==='') ko('colisLongLongueurCm','Champ obligatoire'); else if(!(NUM_RE.test(valeur('colisLongLongueurCm')) && nombre('colisLongLongueurCm') > 0 && nombre('colisLongLongueurCm') <= 2000)) ko('colisLongLongueurCm','Longueur invalide (cm)');
+  ['colisLongLargeurCm','colisLongHauteurCm'].forEach(function(id){ if(valeur(id) && !(NUM_RE.test(valeur(id)) && nombre(id) > 0 && nombre(id) <= 1000)) ko(id,'Dimension invalide (cm)'); });
+  if(valeur('colisLourdPoidsKg')==='') ko('colisLourdPoidsKg','Champ obligatoire'); else if(!(NUM_RE.test(valeur('colisLourdPoidsKg')) && nombre('colisLourdPoidsKg') > 0 && nombre('colisLourdPoidsKg') <= 5000)) ko('colisLourdPoidsKg','Poids invalide (kg)');
+  if(clientConf){
+    if(valeur('poidsTotalKg')==='') ko('poidsTotalKg','Champ obligatoire (une estimation suffit)');
+    else if(!(NUM_RE.test(valeur('poidsTotalKg')) && nombre('poidsTotalKg') > 0 && nombre('poidsTotalKg') <= 50000)) ko('poidsTotalKg','Poids invalide (ex. 250)');
+    if(valeur('nbColisTotal') && !(/^\d{1,4}$/.test(valeur('nbColisTotal')) && nombre('nbColisTotal') >= 1)) ko('nbColisTotal','Nombre entier ≥ 1');
+  }
+  if(!coche('certifie')) ko('certifie','Merci de confirmer avoir vérifié les informations');
+  if(!coche('certifieMarchandise')) ko('certifieMarchandise','Merci de confirmer avoir vérifié les informations de marchandise et d\'enlèvements');
+  return { n:n, premier:premier, tel1:tel, tel2:tel2 };
+}
+function numeroFiche(){
+  var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); };
+  var alea = '';
+  try{ var a = new Uint32Array(2); (window.crypto||window.msCrypto).getRandomValues(a); alea = (a[0].toString(36)+a[1].toString(36)).toUpperCase().slice(0,6); }catch(e){ alea = Math.random().toString(36).slice(2,8).toUpperCase(); }
+  return 'FL'+String(d.getFullYear()).slice(2)+p(d.getMonth()+1)+p(d.getDate())+'-'+alea;
+}
+async function envoyer(){
+  if(envoye) return;
+  var v = validerSaisie(), al = el('alerte');
+  if(v.n){ al.style.display = 'block'; al.textContent = 'Merci de corriger '+v.n+' champ(s) signalé(s) en rouge.'; var f = el('f-'+v.premier); if(f) f.scrollIntoView({ behavior:'smooth', block:'center' }); return; }
+  al.style.display = 'none';
+  // piège à robots : un champ invisible rempli = envoi automatique ; on fait semblant d'accepter
+  if(valeur('siteweb')){ envoye = true; afficherConfirmation('FL000000-X', null); return; }
+  var btn = el('btnEnvoyer'); btn.disabled = true; btn.textContent = 'Envoi en cours…';
+  var tarifFinal = null;
+  if(clientConf){ try{ var dcl = lireDeclarations(); if(declarationsCompletes(dcl)) tarifFinal = await calculerTarif(dcl); }catch(e){ console.error('tarif', e); } }   // le tarif enregistré correspond exactement à la fiche envoyée
+  var numero = numeroFiche();
+  var doc = { numero:numero, agence:agence, ref:refCommande, enseigne:enseigne,
+    nom:valeur('nom'), prenom:valeur('prenom'), tel1:v.tel1, tel2:v.tel2, adresse1:valeur('adresse1'), adresse2:valeur('adresse2'),
+    departement:valeur('departement').toUpperCase(), cp:valeur('cp'), ville:valeur('ville'), mail:valeur('mail'), etage:valeur('etage'),
+    accesPrecisions:valeur('accesPrecisions'), datePose:valeur('datePose'), contraintes:valeur('contraintes'), demandeur:valeur('demandeur'),
+    joursTous:coche('joursTous'), certifie:true, certifieMarchandise:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
+  var arrondi = function(x){ return Math.round(x*100)/100; };
+  doc.nbFournisseurs = nombre('nbFournisseurs'); doc.modeReception = modeChoisi();
+  if(doc.modeReception !== 'depot'){
+    doc.nbPointsEnlevement = nombre('nbPointsEnlevement'); doc.enlevements = [];
+    for(var i=0;i<doc.nbPointsEnlevement;i++){
+      var p = 'enl'+i+'-', e = { fournisseur:valeur(p+'fournisseur'), adresse:valeur(p+'adresse'), colis:nombre(p+'colis'), poidsKg:arrondi(nombre(p+'poids')),
+        numeroCommande:valeur(p+'numeroCommande'), dateDisponibilite:valeur(p+'dispo'),
+        autNumero:'AE-'+numero+'-'+(i+1), autEmisLe:doc.createdAt, autValideJusquau:autPlusJours(valeur(p+'dispo'), AUTORISATION_VALIDITE_JOURS) };
+      if(valeur(p+'horaires')) e.horaires = valeur(p+'horaires');
+      doc.enlevements.push(e);
+    }
+  }
+  doc.colisLongLongueurCm = arrondi(nombre('colisLongLongueurCm'));
+  if(valeur('colisLongLargeurCm')) doc.colisLongLargeurCm = arrondi(nombre('colisLongLargeurCm'));
+  if(valeur('colisLongHauteurCm')) doc.colisLongHauteurCm = arrondi(nombre('colisLongHauteurCm'));
+  if(valeur('colisLongDescription')) doc.colisLongDescription = valeur('colisLongDescription');
+  doc.colisLourdPoidsKg = arrondi(nombre('colisLourdPoidsKg'));
+  if(valeur('colisLourdDescription')) doc.colisLourdDescription = valeur('colisLourdDescription');
+  if(clientConf){
+    doc.clientCode = clientCode; doc.clientNom = String(clientConf.clientNom||'').slice(0, 80);
+    doc.poidsTotalKg = arrondi(nombre('poidsTotalKg')); if(valeur('nbColisTotal')) doc.nbColisTotal = nombre('nbColisTotal');
+    if(tarifFinal && tarifFinal.statut==='ok'){
+      doc.tarifHT = arrondi(tarifFinal.montantHT); doc.tarifTTC = arrondi(tarifFinal.ttc); doc.tarifBaseHT = arrondi(tarifFinal.baseHT); doc.tarifZone = String(tarifFinal.zone).slice(0, 10);
+      doc.tarifDistanceKm = tarifFinal.km; doc.tarifPersonnes = tarifFinal.equipe; doc.tarifVersion = String(tarifFinal.versionTarif||'').slice(0, 40); doc.tarifCalculeLe = tarifFinal.calculeLe;
+      var lc = tarifFinal.complements.map(function(c){ return c.nom+' ('+fmtE(c.prixHT)+' HT)'; }).join(' ; ').slice(0, 300); if(lc) doc.tarifComplements = lc;
+    }
+  }
+  ACCES.forEach(function(a){ doc[a[0]] = coche(a[0]); }); OPTIONS.forEach(function(o){ doc[o[0]] = coche(o[0]); }); JOURS.forEach(function(j){ doc[j[0]] = coche(j[0]); });
+  // les champs facultatifs vides ne sont pas envoyés
+  ['ref','enseigne','tel2','adresse2','mail','etage','accesPrecisions','datePose','contraintes'].forEach(function(k){ if(!doc[k]) delete doc[k]; });
+  try{
+    await db.collection('stls_fiches_soumissions').doc(numero).set(doc);
+    envoye = true; afficherConfirmation(numero, doc, tarifFinal);
+  }catch(e){
+    console.error('envoi fiche', e);
+    btn.disabled = false; btn.textContent = 'ENVOYER MA FICHE';
+    al.style.display = 'block';
+    al.textContent = (e && e.code==='permission-denied') ? 'Ce formulaire n\'accepte plus de réponses pour le moment. Merci de contacter STLS au 06 58 30 16 87.' : 'Votre fiche n\'a pas pu être envoyée. Vérifiez votre connexion et réessayez, ou contactez STLS au 06 58 30 16 87.';
+  }
+}
+// une autorisation par point d'enlèvement, générée à partir des mêmes données que celles archivées par STLS
+function donneesAutorisation(d, i){
+  var e = d.enlevements[i];
+  return { aut:{ numero:e.autNumero, emisLe:e.autEmisLe, valideJusquau:e.autValideJusquau, lieu:agenceInfo.ville || '' }, commande:e.numeroCommande, dispo:e.dateDisponibilite,
+    client:{ enseigne:d.enseigne, ref:d.ref, nom:d.nom, prenom:d.prenom, tel1:d.tel1, tel2:d.tel2, mail:d.mail, adresse1:d.adresse1, adresse2:d.adresse2, cp:d.cp, ville:d.ville, demandeur:d.demandeur },
+    agence:agenceInfo, fournisseur:e.fournisseur, adresse:e.adresse, horaires:e.horaires, colis:e.colis, poidsKg:e.poidsKg, longCm:d.colisLongLongueurCm, lourdKg:d.colisLourdPoidsKg, valideLe:d.createdAt };
+}
+function telechargerAutorisation(d, i){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ alert('Le générateur de PDF n\'est pas disponible pour le moment. STLS vous transmettra ce document.'); return; }
+  try{ dessinerAutorisationEnlevement(donneesAutorisation(d, i)).save('Autorisation_enlevement_'+d.enlevements[i].autNumero+'.pdf'); }
+  catch(e){ console.error('autorisation', e); alert('Le document n\'a pas pu être généré. STLS vous le transmettra.'); }
+}
+function autorisationsHtml(d){
+  if(!d || !(d.enlevements||[]).length) return '';
+  return '<div class="recap noprint"><h3>Mes autorisations d\'enlèvement</h3><p class="sous">Un document officiel par point d\'enlèvement, à présenter lors du retrait. STLS en conserve une copie.</p>'+
+    d.enlevements.map(function(e, i){ return '<div style="margin:8px 0;"><div style="font-size:14px;"><strong>'+esc(e.fournisseur)+'</strong> — commande '+esc(e.numeroCommande)+'</div><button class="btn ghost btn-aut" data-i="'+i+'" style="margin-top:4px;">Télécharger l\'autorisation n° '+(i+1)+' (PDF)</button></div>'; }).join('')+'</div>';
+}
+function afficherConfirmation(numero, d, tarif){
+  var ln = function(l, v){ return v ? '<div class="ln"><b>'+esc(l)+'</b><span>'+esc(v)+'</span></div>' : ''; };
+  var oui = function(list){ return list.filter(function(x){ return d[x[0]]; }).map(function(x){ return x[1].replace(' *',''); }).join(', '); };
+  var recap = '';
+  if(d){
+    var jours = d.joursTous ? 'Tous' : oui(JOURS);
+    recap = '<div class="recap"><h3>Récapitulatif</h3>'+
+      ln('Nom', d.nom+' '+d.prenom)+ln('Téléphone', d.tel1+(d.tel2?' / '+d.tel2:''))+ln('Adresse', d.adresse1+(d.adresse2?', '+d.adresse2:'')+' — '+d.cp+' '+d.ville)+ln('Mail', d.mail)+
+      ln('Accès', oui(ACCES))+ln('Précisions', d.accesPrecisions)+ln('Étages', d.etage)+ln('Options', oui(OPTIONS))+ln('Date de la pose', d.datePose ? d.datePose.split('-').reverse().join('/') : '')+
+      ln('Jours possibles', jours)+ln('Contraintes', d.contraintes)+
+      '<h3>Marchandise &amp; enlèvements</h3>'+ln('Fournisseurs', String(d.nbFournisseurs))+ln('Mode de réception', (MODES.filter(function(m){ return m[0]===d.modeReception; })[0]||['',''])[1])+
+      (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — commande '+e.numeroCommande+' — disponible le '+e.dateDisponibilite.split('-').reverse().join('/')+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
+      ln('Colis le plus long', d.colisLongLongueurCm+' cm'+(d.colisLongLargeurCm?' × '+d.colisLongLargeurCm+' cm':'')+(d.colisLongHauteurCm?' × '+d.colisLongHauteurCm+' cm':'')+(d.colisLongDescription?' — '+d.colisLongDescription:''))+
+      ln('Colis le plus lourd', d.colisLourdPoidsKg+' kg'+(d.colisLourdDescription?' — '+d.colisLourdDescription:''))+
+      (d.tarifTTC!=null ? '<h3>Tarif estimatif</h3>'+ln('Montant', fmtE(d.tarifHT)+' HT — '+fmtE(d.tarifTTC)+' TTC')+ln('Équipe', d.tarifPersonnes+' personne(s)')+ln('Zone', d.tarifZone+' (~'+d.tarifDistanceKm+' km)')+ln('Options', d.tarifComplements) : '')+
+      '<h3>Confirmation</h3>'+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
+  }
+  aff('<div class="msg"><h1 style="font-size:24px;text-align:center;">✅ Fiche envoyée</h1><p class="sous">Numéro : <strong>'+esc(numero)+'</strong></p>'+
+    '<p>Votre fiche de livraison a bien été transmise à STLS'+(nomAgence?' — '+esc(nomAgence):'')+'. Nous vous recontacterons pour organiser la livraison.</p></div>'+recap+
+    autorisationsHtml(d)+
+    '<button class="btn ghost noprint" id="btnImprimer" style="margin-top:14px;">Imprimer / enregistrer en PDF</button>');
+  el('btnImprimer').addEventListener('click', function(){ window.print(); });
+  document.querySelectorAll('.btn-aut').forEach(function(b){ b.addEventListener('click', function(){ telechargerAutorisation(d, parseInt(b.getAttribute('data-i'), 10)); }); });
+}
+async function demarrer(){
+  agence = qs('a'); refCommande = qs('ref').slice(0,60); enseigne = qs('e').slice(0,60);
+  if(!agence){ msgPage('Lien incomplet', 'Utilisez le lien transmis par STLS pour accéder à la fiche de livraison.'); return; }
+  try{ firebase.initializeApp(firebaseConfig); db = firebase.firestore(); }
+  catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+  try{
+    var snap = await db.collection('stls_fiches_public').doc(agence).get();
+    if(!snap.exists || snap.data().actif !== true){ msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez STLS pour en obtenir un nouveau.'); return; }
+    nomAgence = snap.data().agencyName || '';
+    agenceInfo = Object.assign({ nom:nomAgence }, snap.data().agence || {});
+  }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+  // lien personnalisé d'un client de STLS : logo du client + tarif estimatif (le lien ne marche que si le client l'a activé)
+  clientCode = qs('c').slice(0, 40);
+  if(clientCode){
+    try{
+      var sc = await db.collection('stls_fiches_clients').doc(agence+'_'+clientCode).get();
+      if(!sc.exists || sc.data().actif !== true){ msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez votre interlocuteur pour en obtenir un nouveau.'); return; }
+      clientConf = sc.data();
+    }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
+    try{
+      var st = await db.collection('stls_devis_public').doc(agence).get();
+      if(st.exists && st.data().params && st.data().zones && st.data().zones.length) tarifDoc = st.data();
+    }catch(e){ console.error('barème', e); }
+    personnaliserEntete();
+    if(!enseigne) enseigne = String(clientConf.clientNom||'').slice(0, 60);
+  }
+  afficherFormulaire();
+}
+demarrer();
+</script>
+</body>
+</html>
