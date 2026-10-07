@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0091">
+<meta name="app-version" content="2026.0090">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -689,13 +689,6 @@
       <h2>🔗 Liens pour les contremarques</h2>
       <p class="hint" style="margin:0 0 10px;">Un client qui le souhaite peut donner à ses propres clients (les contremarques) un lien en ligne vers la fiche de livraison. L'entête reprend <strong>son logo</strong> et la fiche calcule le <strong>tarif estimatif</strong> d'après le barème de Tarifs et les déclarations de la contremarque.</p>
       <div id="liensEtatGeneral" class="hint" style="font-weight:600;"></div>
-    </div>
-    <div class="card" id="famillesCard">
-      <h2 style="font-size:15px;">🏷 Familles de marchandise (fiches Magasin)</h2>
-      <p class="hint" style="margin:0 0 8px;">Liste proposée au client final sur les fiches Magasin partenaire : une famille par ligne. Laisse vide pour la liste par défaut (Cuisine, Salle de bain, Dressing, Électroménager, Canapé, Meubles, Autre).</p>
-      <div class="field"><textarea id="famillesTexte" rows="6" style="width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea></div>
-      <div class="btn-row"><button class="btn primary" id="btnFamilles" style="width:auto;">Enregistrer les familles</button></div>
-      <div class="hint" id="famillesMsg" style="margin-top:6px;"></div>
     </div>
     <div id="listLiensClients"></div>
     </div>
@@ -3911,7 +3904,7 @@ function resumeFicheHtml(f){
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+
     ln('Accès', oui(['ascenseur','villa','immeuble','bureau','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose?dateCourte(f.datePose):'')+
-    ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.typeFiche==='magasin_partenaire' ? ln('Type de fiche', 'Magasin partenaire')+ln('Famille de marchandise', f.famille)+ln('Prestation', f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : 'Livraison trottoir (LT)')+(f.devisObligatoire ? ln('⚠ Devis obligatoire', 'colis le plus lourd de plus de 120 kg : aucun prix annoncé au client') : '')+(f.tarifDistanceMode ? ln('Distance retenue', (f.tarifDistanceMode==='cumul' ? 'agence → magasin → client' : 'magasin → client')+' (~'+f.tarifDistanceKm+' km)') : '') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
+    ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
 async function renderFichesRecues(){
   var el = document.getElementById('fichesRecuesList'); if(!el) return;
@@ -3922,7 +3915,6 @@ async function renderFichesRecues(){
     return '<div class="hist-item" data-num="'+escapeHtml(f.numero)+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml(f.nom+' '+f.prenom)+'</span><span class="date">'+escapeHtml(dateHeureCourte(f.createdAt))+'</span></div>'+
       '<div class="sub">'+escapeHtml(f.numero)+' · '+escapeHtml(f.cp+' '+f.ville)+(f.ref?' · réf. '+escapeHtml(f.ref):'')+(f.enseigne?' · '+escapeHtml(f.enseigne):'')+'</div>'+
-      (f.typeFiche==='magasin_partenaire' ? '<div class="sub" style="color:var(--accent);font-weight:700;">🏬 Fiche Magasin partenaire · '+escapeHtml(f.famille||'')+' · '+(f.prestation==='LV' ? 'LV' : 'LT')+' · commande '+escapeHtml((f.enlevements && f.enlevements[0] && f.enlevements[0].numeroCommande) || '')+(f.devisObligatoire ? ' · <span style="color:var(--danger);">⚠ devis obligatoire</span>' : '')+'</div>' : '')+
       (f.clientNom ? '<div class="sub" style="color:var(--accent);">🔗 Reçue via le lien de <strong>'+escapeHtml(f.clientNom)+'</strong>'+(f.tarifHT!=null ? ' · tarif annoncé '+escapeHtml(fmtE(f.tarifHT))+' HT' : '')+'</div>' : '')+
       '<div class="actions"><button class="btn accent fr-ouvrir">Traiter…</button></div>'+
       '<div class="fr-panel" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div></div>';
@@ -3988,7 +3980,7 @@ function creationFicheHtml(f){
 async function creerEnlevementDepuisFiche(f, cm, e){
   var numero = await nextCollecteNumeroDepot(), blNumero = await nextBLNumero();
   var adr = decouperAdresse(e.adresse), now = new Date().toISOString();
-  var desc = 'Fiche '+f.numero+(f.ref?' — réf. '+f.ref:'')+(f.enseigne?' — '+f.enseigne:'')+(f.typeFiche==='magasin_partenaire' ? ' — '+(f.famille||'')+' — '+(f.prestation==='LV' ? 'livraison dans la pièce' : 'livraison trottoir')+(f.devisObligatoire ? ' — DEVIS OBLIGATOIRE' : '') : '');
+  var desc = 'Fiche '+f.numero+(f.ref?' — réf. '+f.ref:'')+(f.enseigne?' — '+f.enseigne:'');
   var collecte = { numero:numero, sourceType:'occasionnel', sourceNom:e.fournisseur, sourceAdresse:{ adresse1:adr.adresse1, adresse2:'', cp:adr.cp, ville:adr.ville, tel1:'', tel2:'' },
     sourceDepotCode:'', sourcePartenaireId:'', destination:'livraison_directe', poidsEstime:e.poidsKg, colisEstime:e.colis, descriptionMarchandise:desc,
     dateCollecte:'', creneauCollecte:e.horaires||'', depotCode:state.currentAgencyCode||'', createdAt:now, resultBlNumero:blNumero, resultReceptionLabel:'', origineFiche:f.numero,
@@ -4139,7 +4131,6 @@ async function renderLiensClients(){
   gen.innerHTML = ficheEnLigneActive===null ? '⚠ État du formulaire en ligne indisponible.' : (ficheEnLigneActive ? '🟢 Le formulaire en ligne de l\'agence est <strong>activé</strong> : les liens clients actifs fonctionnent.' : '<span style="color:var(--danger);">🔴 Le formulaire en ligne de l\'agence est <strong>désactivé</strong> : aucun lien client ne fonctionne. Active-le dans Gestion Contremarques › Fiche de livraison en ligne.</span>');
   var clients = (state.base.clients||[]).slice().sort(function(a, b){ return String(a.nom||'').localeCompare(String(b.nom||''), 'fr', { numeric:true }); });
   if(!clients.length){ el.innerHTML = '<div class="card"><div class="empty">Aucun client enregistré</div></div>'; return; }
-  renderFamilles();
   el.innerHTML = clients.map(function(c){
     var l = liensClients[c.code] || {}, actif = l.actif===true, lien = ficheLienClient(c.code);
     var puce = actif ? '<span style="color:var(--accent);font-weight:700;">🟢 Lien actif</span>' : '<span style="color:var(--ink-soft);font-weight:700;">⚪ Lien inactif</span>';
@@ -4150,7 +4141,7 @@ async function renderLiensClients(){
       '<div class="field" style="margin-top:10px;"><label>Lien à transmettre aux contremarques de '+escapeHtml(c.nom)+'</label><input type="text" readonly class="lc-lien" value="'+escapeHtml(lien)+'"'+(actif ? '' : ' style="color:var(--ink-soft);background:#f4f3ee;"')+'></div>'+
       (actif ? '<div class="btn-row"><button class="btn accent lc-copier" style="width:auto;">Copier le lien</button><button class="btn ghost lc-partager" style="width:auto;">Partager…</button><button class="btn ghost lc-apercu" style="width:auto;">👁 Aperçu</button></div>'+
         '<div class="field" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);"><label>Étiquette pour la Zebra (100 × 150 mm)</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="number" class="lc-qte" min="1" max="100" value="1" style="width:78px;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;"><span class="hint" style="margin:0;">exemplaire(s)</span><button class="btn primary lc-etiquette" style="width:auto;">🏷 Imprimer l\'étiquette</button></div><div class="hint" style="margin-top:4px;">Nom du client, invitation à scanner et QR code de ce lien.</div></div>'
-        : '<div class="hint">Le lien ne fonctionnera qu\'une fois activé : l\'étiquette sera ensuite disponible ici.</div>')+blocMagasinPartenaire(c, l)+'</div>';
+        : '<div class="hint">Le lien ne fonctionnera qu\'une fois activé : l\'étiquette sera ensuite disponible ici.</div>')+'</div>';
   }).join('');
 }
 function clientDeCarte(ev){ var c = ev.target.closest('.lc'); return c ? (state.base.clients||[]).find(function(x){ return x.code===c.getAttribute('data-code'); }) : null; }
@@ -4241,82 +4232,15 @@ function dessinerEtiquetteLienClient(doc, nom, url){
   doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
   doc.text('Livraison réalisée par STLS', W/2, 144.5, { align:'center' });
 }
-function genererEtiquetteLienClient(client, qte, urlLien){
+function genererEtiquetteLienClient(client, qte){
   if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible'); return; }
   if(typeof QRCode==='undefined'){ banner('Générateur de QR code indisponible : vérifie ta connexion et recharge la page'); return; }
-  var url = urlLien || ficheLienClient(client.code), doc = new window.jspdf.jsPDF({ unit:'mm', format:[100, 150] });
+  var url = ficheLienClient(client.code), doc = new window.jspdf.jsPDF({ unit:'mm', format:[100, 150] });
   for(var i=0;i<qte;i++){ if(i>0) doc.addPage([100, 150], 'portrait'); dessinerEtiquetteLienClient(doc, client.nom, url); }
   var base = String(client.code||'client').replace(/[^A-Za-z0-9_-]+/g, '_');
   downloadPdf(doc, 'etiquette_lien_'+base+'_'+qte+'ex.pdf');
   banner(qte+' étiquette(s) pour '+client.nom+' — PDF 100 × 150 mm téléchargé');
 }
-
-
-// ================= Fiche Magasin partenaire : un lien (et un QR en magasin) par client =================
-// Page publique magasin/index.html. L'adresse d'enlèvement vient de la Fiche client détaillée, publiée dans stls_fiches_clients/<agence>_<code> (champ magasin).
-function magasinBaseUrl(){ try{ return new URL('magasin/', location.href).href; }catch(e){ return 'magasin/'; } }
-function magasinLien(code){ return magasinBaseUrl() + '?a=' + encodeURIComponent(state.currentAgencyCode || '') + '&c=' + encodeURIComponent(code); }
-function magasinPublic(c){ return { nom:String(c.nomEntreprise || c.nom || '').trim().slice(0, 80), adresse1:String(c.adresse1||'').trim().slice(0, 160), adresse2:String(c.adresse2||'').trim().slice(0, 160), cp:String(c.cp||'').trim(), ville:String(c.ville||'').trim().slice(0, 80), tel:String(c.tel1||'').trim().slice(0, 30) }; }
-function magasinAdresseOk(m){ return !!(m.adresse1 && /^\d{5}$/.test(m.cp) && m.ville); }
-function memeAdresseMagasin(a, b){ a = a || {}; b = b || {}; return ['adresse1','adresse2','cp','ville','tel','nom'].every(function(k){ return String(a[k]||'')===String(b[k]||''); }); }
-function blocMagasinPartenaire(c, l){
-  var actif = l.partenaireActif===true, m = magasinPublic(c), ok = magasinAdresseOk(m), pub = l.magasin || null, lien = magasinLien(c.code);
-  var adr = ok ? escapeHtml(m.nom+' — '+m.adresse1+(m.adresse2 ? ', '+m.adresse2 : '')+', '+m.cp+' '+m.ville) : '<span style="color:var(--danger);">adresse incomplète : renseigne l\'adresse, le code postal (5 chiffres) et la ville dans « Fiche client détaillée »</span>';
-  var desynchro = actif && !memeAdresseMagasin(pub, m);
-  return '<div class="lp field" style="margin-top:14px;padding-top:12px;border-top:2px solid var(--line-strong);"><label>🏬 Fiche Magasin partenaire (QR code en magasin)</label>'+
-    '<div class="hint" style="margin:0 0 6px;">Pour les clients finaux de ce magasin : la fiche indique le magasin comme adresse d\'enlèvement, calcule le tarif (distance magasin → client) et demande le numéro de commande.</div>'+
-    '<div class="hint" style="margin:0 0 8px;">Adresse du magasin : <strong>'+adr+'</strong></div>'+
-    (state.isAdmin ? '<div class="btn-row" style="margin-top:0;"><button class="btn '+(actif ? 'ghost' : 'accent')+' lp-toggle" style="width:auto;"'+(!ok && !actif ? ' disabled' : '')+'>'+(actif ? '⏸ Désactiver la fiche Magasin' : '▶ Activer la fiche Magasin partenaire')+'</button>'+(desynchro && ok ? '<button class="btn primary lp-maj" style="width:auto;">↻ Mettre à jour l\'adresse publiée</button>' : '')+'</div>' : '<div class="hint">Seul un administrateur peut activer ou désactiver cette fiche.</div>')+
-    (desynchro ? '<div class="hint" style="color:#9a6700;margin-top:4px;">⚠ L\'adresse publiée n\'est plus celle de la Fiche client détaillée.</div>' : '')+
-    '<div class="field" style="margin-top:8px;"><label>Lien / QR code à afficher en magasin</label><input type="text" readonly class="lp-lien" value="'+escapeHtml(lien)+'"'+(actif ? '' : ' style="color:var(--ink-soft);background:#f4f3ee;"')+'></div>'+
-    (actif ? '<div class="btn-row"><button class="btn accent lp-copier" style="width:auto;">Copier le lien</button><button class="btn ghost lp-apercu" style="width:auto;">👁 Aperçu</button></div>'+
-      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;"><input type="number" class="lp-qte" min="1" max="100" value="1" style="width:78px;padding:9px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;"><span class="hint" style="margin:0;">exemplaire(s)</span><button class="btn primary lp-etiquette" style="width:auto;">🏷 Imprimer l\'étiquette (QR magasin)</button></div>'
-      : '<div class="hint">Le lien ne fonctionnera qu\'une fois la fiche activée.</div>')+'</div>';
-}
-async function activerFicheMagasin(c, cible){
-  if(!cible) return ecrireLienClient(c, { partenaireActif:false });
-  var m = magasinPublic(c); if(!magasinAdresseOk(m)){ banner('Complète d\'abord l\'adresse du client dans « Fiche client détaillée »'); return false; }
-  var cur = (liensClients[c.code] || {}).magasin || {};
-  if(memeAdresseMagasin(cur, m) && typeof cur.lat==='number' && typeof cur.lon==='number'){ m.lat = cur.lat; m.lon = cur.lon; }   // adresse inchangée : position déjà connue
-  else { try{ var pos = await geocoderBAN([m.adresse1, m.cp, m.ville].join(' '), m.cp); if(pos){ m.lat = pos.lat; m.lon = pos.lon; } }catch(e){ console.error('position du magasin', e); } }
-  return ecrireLienClient(c, { partenaireActif:true, magasin:m });
-}
-document.getElementById('listLiensClients').addEventListener('click', async function(ev){
-  if(!ev.target.closest('.lp')) return; var c = clientDeCarte(ev); if(!c) return;
-  if(ev.target.closest('.lp-toggle')){
-    var cible = !((liensClients[c.code]||{}).partenaireActif===true);
-    if(!cible && !confirm('Désactiver la fiche Magasin partenaire de « '+c.nom+' » ?\n\nLes QR codes déjà affichés en magasin cesseront de fonctionner.')) return;
-    if(await activerFicheMagasin(c, cible)){ if(cible) assurerCoordonneesDepot(); banner(cible ? 'Fiche Magasin partenaire activée pour '+c.nom : 'Fiche Magasin partenaire désactivée'); renderLiensClients(); }
-  } else if(ev.target.closest('.lp-maj')){
-    if(await activerFicheMagasin(c, true)){ banner('Adresse du magasin mise à jour'); renderLiensClients(); }
-  } else if(ev.target.closest('.lp-copier')){
-    banner((await copierTexte(magasinLien(c.code))) ? 'Lien copié' : 'Copie impossible : sélectionne le lien et copie-le');
-  } else if(ev.target.closest('.lp-apercu')){
-    window.open(magasinLien(c.code), '_blank');
-  } else if(ev.target.closest('.lp-etiquette')){
-    var qte = parseInt(ev.target.closest('.lp').querySelector('.lp-qte').value, 10);
-    if(!(qte >= 1 && qte <= 100)){ banner('Indique un nombre d\'exemplaires entre 1 et 100'); return; }
-    if(!((liensClients[c.code]||{}).partenaireActif===true)){ banner('Active d\'abord la fiche Magasin partenaire'); return; }
-    genererEtiquetteLienClient(c, qte, magasinLien(c.code));
-  }
-});
-// familles de marchandise proposées sur les fiches Magasin (une liste pour l'agence)
-async function renderFamilles(){
-  var ta = document.getElementById('famillesTexte'), btn = document.getElementById('btnFamilles'); if(!ta) return;
-  btn.style.display = state.isAdmin ? '' : 'none'; ta.readOnly = !state.isAdmin; ta.value = '';
-  if(!fsReady()) return;
-  try{ var sn = await db.collection(FICHE_PUBLIC_COL).doc(state.currentAgencyCode).get(); if(sn.exists && Array.isArray(sn.data().familles)) ta.value = sn.data().familles.join('\n'); }catch(e){ console.error('familles', e); }
-}
-document.getElementById('btnFamilles').addEventListener('click', async function(){
-  if(!state.isAdmin) return; var msg = document.getElementById('famillesMsg');
-  var vus = {}, liste = document.getElementById('famillesTexte').value.split('\n').map(function(x){ return x.trim(); }).filter(function(x){ if(!x || vus[x.toLowerCase()]) return false; vus[x.toLowerCase()] = true; return true; });
-  if(liste.length > 30){ msg.textContent = '30 familles au maximum'; msg.style.color = 'var(--danger)'; return; }
-  if(liste.some(function(x){ return x.length > 40; })){ msg.textContent = 'Une famille ne peut pas dépasser 40 caractères'; msg.style.color = 'var(--danger)'; return; }
-  try{
-    await db.collection(FICHE_PUBLIC_COL).doc(state.currentAgencyCode).set({ familles:liste, majLe:new Date().toISOString(), majPar:currentIdentity() }, { merge:true });
-    msg.textContent = liste.length ? liste.length+' famille(s) enregistrée(s)' : 'Liste par défaut rétablie'; msg.style.color = 'var(--accent)';
-  }catch(e){ console.error('familles', e); msg.textContent = 'Enregistrement impossible'; msg.style.color = 'var(--danger)'; }
-});
 
 // ---------- fiche reçue via un lien client : provenance et tarif annoncé ----------
 function tarifResumeTexte(f){
@@ -9564,7 +9488,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0091';
+var APP_VERSION = '2026.0090';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
