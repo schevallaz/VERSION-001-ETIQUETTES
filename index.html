@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0090">
+<meta name="app-version" content="2026.0092">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -165,6 +165,7 @@
   @media (min-width:600px){
     .label{width:320px;height:480px;}
   }
+  .st-badge{ display:inline-block; margin-left:8px; padding:1px 8px; border-radius:999px; font-size:11.5px; font-weight:700; letter-spacing:.3px; color:#fff; vertical-align:middle; white-space:nowrap; cursor:help; }
 </style>
 </head>
 <body>
@@ -1589,6 +1590,7 @@ async function switchToAgency(code){
   setActiveAgency(code);
   baseWatchStarted = false;
   receptionsWatchStarted = false;
+  arreterStatutsBLBP();
   await migrateAgencyDataIfNeeded(code);
   await loadBase();
   await loadHistoryIndex();
@@ -1851,6 +1853,8 @@ function recordToIndexEntry(rec){
   var affMap = d.itemAffectation || {};
   var affVals = items.map(function(m){ return affMap[m.itemId] || null; });
   entry.itemsDisponibles = affVals.filter(function(v){ return !v; }).length;
+  entry.itemsRetour = affVals.filter(function(v){ return v && v.type==='retour'; }).length;   // marchandise revenue au dépôt, pas encore rangée
+  if(d.facturation && d.facturation.statut) entry.statutFacturation = d.facturation.statut;   // réservé au futur module Facturation : 'a_facturer' | 'facturee'
   var blVals = affVals.filter(function(v){ return v && v.type==='bl'; }).map(function(v){ return v.id; });
   var blUniques = blVals.filter(function(v,i){ return blVals.indexOf(v)===i; });
   entry.bonLivraisonId = (blUniques.length===1 && blVals.length===items.length) ? blUniques[0] : (blUniques.length ? 'partiel' : '');
@@ -1867,6 +1871,66 @@ function isFullyRanged(h){
 // à ranger : déjà réceptionnée (pas en attente), pas encore sortie, pas à la corbeille, mais pas totalement rangée
 function isToRangeEntry(h){
   return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && !isFullyRanged(h);
+}
+
+
+// ================= Statut des commandes : code « ST xx » =================
+// Le statut n'est JAMAIS stocké : il est recalculé à partir des données déjà existantes (réception, rangement, BP, BL, retour,
+// corbeille). Il ne peut donc pas diverger de la réalité et ne change aucun comportement de l'application.
+var STATUTS_COMMANDE = {
+  5:['CDE saisie en attente de réception','#6b7280'], 10:['CDE à Quai','#b45309'], 15:['CDE en Stock','#0f6e56'], 20:['CDE en Préparation','#2563eb'],
+  25:['CDE Prête à partir','#1d4ed8'], 30:['CDE en Livraison','#7c3aed'], 35:['CDE en Zone de Retour','#c2410c'], 40:['CDE Livrée','#166534'],
+  50:['CDE à Facturer','#a16207'], 60:['CDE Facturée','#4b5563'], 99:['CDE Annulée','#b91c1c']
+};
+var statutsBL = {}, statutsBP = {}, bpDetails = {}, statutsUnsub = [], statutsWatchStarted = false, statutsMinuteur = null;
+function statutCommande(h){
+  var R = function(code, motif, anomalie){ return { code:code, motif:motif||'', anomalie:!!anomalie }; };
+  if(h.deletedAt) return R(99);
+  if(!h.receivedAt) return R(5);
+  if((h.itemsRetour||0) > 0) return R(35, 'marchandise revenue au dépôt, à ranger');
+  var blNum = (h.bonLivraisonId && h.bonLivraisonId!=='partiel') ? h.bonLivraisonId : '';
+  var bpNum = (h.bonPreparationId && h.bonPreparationId!=='partiel') ? h.bonPreparationId : '';
+  var bl = blNum ? statutsBL[blNum] : undefined, bp = bpNum ? statutsBP[bpNum] : undefined, bpFull = bpNum ? bpDetails[bpNum] : null;
+  var livree = function(){ return h.statutFacturation==='facturee' ? R(60) : (h.statutFacturation==='a_facturer' ? R(50) : R(40)); };
+  if(h.exitedAt){
+    if(blNum){
+      if(bl==='livre') return livree();
+      if(bl==='affecte_tournee') return R(30);
+      if(bl==='annule') return R(25, 'BL '+blNum+' annulé : à réaffecter', true);
+      return R(25);   // BL créé ou validé, pas encore sur une tournée
+    }
+    if(bpFull && !sortieGenereBL(bpFull)) return livree();   // emporté, en service… : pas de BL
+    if(bpFull) return R(25, 'sortie validée : BL à créer');
+    return R(25, 'sortie sans BL ni BP', true);
+  }
+  if(blNum){   // affectée à un BL alors que la sortie n'est pas validée
+    if(bl==='livre') return R(40, 'BL marqué livré : vérifier la sortie de stock', true);
+    if(bl==='affecte_tournee') return R(30, 'BL sur une tournée : vérifier la sortie de stock', true);
+    if(bl==='annule') return R(20, 'BL '+blNum+' annulé : à réaffecter', true);
+    return R(20);
+  }
+  if(h.bonPreparationId==='partiel') return R(20, 'partiellement en préparation');
+  if(bpNum) return R(bp==='pret' ? 25 : 20);
+  return isFullyRanged(h) ? R(15) : R(10);
+}
+function badgeStatut(h){
+  var st = statutCommande(h), def = STATUTS_COMMANDE[st.code];
+  return '<span class="st-badge" data-cid="'+escapeHtml(String(h.id||''))+'" style="background:'+def[1]+';" title="'+escapeHtml(def[0]+(st.motif ? ' — '+st.motif : ''))+'">ST '+('0'+st.code).slice(-2)+(st.anomalie ? ' ⚠' : '')+'</span>';
+}
+function majBadgesStatut(){
+  var idx = {}; (state.historyIndex || []).forEach(function(h){ idx[h.id] = h; });
+  Array.prototype.forEach.call(document.querySelectorAll('.st-badge[data-cid]'), function(el){
+    var h = idx[el.getAttribute('data-cid')]; if(!h) return;
+    var st = statutCommande(h), def = STATUTS_COMMANDE[st.code];
+    el.style.background = def[1]; el.title = def[0] + (st.motif ? ' — '+st.motif : ''); el.textContent = 'ST '+('0'+st.code).slice(-2)+(st.anomalie ? ' ⚠' : '');
+  });
+}
+function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; statutsBP = {}; bpDetails = {}; }
+function watchStatutsBLBP(){
+  if(!fsReady() || statutsWatchStarted) return; statutsWatchStarted = true;
+  var rafraichir = function(){ clearTimeout(statutsMinuteur); statutsMinuteur = setTimeout(majBadgesStatut, 250); };
+  if(blColRef) statutsUnsub.push(blColRef.onSnapshot(function(sn){ var m = {}; sn.forEach(function(d){ var b = d.data() || {}; m[b.numero || d.id] = b.statut || ''; }); statutsBL = m; rafraichir(); }, function(e){ console.error('statuts BL', e); }));
+  if(bpColRef) statutsUnsub.push(bpColRef.onSnapshot(function(sn){ var det = {}, st = {}; sn.forEach(function(d){ var b = d.data() || {}, k = b.numero || d.id; det[k] = b; st[k] = b.statut || ''; }); bpDetails = det; statutsBP = st; rafraichir(); }, function(e){ console.error('statuts BP', e); }));
 }
 
 var receptionsWatchStarted = false;
@@ -1890,6 +1954,7 @@ function watchReceptions(){
     renderEmplacementsList();
     repairDuplicateLabelNumbers();
   }, function(err){ console.error('Firestore receptions watch error', err); });
+  watchStatutsBLBP();   // statuts des BL et des BP, pour le code « ST xx »
 }
 
 // ================= Journal d'événements par commande =================
@@ -2040,7 +2105,7 @@ function renderTrashList(){
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
       '<div class="hd"><span class="nom">'+numBadge+nameLine+'</span></div>'+
       '<div class="sub" style="color:var(--ink-soft);">Supprimée le '+fmtDate((h.deletedAt||'').slice(0,10))+(h.deletedBy?' par '+escapeHtml(h.deletedBy):'')+'</div>'+
@@ -7503,7 +7568,7 @@ function renderHistory(){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var days = daysSince(h.receivedAt || h.date);
     var daysBadge = (days!=null) ? '<span style="color:var(--ink-soft);">'+(days<=0?"Entrée aujourd'hui":days+' j en stock')+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
     var avarieBadge = (h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '') + (h.cmrRecu ? ' <span style="color:#1e8e3e;font-weight:600;font-size:12px;">📎 CMR</span>' : '');
     var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var empBadge = h.emplacement ? '<span style="color:var(--accent);font-weight:600;">📍 '+escapeHtml(h.emplacement)+'</span>' : '';
@@ -7644,7 +7709,7 @@ function renderPendingList(){
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
     var dateLine = h.date ? ('Réception prévue : '+fmtDate(h.date)) : 'Date de réception non communiquée';
     var weekLine = h.weekNumber ? (' · Semaine '+escapeHtml(String(h.weekNumber))) : '';
     var avarieBadge = (h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '') + (h.cmrRecu ? ' <span style="color:#1e8e3e;font-weight:600;font-size:12px;">📎 CMR</span>' : '');
@@ -7892,7 +7957,7 @@ function renderPlanningList(){
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
     var statut = isPendingEntry(h) ? 'En attente de réception' : (isFullyRanged(h) ? 'En stock — '+(h.emplacement||'—') : 'À ranger');
     var cm = findContremarqueProfile(h.contremarque);
     var cmLine = cm ? '<div class="sub" style="color:var(--accent);">'+escapeHtml(formatContremarqueConstraints(cm))+'</div>' : (h.contremarque ? '<div class="sub" style="color:var(--ink-soft);">Aucune fiche contremarque pour « '+escapeHtml(h.contremarque)+' »</div>' : '');
@@ -7994,7 +8059,7 @@ function renderArchiveList(){
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
     var jours = h.exitDaysStored!=null ? h.exitDaysStored : joursEntreDates(h.receivedAt||h.date, h.exitedAt);
     var detail = 'Entrée '+dateCourte(h.receivedAt||h.date)+(jours!=null?' · '+jours+' j de stockage':'')+(h.exitTotalLabels?' · '+h.exitTotalLabels+' étiquette(s)':'');
     return '<div class="hist-item" data-labelnumber="'+(h.labelNumber||'')+'" data-id="'+h.id+'">'+
@@ -8383,7 +8448,7 @@ function renderToRangeList(){
   }
   el.innerHTML = items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '');
+    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
     var avarieBadge = (h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '') + (h.cmrRecu ? ' <span style="color:#1e8e3e;font-weight:600;font-size:12px;">📎 CMR</span>' : '');
     var mailBadge = mailStatusBadge(h.receptionMailSent, h.id);
     var progress = (h.itemsRanged||0)+' / '+(h.itemsTotal||0)+' étiquette(s) rangée(s)';
@@ -9488,7 +9553,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0090';
+var APP_VERSION = '2026.0092';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
