@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0092">
+<meta name="app-version" content="2026.0093">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -795,6 +795,13 @@
 
   <!-- ===== TAB: INVENTAIRE PAR SCAN ===== -->
   <section id="tab-inventaire" style="display:none;">
+    <div class="card" id="etatStatutsCard">
+      <h2>📊 État des commandes par statut</h2>
+      <p class="hint" style="margin:0 0 8px;">Chaque commande porte un code <strong>ST</strong> qui suit la marchandise, dans l'ordre : 05 → 10 → 15 → 20 → 25 → 30 → 35 → 40 → 50 → 60 (99 : annulée). Touche une ligne pour voir ses commandes.</p>
+      <div class="field" style="margin-bottom:8px;"><label for="etatStatutsPeriode">Pour les statuts 40, 50, 60 et 99 : période</label><select id="etatStatutsPeriode" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="365">12 derniers mois</option><option value="tout">Toute la période</option></select></div>
+      <div id="etatStatutsTable"></div>
+      <div class="btn-row"><button class="btn primary" id="btnEtatPdf" style="width:auto;">📄 Rapport PDF</button><button class="btn ghost" id="btnEtatCsv" style="width:auto;">⬇ Export CSV</button></div>
+    </div>
     <div class="card" id="invAccueil">
       <h2>📋 Inventaire par scan</h2>
       <p class="hint" style="margin:0 0 10px;">Scanne un emplacement, puis les palettes et colis qui s'y trouvent. L'application compare avec le stock théorique et signale les écarts. Caméra, douchette ou saisie manuelle.</p>
@@ -1882,15 +1889,17 @@ var STATUTS_COMMANDE = {
   25:['CDE Prête à partir','#1d4ed8'], 30:['CDE en Livraison','#7c3aed'], 35:['CDE en Zone de Retour','#c2410c'], 40:['CDE Livrée','#166534'],
   50:['CDE à Facturer','#a16207'], 60:['CDE Facturée','#4b5563'], 99:['CDE Annulée','#b91c1c']
 };
-var statutsBL = {}, statutsBP = {}, bpDetails = {}, statutsUnsub = [], statutsWatchStarted = false, statutsMinuteur = null;
-function statutCommande(h){
+var statutsBL = {}, bpDetails = {}, statutsUnsub = [], statutsWatchStarted = false, statutsMinuteur = null;
+function statutCommande(h, blMap, bpMap){
   var R = function(code, motif, anomalie){ return { code:code, motif:motif||'', anomalie:!!anomalie }; };
   if(h.deletedAt) return R(99);
   if(!h.receivedAt) return R(5);
   if((h.itemsRetour||0) > 0) return R(35, 'marchandise revenue au dépôt, à ranger');
   var blNum = (h.bonLivraisonId && h.bonLivraisonId!=='partiel') ? h.bonLivraisonId : '';
   var bpNum = (h.bonPreparationId && h.bonPreparationId!=='partiel') ? h.bonPreparationId : '';
-  var bl = blNum ? statutsBL[blNum] : undefined, bp = bpNum ? statutsBP[bpNum] : undefined, bpFull = bpNum ? bpDetails[bpNum] : null;
+  // une vue (Dossier) peut fournir ses propres tables ; à défaut, ou si un document y manque, on prend les tables globales
+  var bl = blNum ? ((blMap && blMap[blNum]!==undefined) ? blMap[blNum] : statutsBL[blNum]) : undefined;
+  var bpFull = bpNum ? ((bpMap && bpMap[bpNum]) || bpDetails[bpNum] || null) : null, bp = bpFull ? bpFull.statut : undefined;
   var livree = function(){ return h.statutFacturation==='facturee' ? R(60) : (h.statutFacturation==='a_facturer' ? R(50) : R(40)); };
   if(h.exitedAt){
     if(blNum){
@@ -1913,8 +1922,8 @@ function statutCommande(h){
   if(bpNum) return R(bp==='pret' ? 25 : 20);
   return isFullyRanged(h) ? R(15) : R(10);
 }
-function badgeStatut(h){
-  var st = statutCommande(h), def = STATUTS_COMMANDE[st.code];
+function badgeStatut(h, blMap, bpMap){
+  var st = statutCommande(h, blMap, bpMap), def = STATUTS_COMMANDE[st.code];
   return '<span class="st-badge" data-cid="'+escapeHtml(String(h.id||''))+'" style="background:'+def[1]+';" title="'+escapeHtml(def[0]+(st.motif ? ' — '+st.motif : ''))+'">ST '+('0'+st.code).slice(-2)+(st.anomalie ? ' ⚠' : '')+'</span>';
 }
 function majBadgesStatut(){
@@ -1925,12 +1934,102 @@ function majBadgesStatut(){
     el.style.background = def[1]; el.title = def[0] + (st.motif ? ' — '+st.motif : ''); el.textContent = 'ST '+('0'+st.code).slice(-2)+(st.anomalie ? ' ⚠' : '');
   });
 }
-function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; statutsBP = {}; bpDetails = {}; }
+
+// ================= État des commandes par statut (menu Inventaire) =================
+var ETAT_HISTORIQUE = [40, 50, 60, 99];
+function etatPeriodeJours(){ var e = document.getElementById('etatStatutsPeriode'), v = e ? e.value : '30'; return v==='tout' ? 0 : (parseInt(v, 10) || 30); }
+function joursDepuis(iso){ var t = Date.parse(iso); return isNaN(t) ? '' : Math.max(0, Math.floor((Date.now() - t) / 86400000)); }
+function lignesEtatStatuts(){
+  var jours = etatPeriodeJours(), seuil = jours ? Date.now() - jours*86400000 : 0, groupes = {};
+  Object.keys(STATUTS_COMMANDE).forEach(function(c){ groupes[c] = []; });
+  (state.historyIndex || []).forEach(function(h){
+    var st = statutCommande(h);
+    if(seuil && ETAT_HISTORIQUE.indexOf(st.code) >= 0){ var d = Date.parse(st.code===99 ? h.deletedAt : (h.exitedAt || h.receivedAt)); if(!(d >= seuil)) return; }   // période : date de sortie du dépôt (ou de suppression)
+    groupes[st.code].push({ h:h, st:st });
+  });
+  Object.keys(groupes).forEach(function(c){ groupes[c].sort(function(a, b){ return String(a.h.receivedAt || a.h.date || '').localeCompare(String(b.h.receivedAt || b.h.date || '')); }); });
+  return groupes;
+}
+function poidsNum(h){ return parseFloat(String(h.poids||'').replace(',', '.')) || 0; }
+function ligneEtatTexte(x){
+  var h = x.h, ref = (h.bonLivraisonId && h.bonLivraisonId!=='partiel') ? 'BL '+h.bonLivraisonId : ((h.bonPreparationId && h.bonPreparationId!=='partiel') ? 'BP '+h.bonPreparationId : '');
+  var j = x.st.code <= 35 ? joursDepuis(h.receivedAt || h.date) : '';
+  return { gauche:(h.labelNumber||'—')+'  '+(h.client||'—')+(h.contremarque ? ' - '+h.contremarque : ''), droite:[h.fournisseur, h.emplacement, ref, (j!=='' ? j+' j' : '')].filter(Boolean).join(' · ') };
+}
+function renderEtatStatuts(){
+  var el = document.getElementById('etatStatutsTable'); if(!el) return;
+  if(!(state.historyIndex||[]).length){ el.innerHTML = '<div class="hint">Aucune commande pour le moment.</div>'; return; }
+  var g = lignesEtatStatuts(), codes = Object.keys(STATUTS_COMMANDE).map(Number), ouverts = {};
+  Array.prototype.forEach.call(el.querySelectorAll('.etat-det'), function(d){ if(d.style.display==='block') ouverts[d.getAttribute('data-code')] = true; });
+  var enCours = { n:0, kg:0 }, anomalies = 0;
+  var lignes = codes.map(function(c){
+    var l = g[c], def = STATUTS_COMMANDE[c], n = l.length, kg = l.reduce(function(s, x){ return s + poidsNum(x.h); }, 0), art = l.reduce(function(s, x){ return s + (x.h.itemsTotal || 0); }, 0), ano = l.filter(function(x){ return x.st.anomalie; }).length;
+    if(c <= 35){ enCours.n += n; enCours.kg += kg; } anomalies += ano;
+    var det = l.map(function(x){ var t = ligneEtatTexte(x); return '<div class="sub" style="padding:3px 0;border-top:1px dashed var(--line);"><strong>'+escapeHtml(t.gauche)+'</strong>'+(x.st.anomalie ? ' <span style="color:var(--danger);" title="'+escapeHtml(x.st.motif)+'">⚠</span>' : '')+'<br><span style="color:var(--ink-soft);">'+escapeHtml(t.droite)+'</span></div>'; }).join('');
+    return '<div class="etat-ligne" data-code="'+c+'" style="border:1px solid var(--line);border-radius:10px;margin-bottom:6px;overflow:hidden;">'+
+      '<div class="etat-tete" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;'+(n ? '' : 'opacity:.55;')+'"><span class="st-badge" style="background:'+def[1]+';margin:0;min-width:46px;text-align:center;">ST '+('0'+c).slice(-2)+'</span><span style="flex:1;font-size:14px;">'+escapeHtml(def[0])+(ano ? ' <span style="color:var(--danger);" title="'+ano+' anomalie(s)">⚠ '+ano+'</span>' : '')+'</span><span style="text-align:right;line-height:1.2;"><strong style="font-size:18px;">'+n+'</strong><br><span style="font-size:11px;color:var(--ink-soft);">'+art+' art. · '+Math.round(kg)+' kg</span></span></div>'+
+      '<div class="etat-det" data-code="'+c+'" style="display:'+(ouverts[c] ? 'block' : 'none')+';padding:0 10px 8px;">'+(n ? det : '<div class="hint">Aucune commande.</div>')+'</div></div>';
+  }).join('');
+  el.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin:2px 0 8px;"><strong>En cours dans la chaîne (ST 05 à 35)</strong><span><strong style="font-size:20px;">'+enCours.n+'</strong> commande(s) · '+Math.round(enCours.kg)+' kg</span></div>'+lignes+
+    (anomalies ? '<div class="hint" style="color:var(--danger);font-weight:600;">⚠ '+anomalies+' commande(s) à vérifier (touche la ligne puis le ⚠ pour le motif).</div>' : '')+
+    '<div class="hint" style="margin-top:4px;">Les statuts 50 et 60 apparaîtront avec le module Facturation.</div>';
+}
+function etatNomAgence(){ var a = (state.agenciesList||[]).find(function(x){ return x.code===state.currentAgencyCode; }) || {}; return (state.currentAgencyCode||'')+(a.name ? ' '+a.name : ''); }
+function etatPeriodeTexte(){ var j = etatPeriodeJours(); return j ? 'statuts 40, 50, 60 et 99 : '+j+' derniers jours' : 'statuts 40, 50, 60 et 99 : toute la période'; }
+function etatStatutsPdf(){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible'); return; }
+  var g = lignesEtatStatuts(), codes = Object.keys(STATUTS_COMMANDE).map(Number), doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4' }), M = 14, W = 210, y = 16;
+  function T(t, x, yy, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||9.5); doc.setTextColor.apply(doc, o.color||[17,24,39]); doc.text(String(t), x, yy, o.align?{align:o.align}:undefined); }
+  function page(h){ if(y + h > 276){ doc.addPage(); y = 16; } }
+  T('STLS', M, y, { bold:true, size:22 }); T('État des commandes par statut', W-M, y-5, { bold:true, size:14, align:'right' });
+  T('Dépôt '+etatNomAgence(), W-M, y+1, { size:9.5, align:'right', color:[95,100,110] }); T('Établi le '+autFr(isoLocal(new Date()))+' à '+new Date().toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' })+' par '+(currentIdentity()||''), W-M, y+6.5, { size:8.8, align:'right', color:[95,100,110] });
+  doc.setDrawColor(15,110,86); doc.setLineWidth(0.6); doc.line(M, y+10, W-M, y+10); y += 17;
+  doc.setFillColor(31,41,55); doc.roundedRect(M, y, W-2*M, 6.5, 1, 1, 'F'); T('CODE', M+3, y+4.5, { bold:true, size:8, color:[255,255,255] }); T('STATUT', M+20, y+4.5, { bold:true, size:8, color:[255,255,255] }); T('COMMANDES', W-M-60, y+4.5, { bold:true, size:8, color:[255,255,255], align:'right' }); T('ARTICLES', W-M-36, y+4.5, { bold:true, size:8, color:[255,255,255], align:'right' }); T('POIDS (KG)', W-M-3, y+4.5, { bold:true, size:8, color:[255,255,255], align:'right' }); y += 9.5;
+  var tot = { n:0, a:0, kg:0 }, ano = 0;
+  codes.forEach(function(c, i){
+    var l = g[c], n = l.length, a = l.reduce(function(s, x){ return s + (x.h.itemsTotal||0); }, 0), kg = l.reduce(function(s, x){ return s + poidsNum(x.h); }, 0); ano += l.filter(function(x){ return x.st.anomalie; }).length;
+    if(c <= 35){ tot.n += n; tot.a += a; tot.kg += kg; }
+    if(i%2===0){ doc.setFillColor(246,247,248); doc.rect(M, y-4, W-2*M, 6.2, 'F'); }
+    T('ST '+('0'+c).slice(-2), M+3, y, { bold:true, size:9 }); T(STATUTS_COMMANDE[c][0], M+20, y, { size:9 }); T(String(n), W-M-60, y, { bold:true, size:9.5, align:'right' }); T(String(a), W-M-36, y, { size:9, align:'right' }); T(String(Math.round(kg)), W-M-3, y, { size:9, align:'right' }); y += 6.2;
+  });
+  doc.setDrawColor(15,110,86); doc.setLineWidth(0.4); doc.line(M, y-3, W-M, y-3);
+  T('En cours dans la chaîne (ST 05 à 35)', M+3, y+1.5, { bold:true, size:9.5 }); T(String(tot.n), W-M-60, y+1.5, { bold:true, size:10.5, align:'right' }); T(String(tot.a), W-M-36, y+1.5, { bold:true, size:9.5, align:'right' }); T(String(Math.round(tot.kg)), W-M-3, y+1.5, { bold:true, size:9.5, align:'right' }); y += 8;
+  T('Période retenue — '+etatPeriodeTexte()+(ano ? ' · '+ano+' commande(s) à vérifier (repérées par « ! » en marge)' : ''), M, y, { size:8, color:[95,100,110] }); y += 8;
+  codes.forEach(function(c){
+    var l = g[c]; if(!l.length) return;
+    page(16); doc.setFillColor(31,41,55); doc.roundedRect(M, y, W-2*M, 6.2, 1, 1, 'F'); T(('ST '+('0'+c).slice(-2)+' — '+STATUTS_COMMANDE[c][0]+' ('+l.length+')').toUpperCase(), M+3, y+4.3, { bold:true, size:8.3, color:[255,255,255] }); y += 9.5;
+    l.forEach(function(x, i){
+      var t = ligneEtatTexte(x); page(6);
+      if(i%2===0){ doc.setFillColor(246,247,248); doc.rect(M, y-3.8, W-2*M, 5.4, 'F'); }
+      var g1 = doc.splitTextToSize(t.gauche, 100)[0]; T(g1, M+1, y, { bold:true, size:8.6 }); T(doc.splitTextToSize(t.droite, 76)[0] || '', W-M-1, y, { size:8.3, align:'right', color:[55,65,81] });
+      if(x.st.anomalie) T('!', M-2.5, y, { bold:true, size:9, color:[185,28,28] });
+      y += 5.4;
+    });
+    y += 3.5;
+  });
+  var n = doc.getNumberOfPages();
+  for(var p=1;p<=n;p++){ doc.setPage(p); doc.setDrawColor(229,231,235); doc.setLineWidth(0.25); doc.line(M, 285, W-M, 285); T('STLS — État des commandes par statut — page '+p+'/'+n, W/2, 289, { size:6.8, color:[95,100,110], align:'center' }); }
+  doc.save('Etat_commandes_par_statut_depot'+(state.currentAgencyCode||'')+'_'+isoLocal(new Date())+'.pdf'); banner('Rapport généré');
+}
+function etatStatutsCsv(){
+  var g = lignesEtatStatuts(), lignes = [['Code','Statut','N° étiquette','Client','Contremarque','Fournisseur','Articles','Poids (kg)','Emplacement','Reçue le','Ancienneté (jours)','BL','BP','À vérifier']];
+  Object.keys(STATUTS_COMMANDE).map(Number).forEach(function(c){ g[c].forEach(function(x){ var h = x.h;
+    lignes.push([('0'+c).slice(-2), STATUTS_COMMANDE[c][0], h.labelNumber||'', h.client||'', h.contremarque||'', h.fournisseur||'', h.itemsTotal||0, poidsNum(h), h.emplacement||'', h.receivedAt ? jourLocal(h.receivedAt) : '', c <= 35 ? joursDepuis(h.receivedAt || h.date) : '', (h.bonLivraisonId && h.bonLivraisonId!=='partiel') ? h.bonLivraisonId : '', (h.bonPreparationId && h.bonPreparationId!=='partiel') ? h.bonPreparationId : '', x.st.anomalie ? x.st.motif : '']); }); });
+  var csv = '\ufeff' + lignes.map(function(l){ return l.map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }).join(';'); }).join('\r\n');
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8' })); a.download = 'etat_commandes_par_statut_depot'+(state.currentAgencyCode||'')+'_'+isoLocal(new Date())+'.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  banner('Export CSV généré');
+}
+document.getElementById('etatStatutsTable').addEventListener('click', function(ev){ var t = ev.target.closest('.etat-tete'); if(!t) return; var d = t.parentNode.querySelector('.etat-det'); d.style.display = d.style.display==='block' ? 'none' : 'block'; });
+document.getElementById('etatStatutsPeriode').addEventListener('change', renderEtatStatuts);
+document.getElementById('btnEtatPdf').addEventListener('click', etatStatutsPdf);
+document.getElementById('btnEtatCsv').addEventListener('click', etatStatutsCsv);
+
+function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
   if(!fsReady() || statutsWatchStarted) return; statutsWatchStarted = true;
-  var rafraichir = function(){ clearTimeout(statutsMinuteur); statutsMinuteur = setTimeout(majBadgesStatut, 250); };
+  var rafraichir = function(){ clearTimeout(statutsMinuteur); statutsMinuteur = setTimeout(function(){ majBadgesStatut(); var c = document.getElementById('etatStatutsCard'); if(c && c.offsetParent) renderEtatStatuts(); }, 250); };
   if(blColRef) statutsUnsub.push(blColRef.onSnapshot(function(sn){ var m = {}; sn.forEach(function(d){ var b = d.data() || {}; m[b.numero || d.id] = b.statut || ''; }); statutsBL = m; rafraichir(); }, function(e){ console.error('statuts BL', e); }));
-  if(bpColRef) statutsUnsub.push(bpColRef.onSnapshot(function(sn){ var det = {}, st = {}; sn.forEach(function(d){ var b = d.data() || {}, k = b.numero || d.id; det[k] = b; st[k] = b.statut || ''; }); bpDetails = det; statutsBP = st; rafraichir(); }, function(e){ console.error('statuts BP', e); }));
+  if(bpColRef) statutsUnsub.push(bpColRef.onSnapshot(function(sn){ var det = {}; sn.forEach(function(d){ var b = d.data() || {}; det[b.numero || d.id] = b; }); bpDetails = det; rafraichir(); }, function(e){ console.error('statuts BP', e); }));
 }
 
 var receptionsWatchStarted = false;
@@ -3258,6 +3357,7 @@ function invSauver(maintenant){
   invSauverTimer = setTimeout(run, 1500); return Promise.resolve();
 }
 async function invOuvrir(){
+  renderEtatStatuts();
   invSessions = []; var col = invCol();
   if(col){ try{ var sn = await col.get(); sn.forEach(function(d){ invSessions.push(d.data()); }); }catch(e){ console.error('inventaires', e); } }
   invSessions.sort(function(a, b){ return String(b.debutLe||'').localeCompare(String(a.debutLe||'')); });
@@ -3371,6 +3471,7 @@ function invCompteursHtml(){
 }
 function invAfficher(){
   var actif = !!(inv && inv.statut==='en_cours'), fini = !!(inv && inv.statut==='terminee');
+  document.getElementById('etatStatutsCard').style.display = actif ? 'none' : 'block';   // masqué pendant un comptage
   document.getElementById('invAccueil').style.display = (actif || fini) ? 'none' : 'block';
   document.getElementById('invSession').style.display = actif ? 'block' : 'none';
   document.getElementById('invResultat').style.display = fini ? 'block' : 'none';
@@ -5111,6 +5212,7 @@ async function renderBLPanel(idx, contremarqueNom, forceOpen, cmId){
   if(cmId){ (await loadBonsPreparationForContremarque(cmId)).forEach(function(bp){ bpParNumero[bp.numero] = bp; }); }
   var lignesDossier = toutesLesCommandes.map(function(h){
     var r = Object.assign({ h:h }, statutLigneReception(h, blStatutParNumero, bpParNumero));
+    r.stBadge = badgeStatut(h, blStatutParNumero, bpParNumero);
     if(h.exitedAt && h.zoneSortie && (r.niveau==='bp_cree' || r.niveau==='bl_cree' || r.niveau==='livraison' || r.niveau==='service')) r.label += ' · zone : '+h.zoneSortie;
     return r;
   });
@@ -6826,7 +6928,7 @@ function dossierSectionHtml(lignes, badge){
   if(badge) h += '<div style="display:inline-block;padding:4px 10px;border-radius:999px;background:'+badge.color+'1a;color:'+badge.color+';font-weight:700;font-size:12.5px;margin-bottom:10px;">'+badge.icon+' '+badge.label+'</div>';
   h += lignes.map(function(l){
     return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:3px 0;">'+
-      '<span>'+escapeHtml(l.h.labelNumber||'')+' — '+escapeHtml(l.h.fournisseur||'—')+'</span>'+
+      '<span>'+escapeHtml(l.h.labelNumber||'')+' — '+escapeHtml(l.h.fournisseur||'—')+(l.stBadge||'')+'</span>'+
       '<span style="color:'+(l.niveau==='anomalie'?'var(--danger)':'inherit')+';font-weight:600;">'+l.icon+' '+escapeHtml(l.label)+'</span>'+
       (l.blAnnuleNumero ? '<button class="btn ghost traiter-annulation" data-commande="'+escapeHtml(l.h.id)+'" data-bl="'+escapeHtml(l.blAnnuleNumero)+'" style="width:100%;margin-top:4px;padding:5px;font-size:12px;">↩️ Traiter — renvoyer en rangement</button>' : '')+
       '</div>';
@@ -9553,7 +9655,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0092';
+var APP_VERSION = '2026.0093';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){

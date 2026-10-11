@@ -123,6 +123,7 @@
   @media (min-width:600px){
     .label{width:320px;height:480px;}
   }
+  .st-badge{ display:inline-block; margin-left:8px; padding:1px 8px; border-radius:999px; font-size:11.5px; font-weight:700; letter-spacing:.3px; color:#fff; vertical-align:middle; white-space:nowrap; cursor:help; }
 </style>
 </head>
 <body>
@@ -405,7 +406,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0027';
+var APP_VERSION = '2026.0028';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -740,7 +741,7 @@ async function renderSortiesEnAttenteBL(){
   el.innerHTML = '<div class="card"><h2>📦 Sorties en attente de BL ('+liste.length+')</h2>'+
     '<p class="hint" style="margin:0 0 10px;">Marchandise sortie du dépôt dont le BL n\'est pas encore créé (à créer depuis Gestion Contremarques, fiche du client, Bons de Préparation). Si elle ne part finalement pas, remets-la en stock.</p>'+
     liste.map(function(bp){
-      return '<div class="base-row" style="flex-wrap:wrap;gap:6px;"><span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.contremarque||'')+' · '+(bp.lignes||[]).length+' commande(s)'+(bp.zoneSortie?' · 📍 '+escapeHtml(bp.zoneSortie):'')+(bp.sortieValidee&&bp.sortieValidee.le?' · sortie le '+fmtDate(String(bp.sortieValidee.le).slice(0,10)):'')+'</span>'+
+      return '<div class="base-row" style="flex-wrap:wrap;gap:6px;"><span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.contremarque||'')+badgeCode(25, 'sortie validée : BL à créer')+' · '+(bp.lignes||[]).length+' commande(s)'+(bp.zoneSortie?' · 📍 '+escapeHtml(bp.zoneSortie):'')+(bp.sortieValidee&&bp.sortieValidee.le?' · sortie le '+fmtDate(String(bp.sortieValidee.le).slice(0,10)):'')+'</span>'+
         '<button class="btn ghost bp-retour" data-num="'+escapeHtml(bp.numero)+'" style="width:auto;padding:6px 10px;font-size:12px;">↩️ Remettre en stock</button></div>';
     }).join('')+'</div>';
 }
@@ -791,6 +792,28 @@ async function loadBons(){
   state.bons.forEach(reconcileEarlyStatut);
 }
 
+
+// ================= Statut des commandes : code « ST xx » (même table que Gestion Dépôt) =================
+// Un BL regroupe des commandes déjà sorties du dépôt : leur statut se déduit de celui du BL, jamais stocké.
+// Pas de code pour une collecte (la commande n'existe pas encore en stock), ni pour un BL clos (retourné au dépôt ou annulé).
+var STATUTS_COMMANDE = {
+  5:['CDE saisie en attente de réception','#6b7280'], 10:['CDE à Quai','#b45309'], 15:['CDE en Stock','#0f6e56'], 20:['CDE en Préparation','#2563eb'],
+  25:['CDE Prête à partir','#1d4ed8'], 30:['CDE en Livraison','#7c3aed'], 35:['CDE en Zone de Retour','#c2410c'], 40:['CDE Livrée','#166534'],
+  50:['CDE à Facturer','#a16207'], 60:['CDE Facturée','#4b5563'], 99:['CDE Annulée','#b91c1c']
+};
+function badgeCode(code, motif){
+  var def = STATUTS_COMMANDE[code];
+  return '<span class="st-badge" style="background:'+def[1]+';" title="'+escapeHtml(def[0]+(motif ? ' — '+motif : ''))+'">ST '+('0'+code).slice(-2)+'</span>';
+}
+function codeStatutBL(b){
+  if((b.type||'livraison')==='collecte') return null;
+  if(b.statut==='retourne' || b.statut==='annule') return null;
+  if(b.statut==='livre') return 40;
+  if(b.statut==='affecte_tournee') return 30;
+  return 25;   // BL en cours de constitution, de prise de RDV ou validé : marchandise prête à partir
+}
+function badgeStatutBL(b){ var c = codeStatutBL(b); return c ? badgeCode(c) : ''; }
+
 function renderBonList(opts){
   // opts: { elId, searchId, typeFilter, checkboxes (bool), ficheSortieRowId }
   var el = document.getElementById(opts.elId);
@@ -820,7 +843,7 @@ function renderBonList(opts){
     return '<div class="hist-item">'+
       '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;">'+checkbox+
       '<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(b.numero)+'</span></label>'+statutBadge+'</div>'+
-      '<div class="sub">'+escapeHtml(b.contremarque||'—')+'</div>'+
+      '<div class="sub">'+escapeHtml(b.contremarque||'—')+badgeStatutBL(b)+'</div>'+
       impBanner+dispoBanner+
       '<div class="sub">'+(b.commandeIds?b.commandeIds.length:0)+' commande(s) · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
       '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
@@ -1600,7 +1623,7 @@ function rdvInfoHtml(b){
   var adr = b.contremarqueAdresse || {}, c = b.contraintes || {};
   var typeTag = b.type==='emporte' ? ' <span style="font-weight:400;color:var(--ink-soft);">· Emporté Dépôt</span>'
     : (b.type==='collecte' ? ' <span style="font-weight:400;color:var(--ink-soft);">· Collecte</span>' : '');
-  var h = '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(b.contremarque||'—')+typeTag+'</div>';
+  var h = '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(b.contremarque||'—')+badgeStatutBL(b)+typeTag+'</div>';
   var addr = [adr.adresse1, [adr.cp, adr.ville].filter(Boolean).join(' ')].filter(Boolean).join(' — ');
   if(addr) h += '<div class="sub">'+escapeHtml(addr)+'</div>';
   var tels = [adr.tel1, adr.tel2].filter(Boolean).map(function(t){
@@ -1867,7 +1890,7 @@ function renderTourneesDispo(){
     var selBox = e.eligible ? '<input type="checkbox" class="tour-sel" data-numero="'+escapeHtml(n)+'" '+(tourSelection[n] ? 'checked' : '')+' style="width:18px;height:18px;">' : '';
     var h = '<div class="hist-item">'+
       '<div class="hd"><label style="display:flex;align-items:center;gap:8px;margin:0;">'+selBox+'<span class="nom" style="color:var(--accent);font-weight:700;">BL '+escapeHtml(n)+'</span></label>'+badge+'</div>'+
-      '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(b.contremarque || '—')+' <span style="font-weight:400;color:var(--ink-soft);">· Client : '+escapeHtml(bonClient(b))+'</span></div>'+
+      '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(b.contremarque || '—')+badgeStatutBL(b)+' <span style="font-weight:400;color:var(--ink-soft);">· Client : '+escapeHtml(bonClient(b))+'</span></div>'+
       '<div class="sub">'+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' ') || 'Adresse non renseignée')+'</div>';
     if(b.estImperative) h += '<div class="sub" style="color:#c0392b;font-weight:700;">🔴 LIVRAISON IMPÉRATIVE — '+(b.dateImperative ? fmtDateLong(b.dateImperative) : 'date à fixer')+'</div>';
     var dates = [];
@@ -2280,7 +2303,7 @@ function renderTourneesPlanifiees(){
         var nA = escapeHtml(b.numero);
         var envoye = (inst.envois||[]).length>0;
         return '<div style="border-top:1px solid var(--line);padding:8px 0;">'+
-          '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(cren)+' · BL '+nA+' — '+escapeHtml(b.contremarque||'—')+(b.estImperative ? ' <span style="color:#c0392b;">· IMPÉRATIF</span>' : '')+(livre ? ' <span style="color:#1e8e3e;">· 📦 Livré</span>' : '')+'</div>'+
+          '<div class="sub" style="color:var(--ink);font-weight:600;">'+escapeHtml(cren)+' · BL '+nA+' — '+escapeHtml(b.contremarque||'—')+badgeStatutBL(b)+(b.estImperative ? ' <span style="color:#c0392b;">· IMPÉRATIF</span>' : '')+(livre ? ' <span style="color:#1e8e3e;">· 📦 Livré</span>' : '')+'</div>'+
           '<div class="sub">'+escapeHtml([adr.cp, adr.ville].filter(Boolean).join(' '))+(tels ? ' · '+tels : '')+' · '+(b.poidsTotal||0).toFixed(1)+' kg · '+(b.nbColisTotal||0)+' colis</div>'+
           (presta.length ? '<div class="sub"><strong>'+presta.join(' + ')+'</strong></div>' : '')+
           (b.instructions ? '<div class="sub" style="font-style:italic;">« '+escapeHtml(b.instructions)+' »</div>' : '')+
