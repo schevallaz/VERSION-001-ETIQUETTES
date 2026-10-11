@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0097">
+<meta name="app-version" content="2026.0098">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -616,17 +616,57 @@
 
   <!-- ===== TAB: PLANNING (livraison) ===== -->
   <section id="tab-planning" style="display:none;">
+    <div class="card" id="planningTileGrid">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <button type="button" class="submodule-tile" data-prefix="planning" data-key="apreparer" id="planTile-apreparer" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧰</div><div style="font-weight:700;color:var(--ink);">Commande à préparer</div><div id="planCount-apreparer" style="font-size:26px;font-weight:800;margin-top:4px;color:var(--accent);">0</div><div id="planSub-apreparer" style="font-size:12px;color:var(--ink-soft);min-height:15px;"></div></button>
+        <button type="button" class="submodule-tile" data-prefix="planning" data-key="alivrer" id="planTile-alivrer" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚚</div><div style="font-weight:700;color:var(--ink);">Commande à livrer</div><div id="planCount-alivrer" style="font-size:26px;font-weight:800;margin-top:4px;color:var(--accent);">0</div><div id="planSub-alivrer" style="font-size:12px;color:var(--ink-soft);min-height:15px;"></div></button>
+        <button type="button" class="submodule-tile" data-prefix="planning" data-key="emporte" id="planTile-emporte" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🛍️</div><div style="font-weight:700;color:var(--ink);">Commande en emporté</div><div id="planCount-emporte" style="font-size:26px;font-weight:800;margin-top:4px;color:var(--accent);">0</div><div id="planSub-emporte" style="font-size:12px;color:var(--ink-soft);min-height:15px;"></div></button>
+        <button type="button" class="submodule-tile" data-prefix="planning" data-key="souffrance" id="planTile-souffrance" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">⚠️</div><div style="font-weight:700;color:var(--ink);">Commande en souffrance</div><div id="planCount-souffrance" style="font-size:26px;font-weight:800;margin-top:4px;color:var(--accent);">0</div><div id="planSub-souffrance" style="font-size:12px;color:var(--ink-soft);min-height:15px;"></div></button>
+        <button type="button" class="submodule-tile" data-prefix="planning" data-key="retour" id="planTile-retour" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;grid-column:span 2;"><div style="font-size:28px;margin-bottom:6px;">↩️</div><div style="font-weight:700;color:var(--ink);">Commande en retour de tournée</div><div id="planCount-retour" style="font-size:26px;font-weight:800;margin-top:4px;color:var(--accent);">0</div><div id="planSub-retour" style="font-size:12px;color:var(--ink-soft);min-height:15px;"></div></button>
+      </div>
+    </div>
+    <div class="btn-row submodule-back-row" data-prefix="planning" style="display:none;"><button class="btn ghost submodule-back" data-prefix="planning" style="width:100%;">← Retour au Planning</button></div>
+    <div class="submodule-content" id="sub-planning-apreparer" style="display:none;">
     <div class="card">
-      <h2>Planning de livraison</h2>
-      <p class="hint" style="margin:0 0 12px;">Commandes en stock, prêtes à livrer. Assigne une date de livraison prévue pour les faire apparaître dans le planning, trié par date.</p>
-      <div class="field" style="margin-bottom:12px;">
-        <input type="text" id="planningSearch" placeholder="Rechercher : n° étiquette, client, contremarque...">
-      </div>
-      <div class="field" style="display:flex;align-items:center;gap:9px;flex-direction:row;margin-bottom:12px;">
-        <input type="checkbox" id="planningHideUnplanned" style="width:18px;height:18px;flex-shrink:0;">
-        <label for="planningHideUnplanned" style="margin:0;">Masquer les commandes sans date de livraison assignée</label>
-      </div>
+      <h2>🧰 Commande à préparer <span class="plan-nb" id="planNb-apreparer" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Commandes en stock, avec fiche contremarque, pas encore prises par une préparation. Trie par date de livraison prévue : assigne ou modifie la date ici.</p>
+      <div class="field" style="margin-bottom:12px;"><input type="text" id="planningSearch" placeholder="Rechercher : n° étiquette, client, contremarque, BL…"></div>
+      <div class="field" style="display:flex;align-items:center;gap:9px;flex-direction:row;margin-bottom:8px;"><input type="checkbox" id="planningHideUnplanned" style="width:18px;height:18px;flex-shrink:0;"><label for="planningHideUnplanned" style="margin:0;">Masquer les commandes sans date de livraison assignée</label></div>
+      <div class="field" style="display:flex;align-items:center;gap:9px;flex-direction:row;margin-bottom:12px;"><input type="checkbox" id="planningAvenir" style="width:18px;height:18px;flex-shrink:0;"><label for="planningAvenir" style="margin:0;">Afficher aussi les commandes pas encore en stock (en attente de réception, à ranger)</label></div>
       <div id="planningList"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-planning-alivrer" style="display:none;">
+    <div class="card">
+      <h2>🚚 Commande à livrer <span class="plan-nb" id="planNb-alivrer" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Marchandise préparée, en attente de tournée ou en tournée (BL de livraison).</p>
+      <div class="field" style="margin-bottom:12px;"><input type="text" id="planSearch-alivrer" placeholder="Rechercher : n° étiquette, client, contremarque, BL…"></div>
+      <div id="planList-alivrer"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-planning-emporte" style="display:none;">
+    <div class="card">
+      <h2>🛍️ Commande en emporté <span class="plan-nb" id="planNb-emporte" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Marchandise prête, que le client vient chercher (BL emporté).</p>
+      <div class="field" style="margin-bottom:12px;"><input type="text" id="planSearch-emporte" placeholder="Rechercher : n° étiquette, client, contremarque, BL…"></div>
+      <div id="planList-emporte"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-planning-souffrance" style="display:none;">
+    <div class="card">
+      <h2>⚠️ Commande en souffrance <span class="plan-nb" id="planNb-souffrance" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Marchandise prête à sortir dont la date prévue est dépassée d'au moins un jour, sans chargement ni enlèvement : à remettre en stock puis à ranger. Une commande n'apparaît que dans une seule tuile.</p>
+      <div class="field" style="margin-bottom:12px;"><input type="text" id="planSearch-souffrance" placeholder="Rechercher : n° étiquette, client, contremarque, BL…"></div>
+      <div id="planList-souffrance"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-planning-retour" style="display:none;">
+    <div class="card">
+      <h2>↩️ Commande en retour de tournée <span class="plan-nb" id="planNb-retour" style="font-weight:400;color:var(--ink-soft);"></span></h2>
+      <p class="hint" style="margin:0 0 12px;">Marchandise revenue au dépôt (non livrée) : elle doit être rangée de nouveau avant de redevenir disponible.</p>
+      <div class="field" style="margin-bottom:12px;"><input type="text" id="planSearch-retour" placeholder="Rechercher : n° étiquette, client, contremarque, BL…"></div>
+      <div id="planList-retour"></div>
+    </div>
     </div>
   </section>
 
@@ -1901,6 +1941,8 @@ function recordToIndexEntry(rec){
   var affVals = items.map(function(m){ return affMap[m.itemId] || null; });
   entry.itemsDisponibles = affVals.filter(function(v){ return !v; }).length;
   entry.itemsRetour = affVals.filter(function(v){ return v && v.type==='retour'; }).length;   // marchandise revenue au dépôt, pas encore rangée
+  var affRetour = affVals.filter(function(v){ return v && v.type==='retour'; })[0];
+  if(affRetour){ entry.retourId = affRetour.id || ''; entry.retourLe = affRetour.le || ''; }   // BL ou BP dont la marchandise est revenue
   if(d.facturation && d.facturation.statut) entry.statutFacturation = d.facturation.statut;   // réservé au futur module Facturation : 'a_facturer' | 'facturee'
   var blVals = affVals.filter(function(v){ return v && v.type==='bl'; }).map(function(v){ return v.id; });
   var blUniques = blVals.filter(function(v,i){ return blVals.indexOf(v)===i; });
@@ -1929,7 +1971,7 @@ var STATUTS_COMMANDE = {
   25:['CDE Prête à partir','#1d4ed8'], 30:['CDE en Livraison','#7c3aed'], 35:['CDE en Zone de Retour','#c2410c'], 40:['CDE Livrée','#166534'],
   50:['CDE à Facturer','#a16207'], 60:['CDE Facturée','#4b5563'], 99:['CDE Annulée','#b91c1c']
 };
-var statutsBL = {}, bpDetails = {}, statutsUnsub = [], statutsWatchStarted = false, statutsMinuteur = null;
+var statutsBL = {}, blDetails = {}, bpDetails = {}, statutsUnsub = [], statutsWatchStarted = false, statutsMinuteur = null;
 function statutCommande(h, blMap, bpMap){
   var R = function(code, motif, anomalie){ return { code:code, motif:motif||'', anomalie:!!anomalie }; };
   if(h.deletedAt) return R(99);
@@ -2539,11 +2581,11 @@ function creerEtapeCree(){
 document.getElementById('btnCreerPrep').addEventListener('click', creerOuvrir);
 document.getElementById('btnCreerFermer').addEventListener('click', creerFermer);
 
-function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; bpDetails = {}; }
+function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
   if(!fsReady() || statutsWatchStarted) return; statutsWatchStarted = true;
-  var rafraichir = function(){ clearTimeout(statutsMinuteur); statutsMinuteur = setTimeout(function(){ majBadgesStatut(); var c = document.getElementById('etatStatutsCard'); if(c && c.offsetParent) renderEtatStatuts(); renderDecisionsPreparation(); }, 250); };
-  if(blColRef) statutsUnsub.push(blColRef.onSnapshot(function(sn){ var m = {}; sn.forEach(function(d){ var b = d.data() || {}; m[b.numero || d.id] = b.statut || ''; }); statutsBL = m; rafraichir(); }, function(e){ console.error('statuts BL', e); }));
+  var rafraichir = function(){ clearTimeout(statutsMinuteur); statutsMinuteur = setTimeout(function(){ majBadgesStatut(); var c = document.getElementById('etatStatutsCard'); if(c && c.offsetParent) renderEtatStatuts(); renderDecisionsPreparation(); renderPlanningList(); }, 250); };
+  if(blColRef) statutsUnsub.push(blColRef.onSnapshot(function(sn){ var m = {}, det = {}; sn.forEach(function(d){ var b = d.data() || {}; m[b.numero || d.id] = b.statut || ''; det[b.numero || d.id] = b; }); statutsBL = m; blDetails = det; rafraichir(); }, function(e){ console.error('statuts BL', e); }));
   if(bpColRef) statutsUnsub.push(bpColRef.onSnapshot(function(sn){ var det = {}; sn.forEach(function(d){ var b = d.data() || {}; det[b.numero || d.id] = b; }); bpDetails = det; rafraichir(); }, function(e){ console.error('statuts BP', e); }));
 }
 
@@ -8611,58 +8653,115 @@ function formatContremarqueConstraints(cm){
 
 
 
-function renderPlanningList(){
-  var el = document.getElementById('planningList');
-  var q = (document.getElementById('planningSearch').value || '').trim().toLowerCase();
-  var hideUnplanned = document.getElementById('planningHideUnplanned').checked;
-  var items = state.historyIndex.filter(isPlanningEntry);
-  var total = items.length;
-  if(q){
-    items = items.filter(function(h){
-      return (h.labelNumber||'').toLowerCase().indexOf(q)>=0 ||
-        (h.client||'').toLowerCase().indexOf(q)>=0 ||
-        (h.contremarque||'').toLowerCase().indexOf(q)>=0;
-    });
+// ================= Planning : cinq tuiles (calculées à partir du statut ST, jamais stockées) =================
+function planDateBL(bl){ return bl ? ((bl.rdv && bl.rdv.date) || bl.dateLivraisonPrevue || '') : ''; }
+function planFicheDe(h){
+  var fiches = state.base.contremarques || [];
+  if(h.contremarqueId) return fiches.find(function(c){ return c.id===h.contremarqueId; }) || null;
+  var n = String(h.contremarque||'').trim().toLowerCase();
+  return n ? (fiches.find(function(c){ return String(c.nom||'').trim().toLowerCase()===n; }) || null) : null;
+}
+function planClasser(){
+  var g = { apreparer:[], sansfiche:[], avenir:[], alivrer:[], emporte:[], souffrance:[], retour:[] }, today = todayISO();
+  (state.historyIndex||[]).forEach(function(h){
+    if(h.deletedAt) return;
+    var st = statutCommande(h), c = st.code, num = (h.bonLivraisonId && h.bonLivraisonId!=='partiel') ? h.bonLivraisonId : '', b = num ? (blDetails[num] || null) : null;
+    var x = { h:h, st:st, bl:b, num:num, date:planDateBL(b) };
+    if(c===15) (planFicheDe(h) ? g.apreparer : g.sansfiche).push(x);
+    else if(c===5 || c===10) g.avenir.push(x);
+    else if(c===35) g.retour.push(x);
+    else if(c===25 || c===30){
+      var enRetard = !!(x.date && x.date < today);
+      if(c===25 && (st.anomalie || enRetard)){ x.retard = enRetard ? joursEntreDates(x.date, today) : 0; g.souffrance.push(x); }   // prête à sortir, ni chargée ni emportée
+      else if(b && (b.type||'livraison')==='emporte') g.emporte.push(x);
+      else g.alivrer.push(x);
+    }
+  });
+  return g;
+}
+function planLienBL(num){ return '<a href="livraisons.html?bl='+encodeURIComponent(num)+'" style="color:var(--accent);font-weight:600;">BL '+escapeHtml(num)+'</a>'; }
+function planFiltre(x, q){ return !q || ((x.h.labelNumber||'')+' '+(x.h.client||'')+' '+(x.h.contremarque||'')+' '+(x.num||'')).toLowerCase().indexOf(q) >= 0; }
+function planEnTete(x){
+  var h = x.h, numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
+  return '<div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><span class="nom">'+numBadge+escapeHtml(h.client||'—')+(h.contremarque ? ' - '+escapeHtml(h.contremarque) : '')+badgeStatut(h)+'</span></div>';
+}
+function planLigneStock(x){
+  var h = x.h, cm = planFicheDe(h);
+  var statut = isPendingEntry(h) ? 'En attente de réception' : (isFullyRanged(h) ? 'En stock — '+(h.emplacement||'—') : 'À ranger');
+  var cmLine = cm ? '<div class="sub" style="color:var(--accent);">'+escapeHtml(formatContremarqueConstraints(cm))+'</div>' : (h.contremarque ? '<div class="sub" style="color:#9a6700;font-weight:600;">⚠ Aucune fiche contremarque pour « '+escapeHtml(h.contremarque)+' » : à associer avant toute préparation (➕ Créer › Mettre en préparation)</div>' : '<div class="sub" style="color:#9a6700;font-weight:600;">⚠ Sans fiche contremarque : à associer avant toute préparation (➕ Créer › Mettre en préparation)</div>');
+  return '<div class="hist-item" data-id="'+h.id+'">'+planEnTete(x)+'<div class="sub">'+escapeHtml(statut)+'</div>'+cmLine+
+    '<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Date de livraison prévue</label><input type="date" data-id="'+h.id+'" class="planning-date-input" value="'+(h.deliveryDate||'')+'"></div></div>';
+}
+function planLigneSuivi(x, genre){
+  var h = x.h, l = [];
+  if(genre==='retour'){
+    var src = h.retourId ? (blDetails[h.retourId] || bpDetails[h.retourId] || null) : null, rd = (src && src.retourDepot) || {};
+    var quand = rd.le || h.retourLe || '';
+    l.push('↩️ '+(h.retourId ? (blDetails[h.retourId] ? planLienBL(h.retourId) : 'BP '+escapeHtml(h.retourId)) : 'Retour au dépôt')+(quand ? ' · retour le '+fmtDate(String(quand).slice(0,10)) : '')+(rd.par ? ' par '+escapeHtml(rd.par) : ''));
+    l.push('<strong>Motif :</strong> '+escapeHtml(rd.motif || 'non renseigné'));
+    l.push('<span style="color:#9a6700;font-weight:600;">À ranger avant de redevenir disponible</span> <button class="btn ghost plan-vers-ranger" style="width:auto;padding:3px 10px;font-size:12px;margin-left:6px;">→ CDE à ranger</button>');
+  } else {
+    l.push(x.num ? planLienBL(x.num) : (x.st.anomalie ? '<span style="color:var(--danger);">'+escapeHtml(x.st.motif||'anomalie')+'</span>' : 'Sortie validée : <strong>BL à créer</strong>'));
+    var af = x.bl && x.bl.affectation;
+    if(x.st.code===30) l.push('🚛 En tournée'+(af ? ' '+escapeHtml(af.tourneeId||'')+(af.date ? ' du '+fmtDate(af.date) : '') : ''));
+    if(genre==='souffrance'){
+      if(x.retard) l.push('<span style="color:var(--danger);font-weight:700;">Prévue le '+fmtDate(x.date)+' — dépassée de '+x.retard+' jour'+(x.retard>1 ? 's' : '')+'</span>');
+      else if(x.st.motif) l.push('<span style="color:var(--danger);font-weight:700;">'+escapeHtml(x.st.motif)+'</span>');
+    } else if(x.date) l.push((genre==='emporte' ? 'Enlèvement prévu le ' : 'Livraison prévue le ')+fmtDate(x.date));
+    else if(x.st.code===25) l.push('<span style="color:#9a6700;font-weight:600;">⚠ Date à fixer</span>');
+    if(h.zoneSortie) l.push('📍 '+escapeHtml(h.zoneSortie));
   }
-  if(hideUnplanned){ items = items.filter(function(h){ return !!h.deliveryDate; }); }
-  items = items.slice().sort(function(a,b){ return (a.deliveryDate||'9999-99-99').localeCompare(b.deliveryDate||'9999-99-99'); });
-  if(!items.length){
-    el.innerHTML = '<div class="empty">'+(total?'Aucun résultat':'Aucune commande en cours pour le moment')+'</div>';
-    return;
-  }
-  el.innerHTML = items.map(function(h){
-    var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
-    var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
-    var statut = isPendingEntry(h) ? 'En attente de réception' : (isFullyRanged(h) ? 'En stock — '+(h.emplacement||'—') : 'À ranger');
-    var cm = findContremarqueProfile(h.contremarque);
-    var cmLine = cm ? '<div class="sub" style="color:var(--accent);">'+escapeHtml(formatContremarqueConstraints(cm))+'</div>' : (h.contremarque ? '<div class="sub" style="color:var(--ink-soft);">Aucune fiche contremarque pour « '+escapeHtml(h.contremarque)+' »</div>' : '');
-    return '<div class="hist-item" data-id="'+h.id+'">'+
-      '<div class="hd" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><span class="nom">'+numBadge+nameLine+'</span>'+'</div>'+
-      '<div class="sub">'+escapeHtml(statut)+'</div>'+
-      cmLine+
-      '<div class="field" style="margin-top:8px;margin-bottom:0;">'+
-        '<label>Date de livraison prévue</label>'+
-        '<input type="date" data-id="'+h.id+'" class="planning-date-input" value="'+(h.deliveryDate||'')+'">'+
-      '</div>'+
-    '</div>';
-  }).join('');
-
-
-  Array.prototype.forEach.call(el.querySelectorAll('.planning-date-input'), function(input){
+  var action = '';
+  if(genre==='souffrance' && x.num && x.bl && x.bl.statut==='annule') action = '<div class="sub" style="margin-top:4px;font-weight:600;">À traiter : « Traiter — renvoyer en rangement » depuis la fiche contremarque (Contremarques › Bons de livraison).</div>';   // un BL annulé n'a pas de « Retour au dépôt »
+  else if(genre==='souffrance' && x.num) action = '<div class="btn-row" style="margin:6px 0 0;"><a class="btn ghost" href="livraisons.html?bl='+encodeURIComponent(x.num)+'" style="width:100%;text-align:center;text-decoration:none;">↩️ Remettre en stock (Retour au dépôt dans Livraisons)</a></div>';
+  return '<div class="hist-item" data-id="'+h.id+'">'+planEnTete(x)+l.map(function(t){ return '<div class="sub">'+t+'</div>'; }).join('')+action+'</div>';
+}
+function planDateTri(x){ var af = x.bl && x.bl.affectation; return (x.st.code===30 && af && af.date) || x.date || ''; }
+function renderPlanning(){
+  var g = planClasser(), q1 = (document.getElementById('planningSearch').value||'').trim().toLowerCase(), masquer = document.getElementById('planningHideUnplanned').checked, avenir = document.getElementById('planningAvenir').checked;
+  // tuile 1 : à préparer (ST 15 avec fiche) ; les commandes sans fiche et, au choix, celles pas encore en stock sont listées à part
+  var tri1 = function(a, b){ return (a.h.deliveryDate||'9999-99-99').localeCompare(b.h.deliveryDate||'9999-99-99') || String(a.h.labelNumber||'').localeCompare(String(b.h.labelNumber||'')); };
+  var f1 = function(x){ return planFiltre(x, q1) && (!masquer || !!x.h.deliveryDate); };
+  var princ = g.apreparer.concat(avenir ? g.avenir : []).filter(f1).sort(tri1), sans = g.sansfiche.filter(f1).sort(tri1);
+  var el1 = document.getElementById('planningList'), html1 = princ.length ? princ.map(planLigneStock).join('') : '<div class="empty">'+((g.apreparer.length || g.sansfiche.length) ? 'Aucun résultat' : 'Aucune commande à préparer')+'</div>';
+  if(sans.length) html1 += '<div class="hint" style="font-weight:700;margin:14px 0 6px;color:#9a6700;">Sans fiche contremarque ('+sans.length+') — ne peuvent pas être préparées</div>'+sans.map(planLigneStock).join('');
+  el1.innerHTML = html1;
+  Array.prototype.forEach.call(el1.querySelectorAll('.planning-date-input'), function(input){
     input.addEventListener('change', async function(){
-      var id = input.getAttribute('data-id');
-      var rec = await getReceptionRecord(id);
+      var id = input.getAttribute('data-id'), rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
-      rec.data.deliveryDate = input.value;
-      await saveReceptionRecord(id, rec);
-      var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
-      if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
+      rec.data.deliveryDate = input.value; await saveReceptionRecord(id, rec);
+      var idx = state.historyIndex.findIndex(function(x){ return x.id===id; }); if(idx>=0) state.historyIndex[idx] = recordToIndexEntry(rec);
       banner(input.value ? 'Date de livraison enregistrée' : 'Date de livraison effacée');
+      input.blur(); renderPlanning();   // la liste est retriée tout de suite par date, comme avant
     });
   });
+  // tuiles 2 à 5
+  var tris = { alivrer:function(a, b){ return (planDateTri(a)||'9999-99-99').localeCompare(planDateTri(b)||'9999-99-99') || String(a.h.labelNumber||'').localeCompare(String(b.h.labelNumber||'')); },
+    emporte:function(a, b){ return (a.date||'9999-99-99').localeCompare(b.date||'9999-99-99'); },
+    souffrance:function(a, b){ return (b.retard||0) - (a.retard||0) || String(a.h.labelNumber||'').localeCompare(String(b.h.labelNumber||'')); },
+    retour:function(a, b){ return String(a.h.retourLe||'').localeCompare(String(b.h.retourLe||'')); } };
+  ['alivrer','emporte','souffrance','retour'].forEach(function(k){
+    var qk = (document.getElementById('planSearch-'+k).value||'').trim().toLowerCase(), liste = g[k].filter(function(x){ return planFiltre(x, qk); }).sort(tris[k]);
+    document.getElementById('planList-'+k).innerHTML = liste.length ? liste.map(function(x){ return planLigneSuivi(x, k); }).join('') : '<div class="empty">'+(g[k].length ? 'Aucun résultat' : 'Aucune commande')+'</div>';
+    Array.prototype.forEach.call(document.querySelectorAll('#planList-'+k+' .plan-vers-ranger'), function(b){ b.addEventListener('click', function(){ switchTab('ranger'); }); });
+  });
+  // compteurs
+  var n = { apreparer:g.apreparer.length, alivrer:g.alivrer.length, emporte:g.emporte.length, souffrance:g.souffrance.length, retour:g.retour.length };
+  Object.keys(n).forEach(function(k){ document.getElementById('planCount-'+k).textContent = n[k]; var nb = document.getElementById('planNb-'+k); if(nb) nb.textContent = '('+n[k]+')'; });
+  document.getElementById('planSub-apreparer').textContent = g.sansfiche.length ? '+ '+g.sansfiche.length+' sans fiche' : '';
+  var t4 = document.getElementById('planTile-souffrance'); t4.style.borderColor = n.souffrance ? 'var(--danger)' : 'var(--line-strong)'; document.getElementById('planCount-souffrance').style.color = n.souffrance ? 'var(--danger)' : 'var(--accent)';
+}
+// les appels existants (écoute des réceptions, ouverture de l'onglet) restent valables ; une saisie en cours n'est jamais interrompue par un rafraîchissement automatique
+function renderPlanningList(ev){
+  var actif = document.activeElement, saisie = !!(actif && actif.closest && actif.closest('#tab-planning') && /^(INPUT|TEXTAREA)$/.test(actif.tagName));
+  if(saisie && !(ev && ev.type)) return;
+  renderPlanning();
 }
 document.getElementById('planningSearch').addEventListener('input', renderPlanningList);
 document.getElementById('planningHideUnplanned').addEventListener('change', renderPlanningList);
+document.getElementById('planningAvenir').addEventListener('change', renderPlanningList);
+['alivrer','emporte','souffrance','retour'].forEach(function(k){ document.getElementById('planSearch-'+k).addEventListener('input', renderPlanningList); });
 
 // liste déroulante « Destination » de l'écran CDE sortie (suit la configuration, garde le choix en cours)
 function majFiltreDestinations(){
@@ -9958,7 +10057,7 @@ function switchTab(name){
     renderHistory();
   }
   if(name==='archive'){ renderArchiveList(); }
-  if(name==='planning'){ renderPlanningList(); }
+  if(name==='planning'){ showSubmoduleGrid('planning'); renderPlanningList(); }
   if(name==='tms'){ renderModulesGrid(); }
   if(name==='clients'){ renderClientsList(); populateClientFicheSelect(); showSubmoduleGrid('clients'); }
   if(name==='contremarques'){ renderContremarquesList(); renderCmCorbeille(); renderFicheEnLigneCard(); renderFichesRecues(); }
@@ -10230,7 +10329,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0097';
+var APP_VERSION = '2026.0098';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
