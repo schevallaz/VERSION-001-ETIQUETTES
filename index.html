@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0093">
+<meta name="app-version" content="2026.0094">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -891,6 +891,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="integrite" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔍</div><div style="font-weight:700;color:var(--ink);">Contrôle Intégrité Stock</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="destinations" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚪</div><div style="font-weight:700;color:var(--ink);">Destinations de sortie</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="nettoyagebl" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧹</div><div style="font-weight:700;color:var(--ink);">Nettoyage des BL</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="ordreprelevement" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧭</div><div style="font-weight:700;color:var(--ink);">Ordre de prélèvement</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1242,6 +1243,16 @@
       <p class="hint" style="margin:0 0 10px;">L'annulation d'un BL est exceptionnelle et réservée aux administrateurs : elle est tracée (motif, auteur, date) et la marchandise est traitée proprement. Si la marchandise est simplement revenue sans être livrée, utilise plutôt « Retour au dépôt » dans Gestion Livraisons.</p>
       <div class="field"><input type="text" id="nettoyageBLSearch" placeholder="Rechercher : n° BL, contremarque..."></div>
       <div id="nettoyageBLList"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-ordreprelevement" style="display:none;">
+    <div class="card">
+      <h2>🧭 Ordre de prélèvement</h2>
+      <p class="hint" style="margin:0 0 12px;">Ordre dans lequel le magasinier parcourt les emplacements pour préparer une commande. Il s'applique à la liste de prélèvement du bon de préparation. <strong>Réglage propre à ce dépôt.</strong> Les articles sans emplacement restent toujours en fin de liste ; dans un même emplacement, le plus ancien en stock passe en premier.</p>
+      <div class="field"><label style="display:flex;align-items:center;gap:10px;font-weight:600;"><input type="radio" name="ordrePrelev" value="AZ" style="width:20px;height:20px;"> De A à Z <span class="hint" style="margin:0;font-weight:400;">(AA-01-01 en premier)</span></label></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:10px;font-weight:600;"><input type="radio" name="ordrePrelev" value="ZA" style="width:20px;height:20px;"> De Z à A <span class="hint" style="margin:0;font-weight:400;">(ZZ-99-99 en premier)</span></label></div>
+      <div class="btn-row"><button class="btn primary" id="btnOrdrePrelev" style="width:auto;">Enregistrer</button></div>
+      <div class="hint" id="ordrePrelevMsg" style="margin-top:6px;"></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
@@ -4884,7 +4895,55 @@ function comparerEmplacements(x, y){
   if(vx < vy) return -1; if(vx > vy) return 1;
   return (x.label < y.label) ? -1 : (x.label > y.label ? 1 : (x.unite < y.unite ? -1 : 1));
 }
-async function lignesPrelevementBP(bp){
+
+// ================= Ordre de prélèvement (réglage propre à chaque dépôt) =================
+// Stocké dans le document du dépôt (jamais dans la base chargée au démarrage) : lecture et écriture isolées.
+async function lireOrdrePrelevement(){
+  if(fsReady() && configDocRef){
+    try{ var sn = await configDocRef.get(); var v = sn.exists ? sn.data().ordrePrelevement : ''; if(v==='AZ' || v==='ZA') return v; }
+    catch(e){ console.error('ordre de prélèvement', e); }
+  }
+  return lsGet('ordre-prelevement')==='ZA' ? 'ZA' : 'AZ';   // par défaut : de A à Z, comme avant
+}
+async function ecrireOrdrePrelevement(v){
+  if(v!=='AZ' && v!=='ZA') return false;
+  lsSet('ordre-prelevement', v);
+  if(fsReady() && configDocRef){
+    try{ await configDocRef.set({ ordrePrelevement:v, ordrePrelevementLe:new Date().toISOString(), ordrePrelevementPar:currentIdentity() }, { merge:true }); }
+    catch(e){ console.error('ordre de prélèvement', e); return false; }
+  }
+  return true;
+}
+// sans emplacement toujours en fin ; à emplacement égal, le plus ancien en stock d'abord, puis l'étiquette et l'unité
+function comparateurPrelevement(ordre){
+  function egalite(x, y){
+    var ex = x.entree || '\uffff', ey = y.entree || '\uffff';
+    if(ex !== ey) return ex < ey ? -1 : 1;
+    if(x.label !== y.label) return x.label < y.label ? -1 : 1;
+    return x.unite < y.unite ? -1 : (x.unite > y.unite ? 1 : 0);
+  }
+  return function(x, y){
+    var sx = x.emp==='—', sy = y.emp==='—';
+    if(sx || sy){ if(sx && sy) return egalite(x, y); return sx ? 1 : -1; }
+    if(x.emp !== y.emp) return (x.emp < y.emp ? -1 : 1) * (ordre==='ZA' ? -1 : 1);
+    return egalite(x, y);
+  };
+}
+async function renderOrdrePrelevement(){
+  var v = await lireOrdrePrelevement();
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="ordrePrelev"]'), function(r){ r.checked = r.value===v; r.disabled = !state.isAdmin; });
+  document.getElementById('btnOrdrePrelev').style.display = state.isAdmin ? '' : 'none';
+  document.getElementById('ordrePrelevMsg').textContent = state.isAdmin ? '' : 'Seul un administrateur peut modifier ce réglage.';
+}
+document.getElementById('btnOrdrePrelev').addEventListener('click', async function(){
+  if(!state.isAdmin) return;
+  var r = document.querySelector('input[name="ordrePrelev"]:checked'), msg = document.getElementById('ordrePrelevMsg');
+  if(!r){ msg.textContent = 'Choisis un ordre.'; msg.style.color = 'var(--danger)'; return; }
+  var ok = await ecrireOrdrePrelevement(r.value);
+  msg.textContent = ok ? 'Enregistré : ordre « '+(r.value==='ZA' ? 'de Z à A' : 'de A à Z')+' » pour ce dépôt.' : 'Enregistrement impossible.'; msg.style.color = ok ? 'var(--accent)' : 'var(--danger)';
+});
+
+async function lignesPrelevementBP(bp, ordreDemande){
   var rows = [];
   for(var i=0;i<bp.lignes.length;i++){
     var l = bp.lignes[i];
@@ -4899,7 +4958,8 @@ async function lignesPrelevementBP(bp){
         fournisseur: l.fournisseur || rec.data.fournisseur || '', entree: entree, jours: joursEntreDates(entree, fin) });
     });
   }
-  rows.sort(comparerEmplacements);
+  var ordre = ordreDemande || await lireOrdrePrelevement();
+  rows.sort(comparateurPrelevement(ordre)); rows.ordre = ordre;   // l'ordre utilisé est conservé pour l'afficher sur le bon
   return rows;
 }
 function dessinerBonPreparation(bp, rows){
@@ -4952,7 +5012,7 @@ function dessinerBonPreparation(bp, rows){
     cols.forEach(function(c){ texte(c.t, x+(c.t==='Jours'?c.w-2:2), y+4.8, { bold:true, size:8.5, align:(c.t==='Jours'?'right':undefined) }); x += c.w; });
     y += 7;
   }
-  texte('LISTE DE PRÉLÈVEMENT — triée par emplacement', M, y, { bold:true, size:10.5, color:VERT }); y += 4;
+  texte('LISTE DE PRÉLÈVEMENT — emplacements '+(rows.ordre==='ZA' ? 'de Z à A' : 'de A à Z'), M, y, { bold:true, size:10.5, color:VERT }); y += 4;
   enteteTableau();
   rows.forEach(function(r, i){
     if(y > 268){ doc.addPage(); y = 16; texte('Bon de Préparation '+bp.numero+' — suite', M, y, { bold:true, size:10, color:VERT }); y += 5; enteteTableau(); }
@@ -9347,6 +9407,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='parcagence'){ renderParcVehiculesList(); }
     if(btn.getAttribute('data-key')==='destinations'){ renderDestinationsAdmin(); }
     if(btn.getAttribute('data-key')==='nettoyagebl'){ renderNettoyageBL(); }
+    if(btn.getAttribute('data-key')==='ordreprelevement'){ renderOrdrePrelevement(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
     if(btn.getAttribute('data-key')==='liens'){ renderLiensClients(); }
   });
@@ -9655,7 +9716,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0093';
+var APP_VERSION = '2026.0094';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
