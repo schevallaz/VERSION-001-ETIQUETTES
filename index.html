@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0096">
+<meta name="app-version" content="2026.0097">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -209,6 +209,16 @@
         <button class="btn primary" id="btnAccessAgencySubmit" style="width:100%;">Valider</button>
       </div>
     </div>
+  </div>
+</div>
+<div id="creerOverlay" style="display:none;position:fixed;inset:0;background:#f6f5f0;z-index:70;overflow-y:auto;">
+  <div style="max-width:560px;margin:0 auto;padding:12px 12px 40px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
+      <h2 id="creerTitre" style="margin:0;font-size:19px;"></h2>
+      <button class="btn ghost" id="btnCreerFermer" style="width:auto;padding:6px 12px;">✕ Fermer</button>
+    </div>
+    <div id="creerSousTitre" class="hint" style="margin:0 0 10px;"></div>
+    <div id="creerCorps"></div>
   </div>
 </div>
 <div id="prepOverlay" style="display:none;position:fixed;inset:0;background:#f6f5f0;z-index:70;overflow-y:auto;">
@@ -543,6 +553,10 @@
           <button class="btn accent" id="btnMoveSave" style="width:auto;">Confirmer le déplacement</button>
         </div>
       </div>
+    </div>
+    <div class="card" id="creerCard">
+      <h2>➕ Créer</h2>
+      <div class="btn-row" style="margin:0;"><button class="btn primary" id="btnCreerPrep" style="width:100%;">📋 Mettre en préparation</button></div>
     </div>
     <div class="card" id="bpDecisionCard" style="display:none;">
       <h2>⚖️ Préparations à décider (<span id="bpDecisionCount">0</span>)</h2>
@@ -2375,6 +2389,155 @@ async function tryShowPreparationLanding(){
   if(ag && state.currentAgencyCode && ag !== state.currentAgencyCode){ banner('Ce bon est celui du dépôt '+ag+' (tu es sur le dépôt '+state.currentAgencyCode+') : change de dépôt puis scanne de nouveau le QR code'); return; }
   await prepOuvrir(bpParam);
 }
+
+
+// ================= Parcours « Créer › Mettre en préparation » =================
+// Enchaîne, sans les modifier : la fiche contremarque (existante ou créée sur place), l'association d'une commande à la fiche,
+// puis createBonPreparation (qui pose le verrou sur les articles). Une commande ne peut pas sortir sans fiche contremarque.
+var creerEtat = null;
+function creerFichesParNom(){ var m = {}; (state.base.contremarques || []).forEach(function(c){ m[String(c.nom||'').trim().toLowerCase()] = c; }); return m; }
+function creerAppartient(h, cm){ if(h.deletedAt) return false; if(h.contremarqueId) return h.contremarqueId===cm.id; return String(h.contremarque||'').trim().toLowerCase()===String(cm.nom||'').trim().toLowerCase(); }
+function creerEntierementDisponible(h){ return isStockEntry(h) && (h.itemsDisponibles==null ? !h.bonLivraisonId : h.itemsDisponibles===h.itemsTotal); }
+function creerPartiellementAffectee(h){ return isStockEntry(h) && h.itemsDisponibles!=null && h.itemsDisponibles>0 && h.itemsDisponibles<h.itemsTotal; }
+function creerCommandesFiche(cm){ return (state.historyIndex||[]).filter(function(h){ return creerAppartient(h, cm) && (creerEntierementDisponible(h) || creerPartiellementAffectee(h)); }); }
+function creerOrphelines(){ var noms = creerFichesParNom(); return (state.historyIndex||[]).filter(function(h){ return !h.deletedAt && !h.contremarqueId && creerEntierementDisponible(h) && !noms[String(h.contremarque||'').trim().toLowerCase()]; }); }
+function creerLibelleFiche(cm){ return (cm.nom||'')+(cm.prenom ? ' '+cm.prenom : ''); }
+function creerLigneCommande(h){ return '<strong>'+escapeHtml(h.labelNumber||'')+'</strong> — '+escapeHtml(h.client||'—')+(h.contremarque && h.contremarque!==h.client ? ' · '+escapeHtml(h.contremarque) : '')+'<br><span style="color:var(--ink-soft);font-size:12.5px;">'+escapeHtml(h.fournisseur||'')+' · '+escapeHtml(h.emplacement||'sans emplacement')+' · '+(h.poids ? escapeHtml(String(h.poids))+' kg · ' : '')+(h.itemsTotal||1)+' article(s)</span>'; }
+function creerOuvrir(){
+  creerEtat = { etape:'fiche', cm:null, panier:[], bp:null };
+  var ov = document.getElementById('creerOverlay'); ov.style.display = 'block'; ov.scrollTop = 0; creerEtapeFiche();
+}
+function creerFermer(){ document.getElementById('creerOverlay').style.display = 'none'; creerEtat = null; renderHistory(); renderDecisionsPreparation(); }
+// ----- étape 1 : la fiche -----
+function creerEtapeFiche(texte){
+  creerEtat.etape = 'fiche'; creerEtat.cm = null; creerEtat.panier = [];
+  document.getElementById('creerTitre').textContent = 'Mettre en préparation'; document.getElementById('creerSousTitre').textContent = '1/2 — Choisis la fiche contremarque. Une commande ne peut pas sortir sans fiche.';
+  document.getElementById('creerCorps').innerHTML =
+    '<div class="card"><div class="field" style="margin-bottom:8px;"><input type="text" id="creerRechFiche" placeholder="Rechercher une fiche : nom, prénom, ville…" value="'+escapeHtml(texte||'')+'" style="width:100%;padding:11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;"></div>'+
+    '<div id="creerListeFiches"></div></div>'+
+    '<div class="btn-row"><button class="btn accent" id="btnCreerNouvelleFiche" style="width:100%;">＋ Créer une nouvelle fiche</button></div>';
+  document.getElementById('creerRechFiche').addEventListener('input', creerDessinerFiches);
+  document.getElementById('btnCreerNouvelleFiche').addEventListener('click', function(){ creerEtapeNouvelleFiche(document.getElementById('creerRechFiche').value.trim()); });
+  creerDessinerFiches();
+}
+function creerDessinerFiches(){
+  var q = (document.getElementById('creerRechFiche').value||'').trim().toLowerCase(), el = document.getElementById('creerListeFiches');
+  var fiches = (state.base.contremarques||[]).map(function(cm){ return { cm:cm, nb:creerCommandesFiche(cm).filter(creerEntierementDisponible).length }; })
+    .filter(function(f){ return !q || (creerLibelleFiche(f.cm)+' '+(f.cm.ville||'')+' '+(f.cm.cp||'')).toLowerCase().indexOf(q) >= 0; })
+    .sort(function(a, b){ return (b.nb>0) - (a.nb>0) || String(a.cm.nom||'').localeCompare(String(b.cm.nom||''), 'fr', { numeric:true }); });
+  if(!fiches.length){ el.innerHTML = '<div class="hint">Aucune fiche'+(q ? ' pour « '+escapeHtml(q)+' »' : '')+'. Tu peux en créer une ci-dessous.</div>'; return; }
+  el.innerHTML = fiches.slice(0, 40).map(function(f){
+    return '<div class="creer-fiche" data-id="'+escapeHtml(f.cm.id)+'" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px;border:1px solid var(--line-strong);border-radius:11px;margin-bottom:7px;background:#fff;cursor:pointer;'+(f.nb ? '' : 'opacity:.6;')+'">'+
+      '<div><strong>'+escapeHtml(creerLibelleFiche(f.cm))+'</strong><br><span style="color:var(--ink-soft);font-size:12.5px;">'+escapeHtml([f.cm.cp, f.cm.ville].filter(Boolean).join(' ')||'adresse non renseignée')+'</span></div>'+
+      '<div style="text-align:right;font-size:13px;white-space:nowrap;">'+(f.nb ? '<strong style="font-size:17px;color:var(--accent);">'+f.nb+'</strong><br>en stock' : 'aucune<br>en stock')+'</div></div>';
+  }).join('') + (fiches.length > 40 ? '<div class="hint">'+(fiches.length-40)+' autre(s) fiche(s) : affine la recherche.</div>' : '');
+  Array.prototype.forEach.call(el.querySelectorAll('.creer-fiche'), function(d){ d.addEventListener('click', function(){ var cm = (state.base.contremarques||[]).find(function(c){ return c.id===d.getAttribute('data-id'); }); if(cm) creerEtapeConstituer(cm); }); });
+}
+// ----- étape 1 bis : créer la fiche sur place -----
+function creerEtapeNouvelleFiche(nomInitial){
+  creerEtat.etape = 'nouvelle';
+  document.getElementById('creerTitre').textContent = 'Nouvelle fiche contremarque'; document.getElementById('creerSousTitre').textContent = 'Seul le nom est obligatoire ; le reste peut être complété plus tard dans Contremarques.';
+  function champ(id, lib, ph, extra){ return '<div class="field" style="margin-bottom:8px;"><label>'+lib+'</label><input type="text" id="'+id+'" placeholder="'+(ph||'')+'" '+(extra||'')+' style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;"></div>'; }
+  document.getElementById('creerCorps').innerHTML = '<div class="card">'+champ('creerNom', 'Nom *')+champ('creerPrenom', 'Prénom')+champ('creerAdr', 'Adresse')+
+    '<div style="display:flex;gap:8px;"><div style="flex:1;">'+champ('creerCp', 'Code postal', '', 'inputmode="numeric" maxlength="5"')+'</div><div style="flex:2;">'+champ('creerVille', 'Ville')+'</div></div>'+champ('creerTel', 'Téléphone', '', 'inputmode="tel"')+
+    '<div class="hint" style="margin:0 0 8px;">L\'adresse et le téléphone seront nécessaires pour que le BL soit complet.</div><div id="creerMsgFiche" style="font-size:13px;margin-bottom:6px;"></div>'+
+    '<button class="btn primary" id="btnCreerFiche" style="width:100%;">Créer la fiche et continuer</button><div class="btn-row"><button class="btn ghost" id="btnCreerRetourFiche" style="width:100%;">← Retour</button></div></div>';
+  document.getElementById('creerNom').value = nomInitial || '';
+  document.getElementById('btnCreerRetourFiche').addEventListener('click', function(){ creerEtapeFiche(); });
+  document.getElementById('btnCreerFiche').addEventListener('click', creerCreerFiche);
+}
+async function creerCreerFiche(){
+  var msg = document.getElementById('creerMsgFiche'), v = function(id){ return document.getElementById(id).value.trim(); };
+  var nom = v('creerNom'), cp = v('creerCp');
+  function erreur(t){ msg.textContent = '⚠️ '+t; msg.style.color = 'var(--danger)'; }
+  if(nom.length < 2){ erreur('Le nom est obligatoire.'); return; }
+  if(cp && !/^\d{5}$/.test(cp)){ erreur('Le code postal doit comporter 5 chiffres.'); return; }
+  var existante = creerFichesParNom()[nom.toLowerCase()];
+  if(existante){ erreur('Une fiche « '+creerLibelleFiche(existante)+' » existe déjà : sélectionne-la dans la liste plutôt que d\'en créer une seconde.'); return; }
+  document.getElementById('btnCreerFiche').disabled = true;
+  if(!state.base.contremarques) state.base.contremarques = [];
+  var cm = { id:'cm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7), nom:nom, prenom:v('creerPrenom'), adresse1:v('creerAdr'), cp:cp, ville:v('creerVille'), tel1:v('creerTel'), pays:'FR-France' };
+  state.base.contremarques.push(cm); await saveBase();
+  renderContremarquesList(); document.getElementById('cnt-contremarques').textContent = pad4(state.base.contremarques.length);
+  banner('Fiche « '+creerLibelleFiche(cm)+' » créée'); creerEtapeConstituer(cm);
+}
+// ----- étape 2 : constituer la préparation -----
+function creerEtapeConstituer(cm){
+  creerEtat.etape = 'constituer'; creerEtat.cm = cm; creerEtat.panier = [];
+  document.getElementById('creerTitre').textContent = 'Préparation de '+creerLibelleFiche(cm); document.getElementById('creerSousTitre').textContent = '2/2 — Ajoute les commandes à préparer, choisis la destination, puis lance la préparation.';
+  document.getElementById('creerCorps').innerHTML =
+    '<div class="btn-row" style="margin:0 0 8px;"><button class="btn ghost" id="btnCreerChangerFiche" style="width:auto;padding:6px 12px;">← Changer de fiche</button></div>'+
+    '<div class="card" style="margin-bottom:10px;"><h2 style="font-size:16px;">Dans cette préparation (<span id="creerNbPanier">0</span>)</h2><div id="creerPanier"></div></div>'+
+    '<div class="card" style="margin-bottom:10px;"><h2 style="font-size:16px;">Commandes en stock de cette fiche</h2><div id="creerDispo"></div></div>'+
+    '<div class="card" style="margin-bottom:10px;"><h2 style="font-size:16px;">Ajouter une autre commande en stock</h2><p class="hint" style="margin:0 0 6px;">Commandes en stock sans fiche : elles seront associées à « '+escapeHtml(creerLibelleFiche(cm))+' ».</p>'+
+    '<input type="text" id="creerRechOrph" placeholder="Rechercher : n° étiquette, client, fournisseur…" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;margin-bottom:6px;"><div id="creerOrph"></div></div>'+
+    '<div class="card"><div class="field"><label>Destination</label><select id="creerDest">'+destinationOptionsHtml()+'</select></div>'+champsServiceHtml('creerSvc')+'<div id="creerMsgLancer" style="font-size:13px;margin-bottom:6px;"></div>'+
+    '<button class="btn primary" id="btnCreerLancer" style="width:100%;" disabled>🚀 Lancer la préparation</button></div>';
+  document.getElementById('btnCreerChangerFiche').addEventListener('click', function(){ creerEtapeFiche(); });
+  document.getElementById('creerRechOrph').addEventListener('input', creerDessinerOrph);
+  document.getElementById('btnCreerLancer').addEventListener('click', creerLancer);
+  lierDestinationChamps('creerSvc', 'creerDest'); creerDessinerConstitution();
+}
+function creerDessinerConstitution(){
+  var cm = creerEtat.cm, tous = creerCommandesFiche(cm), panier = creerEtat.panier;
+  var parId = {}; (state.historyIndex||[]).forEach(function(h){ parId[h.id] = h; });
+  document.getElementById('creerNbPanier').textContent = panier.length;
+  document.getElementById('creerPanier').innerHTML = panier.length ? panier.map(function(id){ var h = parId[id]; if(!h) return ''; return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);"><div style="font-size:14px;">'+creerLigneCommande(h)+'</div><button class="btn ghost creer-retirer" data-id="'+escapeHtml(id)+'" style="width:auto;padding:6px 10px;flex-shrink:0;">✕</button></div>'; }).join('') : '<div class="hint">Aucune commande ajoutée pour l\'instant.</div>';
+  var dispo = tous.filter(function(h){ return panier.indexOf(h.id) < 0; });
+  document.getElementById('creerDispo').innerHTML = dispo.length ? dispo.map(function(h){
+    var part = creerPartiellementAffectee(h);
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);"><div style="font-size:14px;">'+creerLigneCommande(h)+(part ? '<br><span style="color:var(--danger);font-size:12.5px;">Partiellement déjà affectée ('+h.itemsDisponibles+'/'+h.itemsTotal+' disponibles) : à traiter depuis la fiche contremarque.</span>' : '')+'</div>'+
+      (part ? '' : '<button class="btn accent creer-ajouter" data-id="'+escapeHtml(h.id)+'" style="width:auto;padding:6px 10px;flex-shrink:0;">➕ Ajouter</button>')+'</div>'; }).join('') : '<div class="hint">'+(tous.length ? 'Toutes les commandes de cette fiche sont déjà dans la préparation.' : 'Aucune commande en stock pour cette fiche.')+'</div>';
+  creerDessinerOrph();
+  document.getElementById('btnCreerLancer').disabled = panier.length === 0;
+  Array.prototype.forEach.call(document.querySelectorAll('.creer-ajouter'), function(b){ b.addEventListener('click', function(){ creerEtat.panier.push(b.getAttribute('data-id')); creerDessinerConstitution(); }); });
+  Array.prototype.forEach.call(document.querySelectorAll('.creer-retirer'), function(b){ b.addEventListener('click', function(){ creerEtat.panier = creerEtat.panier.filter(function(i){ return i !== b.getAttribute('data-id'); }); creerDessinerConstitution(); }); });
+}
+function creerDessinerOrph(){
+  var el = document.getElementById('creerOrph'); if(!el || !creerEtat) return;
+  var q = (document.getElementById('creerRechOrph').value||'').trim().toLowerCase();
+  var l = creerOrphelines().filter(function(h){ return creerEtat.panier.indexOf(h.id) < 0 && (!q || ((h.labelNumber||'')+' '+(h.client||'')+' '+(h.contremarque||'')+' '+(h.fournisseur||'')).toLowerCase().indexOf(q) >= 0); });
+  el.innerHTML = l.length ? l.slice(0, 15).map(function(h){ return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);"><div style="font-size:14px;">'+creerLigneCommande(h)+'</div><button class="btn ghost creer-associer" data-id="'+escapeHtml(h.id)+'" style="width:auto;padding:6px 10px;flex-shrink:0;">Associer et ajouter</button></div>'; }).join('') + (l.length > 15 ? '<div class="hint">'+(l.length-15)+' autre(s) : affine la recherche.</div>' : '')
+    : '<div class="hint">'+(q ? 'Aucune commande sans fiche pour « '+escapeHtml(q)+' ».' : 'Aucune commande en stock sans fiche.')+'</div>';
+  Array.prototype.forEach.call(el.querySelectorAll('.creer-associer'), function(b){ b.addEventListener('click', async function(){
+    b.disabled = true; var id = b.getAttribute('data-id'), cm = creerEtat.cm;
+    var rec = await getReceptionRecord(id); if(!rec){ banner('Commande introuvable'); return; }
+    rec.data.contremarque = cm.nom; rec.data.contremarqueId = cm.id; await saveReceptionRecord(id, rec);
+    var idx = state.historyIndex.findIndex(function(x){ return x.id===id; }); if(idx >= 0) state.historyIndex[idx] = recordToIndexEntry(rec);
+    banner('Commande associée à la fiche « '+creerLibelleFiche(cm)+' »'); creerEtat.panier.push(id); creerDessinerConstitution();
+  }); });
+}
+async function creerLancer(){
+  var e = creerEtat, msg = document.getElementById('creerMsgLancer'), btn = document.getElementById('btnCreerLancer');
+  if(!e || !e.panier.length) return;
+  var dest = document.getElementById('creerDest').value, champs = lireChampsService('creerSvc', dest);
+  if(!champs.ok){ msg.textContent = '⚠️ '+champs.message; msg.style.color = 'var(--danger)'; return; }
+  btn.disabled = true; btn.textContent = 'Création…';
+  var bp = await createBonPreparation(e.cm.id, e.cm.nom, e.panier.map(function(id){ return { commandeId:id, itemIds:null }; }), dest, champs.service);
+  if(bp && bp.erreur){
+    var detail = (bp.conflits||[]).map(function(c){ return c.commandeId+'/'+c.itemId; }).join(' — ');
+    msg.textContent = '⚠️ '+(bp.motif || 'Création refusée : une commande est déjà affectée ailleurs')+(detail ? ' ('+detail+')' : ''); msg.style.color = 'var(--danger)'; btn.disabled = false; btn.textContent = '🚀 Lancer la préparation'; return;
+  }
+  e.bp = bp; creerEtapeCree();
+}
+// ----- étape 3 : la préparation est lancée -----
+function creerEtapeCree(){
+  var e = creerEtat, bp = e.bp; e.etape = 'cree';
+  document.getElementById('creerTitre').textContent = '✅ Préparation lancée'; document.getElementById('creerSousTitre').textContent = '';
+  document.getElementById('creerCorps').innerHTML = '<div class="card"><h2 style="margin-bottom:6px;">Bon de préparation '+escapeHtml(bp.numero)+'</h2><p style="margin:0 0 12px;">'+escapeHtml(creerLibelleFiche(e.cm))+' · '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+bp.lignes.length+' commande(s). Les commandes sont en préparation (ST 20).</p>'+
+    '<div class="btn-row"><button class="btn primary" id="btnCreerSmartphone" style="width:100%;">📱 Préparer sur smartphone</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" id="btnCreerImprimer" style="width:100%;">🖨️ Imprimer le bon (PDF avec QR code)</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" id="btnCreerAutre" style="width:100%;">➕ Autre préparation</button></div>'+
+    '<div class="btn-row"><button class="btn ghost" id="btnCreerTermine" style="width:100%;">Fermer</button></div></div>';
+  var num = bp.numero; renderHistory();
+  document.getElementById('btnCreerSmartphone').addEventListener('click', function(){ creerFermer(); prepOuvrir(num); });
+  document.getElementById('btnCreerImprimer').addEventListener('click', function(){ genererBonPreparationPdf(num); });
+  document.getElementById('btnCreerAutre').addEventListener('click', function(){ creerOuvrir(); });
+  document.getElementById('btnCreerTermine').addEventListener('click', creerFermer);
+  banner('Bon de Préparation '+num+' créé pour « '+creerLibelleFiche(e.cm)+' »');
+}
+document.getElementById('btnCreerPrep').addEventListener('click', creerOuvrir);
+document.getElementById('btnCreerFermer').addEventListener('click', creerFermer);
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -10067,7 +10230,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0096';
+var APP_VERSION = '2026.0097';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
