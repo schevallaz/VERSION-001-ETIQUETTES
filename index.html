@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0094">
+<meta name="app-version" content="2026.0095">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -533,6 +533,11 @@
           <button class="btn accent" id="btnMoveSave" style="width:auto;">Confirmer le déplacement</button>
         </div>
       </div>
+    </div>
+    <div class="card" id="bpDecisionCard" style="display:none;">
+      <h2>⚖️ Préparations à décider (<span id="bpDecisionCount">0</span>)</h2>
+      <p class="hint" style="margin:0 0 8px;">Préparations terminées avec un commentaire (marchandise abîmée, manquante…) ou dont la sortie est réservée à un administrateur : <strong>un administrateur décide du départ</strong>.</p>
+      <div id="bpDecisionList"></div>
     </div>
     <div class="card">
       <h2>Commandes en stock</h2>
@@ -1930,7 +1935,7 @@ function statutCommande(h, blMap, bpMap){
     return R(20);
   }
   if(h.bonPreparationId==='partiel') return R(20, 'partiellement en préparation');
-  if(bpNum) return R(bp==='pret' ? 25 : 20);
+  if(bpNum){ var attente = !!(bpFull && bpFull.decisionAdmin && bpFull.decisionAdmin.enAttente); return R((bp==='pret' && !attente) ? 25 : 20, attente ? 'décision d\'un administrateur en attente' : ''); }
   return isFullyRanged(h) ? R(15) : R(10);
 }
 function badgeStatut(h, blMap, bpMap){
@@ -2035,10 +2040,163 @@ document.getElementById('etatStatutsPeriode').addEventListener('change', renderE
 document.getElementById('btnEtatPdf').addEventListener('click', etatStatutsPdf);
 document.getElementById('btnEtatCsv').addEventListener('click', etatStatutsCsv);
 
+
+// ================= Validation de la préparation : sortie + BL en un seul geste =================
+// Enchaîne, sans les modifier, passerStatutBP → validerSortieBP → createBonLivraisonFromBP.
+// RAS : le départ est immédiat. Commentaire (marchandise abîmée, manquante…) : un administrateur décide du départ.
+function decisionEnAttente(bp){ return !!(bp && bp.decisionAdmin && bp.decisionAdmin.enAttente===true); }
+async function lireBP(numero){ var sn = await bpColRef.doc(numero).get(); return sn.exists ? sn.data() : null; }
+async function validerPreparation(numero, opts){
+  opts = opts || {};
+  if(!fsReady() || !bpColRef) return { ok:false, motif:'Connexion indisponible' };
+  var bp = await lireBP(numero); if(!bp) return { ok:false, motif:'Bon de Préparation introuvable' };
+  if(bp.statut!=='brouillon' && bp.statut!=='pret') return { ok:false, motif:'Ce bon n\'est plus à préparer (statut : '+(BP_STATUT_LABEL[bp.statut]||bp.statut)+')' };
+  if(decisionEnAttente(bp)) return { ok:false, motif:'Ce bon attend déjà la décision d\'un administrateur' };
+  var ras = !!opts.ras, commentaire = String(opts.commentaire||'').trim();
+  if(!ras && commentaire.length < 5) return { ok:false, motif:'Coche « Fin de préparation RAS » ou saisis un commentaire (5 caractères minimum)' };
+  var par = currentIdentity(), parUid = currentUid(), le = new Date().toISOString();
+  var prep = { terminee:true, ras:ras, commentaire:ras ? '' : commentaire, par:par, parUid:parUid, le:le };
+  if(!ras && !(opts.autoriserParAdmin && state.isAdmin)){   // un problème est signalé : rien ne part sans la décision d'un administrateur
+    await bpColRef.doc(numero).set({ preparation:prep, decisionAdmin:{ enAttente:true, raison:'commentaire', demandeLe:le, demandePar:par, commentaire:commentaire },
+      historique:(bp.historique||[]).concat([{ evenement:'preparation_terminee_avec_commentaire', statut:bp.statut, commentaire:commentaire, par:par, parUid:parUid, le:le }]) }, { merge:true });
+    return { ok:true, attente:true, raison:'commentaire' };
+  }
+  var decision = (!ras) ? { enAttente:false, decision:'autorise', par:par, parUid:parUid, le:le, commentaire:commentaire } : null;
+  return await executerDepartPreparation(numero, bp, prep, { zone:opts.zone || '', decision:decision });
+}
+async function executerDepartPreparation(numero, bp, prep, opts){
+  if(sortieDemandeZone(bp) && !opts.zone) return { ok:false, motif:'Choisis la zone où la marchandise est déposée' };
+  if(sortieExigeAdmin(bp) && !state.isAdmin){   // destination réservée aux administrateurs : le bon attend sa décision, rien n'est perdu
+    await bpColRef.doc(numero).set({ preparation:prep, decisionAdmin:{ enAttente:true, raison:'destination', demandeLe:prep.le, demandePar:prep.par, commentaire:prep.commentaire||'' },
+      historique:(bp.historique||[]).concat([{ evenement:'preparation_terminee_sortie_reservee_admin', statut:bp.statut, par:prep.par, parUid:prep.parUid, le:prep.le }]) }, { merge:true });
+    return { ok:true, attente:true, raison:'destination' };
+  }
+  var etaitBrouillon = bp.statut==='brouillon', res;
+  if(opts.decision) departsAutorises[numero] = true;   // départ autorisé par un administrateur : la garde est levée pendant cette exécution seulement
+  try{
+    if(etaitBrouillon && !(await passerStatutBP(numero, 'pret'))) return { ok:false, motif:'Impossible de marquer le bon « prêt »' };
+    res = await validerSortieBP(numero, opts.zone || '');
+    if(!res.ok){ if(etaitBrouillon) await passerStatutBP(numero, 'brouillon'); return { ok:false, motif:res.motif }; }
+  } finally { delete departsAutorises[numero]; }   // refus d'une règle existante : on restaure l'état
+  var b2 = await lireBP(numero) || bp, maj = { preparation:prep };
+  if(opts.decision) maj.decisionAdmin = opts.decision;
+  maj.historique = (b2.historique||[]).concat([{ evenement:'preparation_validee', ras:prep.ras, commentaire:prep.commentaire||'', par:prep.par, parUid:prep.parUid, le:prep.le }]);
+  await bpColRef.doc(numero).set(maj, { merge:true });
+  if(!sortieGenereBL(bp)) return { ok:true, sortie:true, sansBL:true };
+  var bl = await createBonLivraisonFromBP(numero, {});
+  if(bl && bl.erreur) return { ok:true, sortie:true, blErreur:(bl.motif || 'création refusée') };   // la sortie reste validée : « sorties en attente de BL » (Livraisons) permet de créer le BL
+  return { ok:true, sortie:true, bl:bl.numero };
+}
+async function autoriserDepartPreparation(numero, zone){
+  if(!state.isAdmin) return { ok:false, motif:'Réservé à un administrateur' };
+  var bp = await lireBP(numero); if(!bp) return { ok:false, motif:'Bon de Préparation introuvable' };
+  if(!decisionEnAttente(bp)) return { ok:false, motif:'Aucune décision n\'est en attente sur ce bon' };
+  var par = currentIdentity(), parUid = currentUid(), le = new Date().toISOString();
+  var decision = { enAttente:false, decision:'autorise', par:par, parUid:parUid, le:le, commentaire:bp.decisionAdmin.commentaire || '' };
+  return await executerDepartPreparation(numero, bp, bp.preparation || { terminee:true, ras:false, commentaire:bp.decisionAdmin.commentaire||'', par:bp.decisionAdmin.demandePar||'', le:bp.decisionAdmin.demandeLe||le }, { zone:zone || '', decision:decision });
+}
+async function refuserDepartPreparation(numero, motif){
+  if(!state.isAdmin) return { ok:false, motif:'Réservé à un administrateur' };
+  motif = String(motif||'').trim(); if(motif.length < 5) return { ok:false, motif:'Indique le motif du refus (5 caractères minimum)' };
+  var bp = await lireBP(numero); if(!bp) return { ok:false, motif:'Bon de Préparation introuvable' };
+  if(!decisionEnAttente(bp)) return { ok:false, motif:'Aucune décision n\'est en attente sur ce bon' };
+  var par = currentIdentity(), parUid = currentUid(), le = new Date().toISOString();
+  await bpColRef.doc(numero).set({ statut:'brouillon', preparation:null, decisionAdmin:{ enAttente:false, decision:'refuse', par:par, parUid:parUid, le:le, motif:motif, commentaire:bp.decisionAdmin.commentaire||'' },
+    historique:(bp.historique||[]).concat([{ evenement:'depart_refuse', statut:'brouillon', motif:motif, par:par, parUid:parUid, le:le }]) }, { merge:true });
+  return { ok:true };
+}
+function boutonPreparationHtml(bp){
+  if((bp.statut!=='brouillon' && bp.statut!=='pret') || decisionEnAttente(bp)) return '';
+  return '<button class="btn primary bp-valider-prep" data-num="'+escapeHtml(bp.numero)+'" style="padding:4px 10px;font-size:12px;">🏁 Valider la préparation</button>';
+}
+function zonesSelectHtml(classe){ return '<select class="'+classe+'">'+getZonesSortie().map(function(z){ return '<option value="'+escapeHtml(z)+'">'+escapeHtml(z)+'</option>'; }).join('')+'</select>'; }
+function blocDecisionHtml(bp){
+  var dec = bp.decisionAdmin || {}, n = escapeHtml(bp.numero);
+  var h = '<div class="bp-dec-bloc" data-num="'+n+'" style="width:100%;margin-top:6px;padding:8px;border:1px solid #e0a05a;border-radius:9px;background:#fff6e8;font-size:12.5px;">⏳ <strong>Décision d\'un administrateur requise</strong>'+
+    (dec.raison==='destination' ? ' — sortie « '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' » réservée à un administrateur' : '')+
+    (dec.commentaire ? '<br>Commentaire de '+escapeHtml(dec.demandePar||'')+' : <em>« '+escapeHtml(dec.commentaire)+' »</em>' : '');
+  if(state.isAdmin){
+    h += (sortieDemandeZone(bp) ? '<div class="field" style="margin:8px 0 6px;"><label>Zone où la marchandise est déposée (si le départ est autorisé)</label>'+zonesSelectHtml('bp-dec-zone')+'</div>' : '')+
+      '<div class="btn-row" style="margin:6px 0;"><button class="btn accent bp-dec-autoriser" data-num="'+n+'" style="width:100%;">✅ Autoriser le départ</button></div>'+
+      '<div class="field" style="margin:6px 0;"><label>Ou ne pas autoriser : motif (le bon revient à « Créé »)</label><textarea class="bp-dec-motif" rows="2" style="width:100%;padding:8px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:13px;"></textarea></div>'+
+      '<div class="btn-row" style="margin:6px 0 0;"><button class="btn ghost bp-dec-refuser" data-num="'+n+'" style="width:100%;color:var(--danger);border-color:var(--danger);">↩️ Ne pas autoriser</button></div>'+
+      '<div class="bp-dec-msg" style="margin-top:4px;"></div>';
+  } else h += '<br><span style="color:var(--ink-soft);">Le départ sera décidé par un administrateur.</span>';
+  return h + '</div>';
+}
+function blocPreparationHtml(bp){
+  var dec = bp.decisionAdmin || {}, n = escapeHtml(bp.numero), h = '';
+  if(decisionEnAttente(bp)) h += blocDecisionHtml(bp);
+  else if(dec.decision==='refuse' && bp.statut==='brouillon') h += '<div style="width:100%;margin-top:6px;padding:6px 8px;border:1px solid #e3b4b4;border-radius:9px;background:#fdf2f0;font-size:12.5px;color:#8a2c20;">↩️ Départ non autorisé par '+escapeHtml(dec.par||'')+' : <em>« '+escapeHtml(dec.motif||'')+' »</em> — le bon est revenu à « Créé ».</div>';
+  if(boutonPreparationHtml(bp)){
+    h += '<div class="bp-prep-bloc" data-num="'+n+'" style="display:none;width:100%;margin-top:6px;padding:8px;border:1px solid var(--line-strong);border-radius:9px;background:#fff;">'+
+      '<div class="hint" style="margin-bottom:6px;font-weight:600;">Le prélèvement est terminé ?</div>'+
+      '<label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px;"><input type="checkbox" class="bp-prep-ras" style="width:20px;height:20px;"> Fin de préparation RAS</label>'+
+      '<div class="field" style="margin-bottom:6px;"><label>Ou commentaire en cas de problème (marchandise abîmée, manquante…)</label><textarea class="bp-prep-com" rows="2" style="width:100%;padding:8px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:13px;"></textarea><div class="hint" style="margin:3px 0 0;">Avec un commentaire, un administrateur décide du départ.</div></div>'+
+      (sortieDemandeZone(bp) ? '<div class="field" style="margin-bottom:6px;"><label>Zone où la marchandise est déposée</label>'+zonesSelectHtml('bp-prep-zone')+'</div>' : '')+
+      '<button class="btn primary bp-prep-confirmer" data-num="'+n+'" style="width:100%;">🏁 Valider la préparation</button><div class="bp-prep-msg" style="margin-top:4px;font-size:12px;"></div></div>';
+  }
+  return h;
+}
+function messageResultatPreparation(res){
+  if(res.attente) return res.raison==='destination' ? 'Préparation validée : la sortie est réservée à un administrateur, qui décidera du départ.' : 'Préparation envoyée à un administrateur : il décidera du départ de la commande.';
+  if(res.bl) return 'Préparation validée : BL '+res.bl+' créé';
+  if(res.sansBL) return 'Préparation validée : sortie enregistrée (cette destination ne génère pas de BL)';
+  if(res.blErreur) return '⚠ Sortie validée, mais le BL n\'a pas pu être créé ('+res.blErreur+') : il est à créer depuis « Sorties en attente de BL » dans Livraisons';
+  return 'Préparation validée';
+}
+function lierPreparationBP(racine, apres){
+  Array.prototype.forEach.call(racine.querySelectorAll('.bp-valider-prep'), function(btn){
+    btn.addEventListener('click', function(){ var ligne = btn.closest('.sub'); var f = ligne && ligne.querySelector('.bp-prep-bloc'); if(f) f.style.display = f.style.display==='block' ? 'none' : 'block'; });
+  });
+  Array.prototype.forEach.call(racine.querySelectorAll('.bp-prep-ras'), function(c){
+    c.addEventListener('change', function(){ var t = c.closest('.bp-prep-bloc').querySelector('.bp-prep-com'); t.disabled = c.checked; if(c.checked) t.value = ''; });
+  });
+  Array.prototype.forEach.call(racine.querySelectorAll('.bp-prep-confirmer'), function(btn){
+    btn.addEventListener('click', async function(){
+      var bloc = btn.closest('.bp-prep-bloc'), msg = bloc.querySelector('.bp-prep-msg'), zsel = bloc.querySelector('.bp-prep-zone');
+      var ras = bloc.querySelector('.bp-prep-ras').checked, com = bloc.querySelector('.bp-prep-com').value.trim();
+      var opts = { ras:ras, commentaire:com, zone:zsel ? zsel.value : '' };
+      if(!ras && com.length >= 5 && state.isAdmin && confirm('Tu es administrateur : autoriser le départ malgré ce commentaire ?\n\n« '+com+' »\n\nOK = le bon part en livraison maintenant ; Annuler = il reste à décider.')) opts.autoriserParAdmin = true;
+      btn.disabled = true; var res = await validerPreparation(btn.getAttribute('data-num'), opts);
+      if(!res.ok){ msg.textContent = '⚠️ '+res.motif; msg.style.color = 'var(--danger)'; btn.disabled = false; return; }
+      banner(messageResultatPreparation(res)); apres();
+    });
+  });
+  Array.prototype.forEach.call(racine.querySelectorAll('.bp-dec-autoriser'), function(btn){
+    btn.addEventListener('click', async function(){
+      var bloc = btn.closest('.bp-dec-bloc'), msg = bloc.querySelector('.bp-dec-msg'), zsel = bloc.querySelector('.bp-dec-zone');
+      btn.disabled = true; var res = await autoriserDepartPreparation(btn.getAttribute('data-num'), zsel ? zsel.value : '');
+      if(!res.ok){ msg.textContent = '⚠️ '+res.motif; msg.style.color = 'var(--danger)'; btn.disabled = false; return; }
+      banner(messageResultatPreparation(res).replace('Préparation validée', 'Départ autorisé')); apres();
+    });
+  });
+  Array.prototype.forEach.call(racine.querySelectorAll('.bp-dec-refuser'), function(btn){
+    btn.addEventListener('click', async function(){
+      var bloc = btn.closest('.bp-dec-bloc'), msg = bloc.querySelector('.bp-dec-msg');
+      btn.disabled = true; var res = await refuserDepartPreparation(btn.getAttribute('data-num'), bloc.querySelector('.bp-dec-motif').value);
+      if(!res.ok){ msg.textContent = '⚠️ '+res.motif; msg.style.color = 'var(--danger)'; btn.disabled = false; return; }
+      banner('Départ non autorisé : le bon est revenu à « Créé »'); apres();
+    });
+  });
+}
+function renderDecisionsPreparation(){
+  var carte = document.getElementById('bpDecisionCard'); if(!carte) return;
+  var liste = document.getElementById('bpDecisionList');
+  if(liste.contains(document.activeElement) && document.activeElement !== liste) return;   // saisie en cours : on ne redessine pas
+  var bps = Object.keys(bpDetails).map(function(k){ return bpDetails[k]; }).filter(decisionEnAttente).sort(function(a, b){ return String((a.decisionAdmin||{}).demandeLe||'').localeCompare(String((b.decisionAdmin||{}).demandeLe||'')); });
+  document.getElementById('bpDecisionCount').textContent = bps.length;
+  carte.style.display = bps.length ? 'block' : 'none';
+  liste.innerHTML = bps.map(function(bp){
+    return '<div class="sub" style="padding:6px 0;border-top:1px solid var(--line);"><strong>'+escapeHtml(bp.numero)+'</strong> — '+escapeHtml(bp.contremarque||'')+' · '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+(bp.lignes||[]).length+' commande(s)'+blocDecisionHtml(bp)+'</div>';
+  }).join('');
+  lierPreparationBP(liste, function(){ renderDecisionsPreparation(); renderHistory(); });
+}
+
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
   if(!fsReady() || statutsWatchStarted) return; statutsWatchStarted = true;
-  var rafraichir = function(){ clearTimeout(statutsMinuteur); statutsMinuteur = setTimeout(function(){ majBadgesStatut(); var c = document.getElementById('etatStatutsCard'); if(c && c.offsetParent) renderEtatStatuts(); }, 250); };
+  var rafraichir = function(){ clearTimeout(statutsMinuteur); statutsMinuteur = setTimeout(function(){ majBadgesStatut(); var c = document.getElementById('etatStatutsCard'); if(c && c.offsetParent) renderEtatStatuts(); renderDecisionsPreparation(); }, 250); };
   if(blColRef) statutsUnsub.push(blColRef.onSnapshot(function(sn){ var m = {}; sn.forEach(function(d){ var b = d.data() || {}; m[b.numero || d.id] = b.statut || ''; }); statutsBL = m; rafraichir(); }, function(e){ console.error('statuts BL', e); }));
   if(bpColRef) statutsUnsub.push(bpColRef.onSnapshot(function(sn){ var det = {}; sn.forEach(function(d){ var b = d.data() || {}; det[b.numero || d.id] = b; }); bpDetails = det; rafraichir(); }, function(e){ console.error('statuts BP', e); }));
 }
@@ -4633,6 +4791,7 @@ async function validerSortieBP(numero, zone){
   var bpSnap = await bpColRef.doc(numero).get();
   if(!bpSnap.exists) return { ok:false, motif:'Bon de Préparation introuvable' };
   var bp = bpSnap.data();
+  if(decisionEnAttente(bp) && !departsAutorises[numero]) return { ok:false, motif:'Ce bon attend la décision d\'un administrateur : il ne peut pas partir tant qu\'elle n\'est pas prise.' };
   if(bp.statut!=='pret') return { ok:false, motif:'Le BP doit être marqué « Prêt » avant de valider la sortie' };
   if(sortieExigeAdmin(bp) && !state.isAdmin) return { ok:false, motif:'Cette sortie (« '+(bp.destinationLibelle||libelleDestination(bp.destination))+' ») doit être validée par un administrateur.' };
   var zoneUtilisee = sortieDemandeZone(bp) ? (zone || '') : '';
@@ -4868,10 +5027,12 @@ async function createBonPreparation(cmId, cmNom, selection, destination, extra){
   return bp;
 }
 
+var departsAutorises = {};   // numéros de bons dont l'administrateur vient d'autoriser le départ (garde de passerStatutBP / validerSortieBP)
 async function passerStatutBP(numero, nouveauStatut){
   if(!fsReady() || !bpColRef) return false;
   try{
     var sn = await bpColRef.doc(numero).get();
+    if(sn.exists && decisionEnAttente(sn.data()) && !departsAutorises[numero]){ banner('Ce bon attend la décision d\'un administrateur'); return false; }
     var hist = ((sn.exists && sn.data().historique) || []).concat([{ statut:nouveauStatut, par:currentIdentity(), parUid:currentUid(), le:new Date().toISOString() }]);
     await bpColRef.doc(numero).set({ statut: nouveauStatut, historique: hist }, { merge:true }); return true;
   }
@@ -5101,13 +5262,14 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
     else if(bp.statut==='sorti' && bp.blNumero) actions = '<a href="livraisons.html?bl='+escapeHtml(bp.blNumero)+'" style="font-size:12px;color:var(--accent);font-weight:600;">→ BL '+escapeHtml(bp.blNumero)+'</a>';
     return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">'+
       '<span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+nb+' commande(s) · '+lbl+'</span>'+
-      '<span style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn ghost bp-imprimer" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">🖨️ PDF</button>'+actions+'</span>'+
+      '<span style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn ghost bp-imprimer" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">🖨️ PDF</button>'+boutonPreparationHtml(bp)+(decisionEnAttente(bp) ? '' : actions)+'</span>'+
       (bp.service ? '<div style="width:100%;font-size:12px;color:var(--ink-soft);">🛠️ '+escapeHtml(bp.service.motif)+' — '+escapeHtml(bp.service.description)+(bp.service.refRemplacement?' · remplacement : '+escapeHtml(bp.service.refRemplacement):'')+(bp.facturable===false?' · non facturable':'')+'</div>' : '')+
       (bp.statut==='pret' && !(sortieExigeAdmin(bp) && !state.isAdmin) ?
         '<div id="bpZoneForm-'+escapeHtml(bp.numero)+'" style="display:none;width:100%;margin-top:6px;padding:8px;border:1px solid var(--line-strong);border-radius:9px;background:#fff;">'+
           '<div class="hint" style="margin-bottom:6px;">La marchandise doit avoir réellement quitté son emplacement de stock.</div>'+
           (sortieDemandeZone(bp) ? '<div class="field"><label>Zone où la marchandise est déposée</label><select id="bpZone-'+escapeHtml(bp.numero)+'">'+getZonesSortie().map(function(z){ return '<option value="'+escapeHtml(z)+'">'+escapeHtml(z)+'</option>'; }).join('')+'</select></div>' : '')+
           '<button class="btn accent bp-confirmer-sortie" data-num="'+escapeHtml(bp.numero)+'" style="width:100%;">Confirmer la sortie</button></div>' : '')+
+      blocPreparationHtml(bp)+
       '<div id="bpMsgLigne-'+escapeHtml(bp.numero)+'" style="width:100%;font-size:12px;"></div></div>';
   }).join('') : '<div class="hint">Aucun Bon de Préparation pour l\'instant.</div>';
 
@@ -5243,6 +5405,7 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
       banner('BL '+bl.numero+' créé depuis '+num);
     });
   });
+  lierPreparationBP(box, function(){ renderHistory(); renderBPPanel(idx, contremarqueNom, true, cmId); });
 }
 
 // ---------- panneau Bons de Livraison d'une fiche contremarque ----------
@@ -9437,6 +9600,7 @@ function switchTab(name){
     renderToRangeList();
   }
   if(name==='hist'){
+    renderDecisionsPreparation();
     if(!cameraAvailable()){
       document.getElementById('moveScanUnavailable').style.display = 'block';
       document.getElementById('btnMoveScanStart').style.display = 'none';
@@ -9716,7 +9880,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0094';
+var APP_VERSION = '2026.0095';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
