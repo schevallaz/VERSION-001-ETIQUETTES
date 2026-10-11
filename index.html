@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0095">
+<meta name="app-version" content="2026.0096">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -209,6 +209,16 @@
         <button class="btn primary" id="btnAccessAgencySubmit" style="width:100%;">Valider</button>
       </div>
     </div>
+  </div>
+</div>
+<div id="prepOverlay" style="display:none;position:fixed;inset:0;background:#f6f5f0;z-index:70;overflow-y:auto;">
+  <div style="max-width:560px;margin:0 auto;padding:12px 12px 40px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
+      <h2 id="prepTitre" style="margin:0;font-size:19px;"></h2>
+      <button class="btn ghost" id="btnPrepFermer" style="width:auto;padding:6px 12px;">✕ Fermer</button>
+    </div>
+    <div id="prepMeta" class="hint" style="margin:0 0 10px;"></div>
+    <div id="prepCorps"></div>
   </div>
 </div>
 <div id="qrLandingOverlay" style="display:none;position:fixed;inset:0;background:rgba(20,20,18,0.6);z-index:60;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;">
@@ -2146,6 +2156,13 @@ function messageResultatPreparation(res){
   return 'Préparation validée';
 }
 function lierPreparationBP(racine, apres){
+  Array.prototype.forEach.call(racine.querySelectorAll('.bp-ouvrir-prep'), function(btn){ btn.addEventListener('click', function(){ prepOuvrir(btn.getAttribute('data-num')); }); });
+  Array.prototype.forEach.call(racine.querySelectorAll('.bp-ordre'), function(sel){
+    sel.addEventListener('change', async function(){
+      try{ await bpColRef.doc(sel.getAttribute('data-num')).set({ ordrePrelevement:sel.value }, { merge:true }); banner('Ordre de prélèvement de ce bon : '+(sel.value==='ZA' ? 'de Z à A' : 'de A à Z')); }
+      catch(e){ console.error(e); banner('Enregistrement impossible'); }
+    });
+  });
   Array.prototype.forEach.call(racine.querySelectorAll('.bp-valider-prep'), function(btn){
     btn.addEventListener('click', function(){ var ligne = btn.closest('.sub'); var f = ligne && ligne.querySelector('.bp-prep-bloc'); if(f) f.style.display = f.style.display==='block' ? 'none' : 'block'; });
   });
@@ -2191,6 +2208,172 @@ function renderDecisionsPreparation(){
     return '<div class="sub" style="padding:6px 0;border-top:1px solid var(--line);"><strong>'+escapeHtml(bp.numero)+'</strong> — '+escapeHtml(bp.contremarque||'')+' · '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+(bp.lignes||[]).length+' commande(s)'+blocDecisionHtml(bp)+'</div>';
   }).join('');
   lierPreparationBP(liste, function(){ renderDecisionsPreparation(); renderHistory(); });
+}
+
+
+// ================= Préparation guidée sur smartphone (QR du bon de préparation) =================
+var ordreDepotCache = 'AZ';
+var prepEtat = null, prepStream = null, prepRAF = null, prepDernierScan = { text:'', time:0 }, prepMinuteur = null;
+function bpPreparationUrl(numero){ var p = new URLSearchParams(); p.set('bp', numero); if(state.currentAgencyCode) p.set('ag', state.currentAgencyCode); return appBaseUrl()+'?'+p.toString(); }
+function bpModifiable(bp){ return (bp.statut==='brouillon' || bp.statut==='pret') && !decisionEnAttente(bp); }
+function selecteurOrdreHtml(bp){
+  if(!bpModifiable(bp)) return '';
+  var v = (bp.ordrePrelevement==='AZ' || bp.ordrePrelevement==='ZA') ? bp.ordrePrelevement : ordreDepotCache;
+  return '<select class="bp-ordre" data-num="'+escapeHtml(bp.numero)+'" title="Ordre de prélèvement de ce bon (papier et smartphone)" style="padding:3px 6px;font-size:12px;border-radius:8px;border:1px solid var(--line-strong);background:#fff;"><option value="AZ"'+(v==='AZ' ? ' selected' : '')+'>Ordre : A → Z</option><option value="ZA"'+(v==='ZA' ? ' selected' : '')+'>Ordre : Z → A</option></select>';
+}
+function boutonSmartphoneHtml(bp){
+  if(!bpModifiable(bp)) return '';
+  return '<button class="btn accent bp-ouvrir-prep" data-num="'+escapeHtml(bp.numero)+'" style="padding:4px 10px;font-size:12px;">📱 Préparer sur smartphone</button>';
+}
+function prepCle(r){ return (r.commandeId || '')+'|'+(r.itemId || r.label); }
+function prepNonPointees(){ return prepEtat.rows.filter(function(r){ return !prepEtat.pointage[prepCle(r)]; }); }
+function prepMessageEtat(titre, texte){ document.getElementById('prepCorps').innerHTML = '<div class="card"><h2>'+escapeHtml(titre)+'</h2><p class="hint" style="margin:0;">'+texte+'</p></div>'; }
+async function prepOuvrir(numero){
+  var ov = document.getElementById('prepOverlay'); ov.style.display = 'block'; ov.scrollTop = 0;
+  document.getElementById('prepTitre').textContent = 'Préparation '+numero; document.getElementById('prepMeta').textContent = '';
+  document.getElementById('prepCorps').innerHTML = '<div class="hint">Chargement…</div>'; prepEtat = null;
+  if(!(fsReady() && bpColRef)){ prepMessageEtat('Connexion indisponible', 'Impossible de lire le bon de préparation.'); return; }
+  var bp = await lireBP(numero);
+  if(!bp){ prepMessageEtat('Bon introuvable', 'Le bon de préparation « '+escapeHtml(numero)+' » n\'existe pas dans ce dépôt.'); return; }
+  if(decisionEnAttente(bp)){ prepMessageEtat('Décision en attente', 'Ce bon est terminé et attend la décision d\'un administrateur : il ne peut plus être modifié ici.'); return; }
+  if(bp.statut==='sorti'){ prepMessageEtat('Préparation déjà validée', 'Ce bon est déjà sorti'+(bp.blNumero ? ' — BL '+escapeHtml(bp.blNumero) : '')+'.'); return; }
+  if(bp.statut!=='brouillon' && bp.statut!=='pret'){ prepMessageEtat('Bon non préparable', 'Statut : '+escapeHtml(BP_STATUT_LABEL[bp.statut]||bp.statut)+'.'); return; }
+  var rows = await lignesPrelevementBP(bp), pt = {};
+  rows.forEach(function(r){ var k = prepCle(r); if(bp.pointage && bp.pointage[k]) pt[k] = bp.pointage[k]; });
+  prepEtat = { numero:numero, bp:bp, rows:rows, ordre:rows.ordre, pointage:pt };
+  document.getElementById('prepMeta').textContent = (bp.contremarque||'')+' · '+(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+rows.length+' ligne(s)';
+  prepSquelette(); prepDessinerLignes(); prepMajOrdre(); prepMajProgress(); prepMajFin();
+}
+function prepSquelette(){
+  var bp = prepEtat.bp;
+  document.getElementById('prepCorps').innerHTML =
+    '<div style="display:flex;gap:8px;margin-bottom:10px;"><button class="btn ghost prep-ordre" data-ordre="AZ" style="flex:1;">De A à Z</button><button class="btn ghost prep-ordre" data-ordre="ZA" style="flex:1;">De Z à A</button></div>'+
+    '<div id="prepProgress" style="margin-bottom:10px;"></div>'+
+    '<div class="card" style="margin-bottom:10px;"><div style="display:flex;gap:6px;"><input type="text" id="prepScanInput" placeholder="Étiquette : scanner ou saisir (ex. R000123 P1)" style="flex:1;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;"><button class="btn accent" id="btnPrepScanOk" style="width:auto;">OK</button></div>'+
+    '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;">'+(cameraAvailable() ? '<button class="btn ghost" id="btnPrepCam" style="width:auto;">📷 Scanner avec la caméra</button><button class="btn ghost" id="btnPrepCamStop" style="width:auto;display:none;">⏹ Arrêter</button>' : '')+'<span id="prepScanMsg" style="font-size:13px;"></span></div>'+
+    '<div id="prepScanWrap" style="display:none;margin-top:8px;"><video id="prepScanVideo" playsinline muted style="width:100%;border-radius:10px;background:#000;"></video><canvas id="prepScanCanvas" style="display:none;"></canvas></div></div>'+
+    '<div id="prepLignes"></div>'+
+    '<div class="card" id="prepFin"><h2>Fin de préparation</h2><div id="prepFinInfo" class="hint" style="margin:0 0 8px;font-weight:600;"></div>'+
+    '<label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;"><input type="checkbox" id="prepRas" style="width:22px;height:22px;"> Fin de préparation RAS</label>'+
+    '<div class="field" style="margin-bottom:8px;"><label>Ou commentaire en cas de problème (marchandise abîmée, manquante…)</label><textarea id="prepCom" rows="3" style="width:100%;padding:8px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:14px;"></textarea><div class="hint" style="margin:3px 0 0;">Avec un commentaire, un administrateur décide du départ.</div></div>'+
+    (sortieDemandeZone(bp) ? '<div class="field" style="margin-bottom:8px;"><label>Zone où la marchandise est déposée</label>'+zonesSelectHtml('prep-zone')+'</div>' : '')+
+    '<button class="btn primary" id="btnPrepValider" style="width:100%;">🏁 Valider la préparation</button><div id="prepMsg" style="margin-top:6px;font-size:13px;"></div></div>';
+  Array.prototype.forEach.call(document.querySelectorAll('.prep-ordre'), function(b){ b.addEventListener('click', function(){ prepChangerOrdre(b.getAttribute('data-ordre')); }); });
+  document.getElementById('btnPrepScanOk').addEventListener('click', function(){ var i = document.getElementById('prepScanInput'); var t = i.value; i.value = ''; prepTraiterTexte(t); i.focus(); });
+  document.getElementById('prepScanInput').addEventListener('keydown', function(ev){ if(ev.key==='Enter'){ ev.preventDefault(); document.getElementById('btnPrepScanOk').click(); } });
+  var cam = document.getElementById('btnPrepCam'); if(cam){ cam.addEventListener('click', prepStartScan); document.getElementById('btnPrepCamStop').addEventListener('click', prepStopScan); }
+  document.getElementById('prepRas').addEventListener('change', function(){ var t = document.getElementById('prepCom'); t.disabled = this.checked; if(this.checked) t.value = ''; });
+  document.getElementById('btnPrepValider').addEventListener('click', prepValider);
+}
+function prepDessinerLignes(){
+  var el = document.getElementById('prepLignes'); if(!el || !prepEtat) return;
+  el.innerHTML = prepEtat.rows.map(function(r, i){
+    var ok = !!prepEtat.pointage[prepCle(r)];
+    return '<div class="prep-ligne" data-cle="'+escapeHtml(prepCle(r))+'" style="display:flex;align-items:center;gap:12px;padding:12px;border:2px solid '+(ok ? '#0f6e56' : 'var(--line-strong)')+';border-radius:12px;margin-bottom:8px;background:'+(ok ? '#e6f5ee' : '#fff')+';cursor:pointer;">'+
+      '<div style="flex-shrink:0;width:36px;height:36px;border-radius:50%;border:2px solid '+(ok ? '#0f6e56' : '#9ca3af')+';background:'+(ok ? '#0f6e56' : '#fff')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:800;">'+(ok ? '✓' : '')+'</div>'+
+      '<div style="flex:1;min-width:0;"><div style="font-size:23px;font-weight:800;letter-spacing:.5px;line-height:1.1;">'+escapeHtml(r.emp==='—' ? 'Sans emplacement' : r.emp)+'</div><div style="font-size:14px;margin-top:2px;">'+escapeHtml(r.label)+' · '+escapeHtml(r.unite)+'</div><div class="hint" style="margin:2px 0 0;">'+escapeHtml(r.fournisseur||'')+(r.jours!=null ? ' · '+r.jours+' j en stock' : '')+'</div></div>'+
+      '<div style="flex-shrink:0;color:var(--ink-soft);font-size:12px;">'+(i+1)+'/'+prepEtat.rows.length+'</div></div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('.prep-ligne'), function(d){ d.addEventListener('click', function(){ prepBasculer(d.getAttribute('data-cle')); }); });
+}
+function prepMajProgress(){
+  var n = prepEtat.rows.length, ok = n - prepNonPointees().length, pct = n ? Math.round(ok / n * 100) : 0;
+  document.getElementById('prepProgress').innerHTML = '<div style="display:flex;justify-content:space-between;font-weight:700;margin-bottom:4px;"><span>'+ok+' / '+n+' ligne(s) pointée(s)</span><span>'+pct+' %</span></div><div style="height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:#0f6e56;"></div></div>';
+}
+function prepMajOrdre(){ Array.prototype.forEach.call(document.querySelectorAll('.prep-ordre'), function(b){ var on = b.getAttribute('data-ordre')===prepEtat.ordre; b.style.background = on ? '#1f2937' : '#fff'; b.style.color = on ? '#fff' : 'var(--ink)'; b.style.fontWeight = on ? '700' : '500'; }); }
+function prepMajFin(){
+  var np = prepNonPointees(), ras = document.getElementById('prepRas'), com = document.getElementById('prepCom');
+  document.getElementById('prepFinInfo').innerHTML = np.length ? '⚠️ '+np.length+' ligne(s) non pointée(s) : la case RAS est indisponible, un commentaire est obligatoire.' : '✅ Toutes les lignes sont pointées.';
+  document.getElementById('prepFinInfo').style.color = np.length ? 'var(--danger)' : 'var(--accent)';
+  ras.disabled = np.length > 0; if(np.length){ ras.checked = false; com.disabled = false; }
+}
+function prepSauverPointage(immediat){
+  clearTimeout(prepMinuteur);
+  var e = prepEtat; if(!e) return Promise.resolve();
+  var ecrire = function(){ return bpColRef.doc(e.numero).set({ pointage:e.pointage }, { merge:true }).catch(function(err){ console.error('pointage', err); }); };
+  if(immediat) return ecrire();
+  prepMinuteur = setTimeout(ecrire, 350); return Promise.resolve();
+}
+function prepBasculer(cle){
+  if(!prepEtat) return;
+  if(prepEtat.pointage[cle]) delete prepEtat.pointage[cle]; else prepEtat.pointage[cle] = { par:currentIdentity(), le:new Date().toISOString() };
+  prepDessinerLignes(); prepMajProgress(); prepMajFin(); prepSauverPointage(false);
+}
+async function prepChangerOrdre(v){
+  if(!prepEtat || (v!=='AZ' && v!=='ZA')) return;
+  prepEtat.ordre = v; prepEtat.rows.sort(comparateurPrelevement(v)); prepEtat.rows.ordre = v;
+  prepDessinerLignes(); prepMajOrdre();
+  try{ await bpColRef.doc(prepEtat.numero).set({ ordrePrelevement:v }, { merge:true }); }catch(e){ console.error(e); }
+}
+function prepFlash(cle){ var d = document.querySelector('.prep-ligne[data-cle="'+(window.CSS && CSS.escape ? CSS.escape(cle) : cle)+'"]'); if(d && d.scrollIntoView) d.scrollIntoView({ block:'center', behavior:'smooth' }); }
+function prepMsgScan(t, ok){ var m = document.getElementById('prepScanMsg'); if(m){ m.textContent = t; m.style.color = ok ? 'var(--accent)' : 'var(--danger)'; m.style.fontWeight = '600'; } }
+function prepTraiterTexte(text){
+  if(!prepEtat) return; text = String(text||'').trim(); if(!text) return;
+  var ln = null, item = null;
+  try{ var u = new URL(text); ln = u.searchParams.get('r'); item = u.searchParams.get('item'); }catch(e){}
+  if(!ln){ var m = text.toUpperCase().match(/^(R\d+)(?:[\s\/:_-]+([PVU]\d+))?$/); if(m){ ln = m[1]; item = m[2] || null; } }
+  if(!ln){ prepMsgScan('Code non reconnu : scanne une étiquette de commande', false); return; }
+  ln = ln.toUpperCase(); item = item ? item.toUpperCase() : null;
+  var lignes = prepEtat.rows.filter(function(r){ return String(r.label).toUpperCase()===ln && (!item || String(r.itemId).toUpperCase()===item); });
+  if(!lignes.length){ prepMsgScan('⚠ '+ln+(item ? ' '+item : '')+' ne fait pas partie de ce bon', false); return; }
+  var libres = lignes.filter(function(r){ return !prepEtat.pointage[prepCle(r)]; });
+  if(!libres.length){ prepMsgScan(ln+(item ? ' '+item : '')+' : déjà pointé', true); return; }
+  if(libres.length > 1 && !item){ prepMsgScan('Plusieurs articles pour '+ln+' : précise-le (ex. '+ln+' '+libres[0].itemId+')', false); return; }
+  var r = libres[0]; prepEtat.pointage[prepCle(r)] = { par:currentIdentity(), le:new Date().toISOString(), scan:true };
+  prepDessinerLignes(); prepMajProgress(); prepMajFin(); prepSauverPointage(false); prepFlash(prepCle(r)); prepMsgScan('✓ '+r.label+' · '+r.unite+' pointé ('+r.emp+')', true);
+}
+async function prepStartScan(){
+  try{ prepStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } }); }catch(e){ banner('Impossible d\'accéder à la caméra'); return; }
+  var v = document.getElementById('prepScanVideo'); v.srcObject = prepStream; await v.play();
+  document.getElementById('prepScanWrap').style.display = 'block'; document.getElementById('btnPrepCam').style.display = 'none'; document.getElementById('btnPrepCamStop').style.display = ''; prepScanBoucle();
+}
+function prepStopScan(){
+  if(prepRAF){ cancelAnimationFrame(prepRAF); prepRAF = null; }
+  if(prepStream){ prepStream.getTracks().forEach(function(t){ t.stop(); }); prepStream = null; }
+  var w = document.getElementById('prepScanWrap'); if(w) w.style.display = 'none';
+  var a = document.getElementById('btnPrepCam'), b = document.getElementById('btnPrepCamStop'); if(a) a.style.display = ''; if(b) b.style.display = 'none';
+}
+function prepScanBoucle(){
+  var v = document.getElementById('prepScanVideo'), c = document.getElementById('prepScanCanvas'); if(!v || !c) return;
+  if(v.readyState === v.HAVE_ENOUGH_DATA && v.videoWidth){
+    var w = 420, h = Math.round(v.videoHeight * (w / v.videoWidth)) || 320; c.width = w; c.height = h;
+    var ctx = c.getContext('2d'); ctx.drawImage(v, 0, 0, w, h); var code = null;
+    try{ code = window.jsQR(ctx.getImageData(0, 0, w, h).data, w, h); }catch(e){}
+    if(code && code.data){ var now = Date.now(); if(code.data !== prepDernierScan.text || (now - prepDernierScan.time) > 2500){ prepDernierScan = { text:code.data, time:now }; prepTraiterTexte(code.data); } }
+  }
+  prepRAF = requestAnimationFrame(prepScanBoucle);
+}
+async function prepValider(){
+  var e = prepEtat; if(!e) return;
+  var btn = document.getElementById('btnPrepValider'), msg = document.getElementById('prepMsg'), np = prepNonPointees();
+  var ras = document.getElementById('prepRas').checked && !np.length, com = document.getElementById('prepCom').value.trim();
+  var zsel = document.querySelector('#prepFin .prep-zone');
+  if(np.length){
+    if(com.length < 5){ msg.textContent = '⚠️ Des lignes ne sont pas pointées : saisis un commentaire (marchandise manquante, abîmée…).'; msg.style.color = 'var(--danger)'; return; }
+    com += '\n[Lignes non pointées : '+np.map(function(r){ return r.label+' '+r.unite+' ('+r.emp+')'; }).join(', ')+']';
+  }
+  var opts = { ras:ras, commentaire:com, zone:zsel ? zsel.value : '' };
+  if(!ras && state.isAdmin && confirm('Tu es administrateur : autoriser le départ malgré ce commentaire ?\n\n« '+com+' »\n\nOK = le bon part en livraison maintenant ; Annuler = il reste à décider.')) opts.autoriserParAdmin = true;
+  btn.disabled = true; await prepSauverPointage(true);
+  var res = await validerPreparation(e.numero, opts);
+  if(!res.ok){ msg.textContent = '⚠️ '+res.motif; msg.style.color = 'var(--danger)'; btn.disabled = false; return; }
+  prepStopScan(); var texte = messageResultatPreparation(res);
+  document.getElementById('prepCorps').innerHTML = '<div class="card"><h2>'+(res.attente ? '⏳ Envoyée à un administrateur' : '✅ Préparation validée')+'</h2><p style="margin:0 0 10px;">'+escapeHtml(texte)+'</p><button class="btn primary" id="btnPrepTermine" style="width:100%;">Terminer</button></div>';
+  document.getElementById('btnPrepTermine').addEventListener('click', prepFermer);
+  banner(texte); renderHistory(); renderDecisionsPreparation();
+}
+function prepFermer(){
+  prepStopScan(); clearTimeout(prepMinuteur);
+  if(prepEtat){ var e = prepEtat; prepEtat = null; try{ bpColRef.doc(e.numero).set({ pointage:e.pointage }, { merge:true }); }catch(err){} }
+  document.getElementById('prepOverlay').style.display = 'none';
+  if(window.history && window.history.replaceState && /[?&]bp=/.test(location.search)) window.history.replaceState({}, '', location.pathname);
+}
+document.getElementById('btnPrepFermer').addEventListener('click', prepFermer);
+async function tryShowPreparationLanding(){
+  var params = new URLSearchParams(location.search), bpParam = params.get('bp'); if(!bpParam) return;
+  var ag = params.get('ag');
+  if(ag && state.currentAgencyCode && ag !== state.currentAgencyCode){ banner('Ce bon est celui du dépôt '+ag+' (tu es sur le dépôt '+state.currentAgencyCode+') : change de dépôt puis scanne de nouveau le QR code'); return; }
+  await prepOuvrir(bpParam);
 }
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; bpDetails = {}; }
@@ -5109,17 +5292,17 @@ async function lignesPrelevementBP(bp, ordreDemande){
   for(var i=0;i<bp.lignes.length;i++){
     var l = bp.lignes[i];
     var rec = await getReceptionRecord(l.commandeId);
-    if(!rec){ rows.push({ emp:'—', label:l.labelNumber||l.commandeId, unite:'(commande introuvable)', fournisseur:l.fournisseur||'', entree:'', jours:null }); continue; }
+    if(!rec){ rows.push({ emp:'—', label:l.labelNumber||l.commandeId, unite:'(commande introuvable)', fournisseur:l.fournisseur||'', entree:'', jours:null, commandeId:l.commandeId, itemId:'' }); continue; }
     var metas = computeLabels(rec.data), emps = rec.data.emplacements || {};
     var entree = rec.data.receivedAt || rec.data.date || '';
     var fin = rec.data.exitedAt ? String(rec.data.exitedAt).slice(0,10) : todayISO(); // une fois sortie, la durée s'arrête à la sortie
     l.itemIds.forEach(function(it){
       var m = metas.find(function(x){ return x.itemId===it; }) || {};
       rows.push({ emp: emps[it] || rec.data.emplacement || '—', label: l.labelNumber||rec.data.labelNumber||'', unite: m.posLabel || it,
-        fournisseur: l.fournisseur || rec.data.fournisseur || '', entree: entree, jours: joursEntreDates(entree, fin) });
+        fournisseur: l.fournisseur || rec.data.fournisseur || '', entree: entree, jours: joursEntreDates(entree, fin), commandeId: l.commandeId, itemId: it });
     });
   }
-  var ordre = ordreDemande || await lireOrdrePrelevement();
+  var ordre = ordreDemande || ((bp.ordrePrelevement==='AZ' || bp.ordrePrelevement==='ZA') ? bp.ordrePrelevement : await lireOrdrePrelevement());   // ordre choisi pour ce bon, sinon réglage du dépôt
   rows.sort(comparateurPrelevement(ordre)); rows.ordre = ordre;   // l'ordre utilisé est conservé pour l'afficher sur le bon
   return rows;
 }
@@ -5136,6 +5319,7 @@ function dessinerBonPreparation(bp, rows){
   }
   function texte(t, x, y, o){ o = o||{}; doc.setFont('helvetica', o.bold?'bold':'normal'); doc.setFontSize(o.size||10); doc.setTextColor.apply(doc, o.color||[28,28,26]); doc.text(String(t), x, y, o.align?{align:o.align}:undefined); }
   function etiquette(t, x, y){ texte(t, x, y, { size:7.5, color:GRIS }); }
+  function tronquerFont(t, maxW, gras, taille){ doc.setFont('helvetica', gras ? 'bold' : 'normal'); doc.setFontSize(taille); return tronquer(t, maxW); }
 
   // ----- en-tête -----
   texte('BON DE PRÉPARATION', M, 16, { bold:true, size:18 });
@@ -5146,11 +5330,13 @@ function dessinerBonPreparation(bp, rows){
   etiquette('CONTREMARQUE', M, y); texte(bp.contremarque||'—', M, y+5.5, { bold:true, size:13 });
   var adr = [cm.adresse1, [cm.cp, cm.ville].filter(Boolean).join(' '), cm.tel1 ? 'Tél. '+cm.tel1 : ''].filter(Boolean);
   adr.slice(0,3).forEach(function(l, i){ texte(tronquer(l, 88), M, y+11+i*4.6, { size:9, color:GRIS }); });
-  etiquette('DESTINATION', 112, y); texte(bp.destinationLibelle || libelleDestination(bp.destination), 112, y+5.5, { bold:true, size:13 });
+  etiquette('DESTINATION', 112, y); texte(tronquerFont(bp.destinationLibelle || libelleDestination(bp.destination), 54, true, 13), 112, y+5.5, { bold:true, size:13 });
   if(bp.facturable === false) texte('SORTIE NON FACTURABLE', 112, y+11, { bold:true, size:9, color:[163,45,45] });
   texte('Statut : '+statutTxt, 112, y+(bp.facturable===false?15.6:11), { size:9, color:GRIS });
-  texte('Créé le '+dateCourte(bp.createdAt)+(bp.createdPar?' par '+bp.createdPar:''), 112, y+(bp.facturable===false?20.2:15.6), { size:9, color:GRIS });
-  texte('Dépôt : '+(bp.depotNom||bp.depotCode||''), 112, y+(bp.facturable===false?24.8:20.2), { size:9, color:GRIS });
+  texte(tronquerFont('Créé le '+dateCourte(bp.createdAt)+(bp.createdPar?' par '+bp.createdPar:''), 54, false, 9), 112, y+(bp.facturable===false?20.2:15.6), { size:9, color:GRIS });
+  texte(tronquerFont('Dépôt : '+(bp.depotNom||bp.depotCode||''), 54, false, 9), 112, y+(bp.facturable===false?24.8:20.2), { size:9, color:GRIS });
+  // QR code : ouvre ce bon sur le smartphone du magasinier (connexion habituelle, puis ouverture directe)
+  try{ if(typeof QRCode !== 'undefined' && dessinerQrVectoriel(doc, bpPreparationUrl(bp.numero), W-M-28, 23, 28)) texte('Scanner pour préparer', W-M-14, 52.5, { size:6, color:GRIS, align:'center' }); }catch(e){ console.error('QR du bon de préparation', e); }
   y += 31;
 
   // ----- sortie à justifier -----
@@ -5238,6 +5424,7 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
   box.innerHTML = '<div class="hint">Chargement…</div>';
   box.style.display = 'block';
 
+  ordreDepotCache = await lireOrdrePrelevement();
   var existingBPs = await loadBonsPreparationForContremarque(cmId);
   function appartientAuDossier(h){
     if(h.deletedAt) return false;
@@ -5262,7 +5449,7 @@ async function renderBPPanel(idx, contremarqueNom, forceOpen, cmId){
     else if(bp.statut==='sorti' && bp.blNumero) actions = '<a href="livraisons.html?bl='+escapeHtml(bp.blNumero)+'" style="font-size:12px;color:var(--accent);font-weight:600;">→ BL '+escapeHtml(bp.blNumero)+'</a>';
     return '<div class="sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">'+
       '<span>'+escapeHtml(bp.numero)+' — '+escapeHtml(bp.destinationLibelle||libelleDestination(bp.destination))+' · '+nb+' commande(s) · '+lbl+'</span>'+
-      '<span style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn ghost bp-imprimer" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">🖨️ PDF</button>'+boutonPreparationHtml(bp)+(decisionEnAttente(bp) ? '' : actions)+'</span>'+
+      '<span style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn ghost bp-imprimer" data-num="'+bp.numero+'" style="padding:4px 10px;font-size:12px;">🖨️ PDF</button>'+selecteurOrdreHtml(bp)+boutonSmartphoneHtml(bp)+boutonPreparationHtml(bp)+(decisionEnAttente(bp) ? '' : actions)+'</span>'+
       (bp.service ? '<div style="width:100%;font-size:12px;color:var(--ink-soft);">🛠️ '+escapeHtml(bp.service.motif)+' — '+escapeHtml(bp.service.description)+(bp.service.refRemplacement?' · remplacement : '+escapeHtml(bp.service.refRemplacement):'')+(bp.facturable===false?' · non facturable':'')+'</div>' : '')+
       (bp.statut==='pret' && !(sortieExigeAdmin(bp) && !state.isAdmin) ?
         '<div id="bpZoneForm-'+escapeHtml(bp.numero)+'" style="display:none;width:100%;margin-top:6px;padding:8px;border:1px solid var(--line-strong);border-radius:9px;background:#fff;">'+
@@ -9880,7 +10067,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0095';
+var APP_VERSION = '2026.0096';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
@@ -10207,6 +10394,7 @@ async function loadAgencyDataAndShowApp(){
   updateAgencyCodeLine();
   updateEmailTemplateFields();
   tryShowQrLanding();
+  tryShowPreparationLanding();
   applyPendingNewCdeFromFiche();
   notifierFichesRecues();
 }
