@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0099">
+<meta name="app-version" content="2026.0100">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -2443,7 +2443,7 @@ function creerAppartient(h, cm){ if(h.deletedAt) return false; if(h.contremarque
 function creerEntierementDisponible(h){ return isStockEntry(h) && (h.itemsDisponibles==null ? !h.bonLivraisonId : h.itemsDisponibles===h.itemsTotal); }
 function creerPartiellementAffectee(h){ return isStockEntry(h) && h.itemsDisponibles!=null && h.itemsDisponibles>0 && h.itemsDisponibles<h.itemsTotal; }
 function creerCommandesFiche(cm){ return (state.historyIndex||[]).filter(function(h){ return creerAppartient(h, cm) && (creerEntierementDisponible(h) || creerPartiellementAffectee(h)); }); }
-function creerOrphelines(){ var noms = creerFichesParNom(); return (state.historyIndex||[]).filter(function(h){ return !h.deletedAt && !h.contremarqueId && creerEntierementDisponible(h) && !noms[String(h.contremarque||'').trim().toLowerCase()]; }); }
+function creerAutresCommandes(cm){ return (state.historyIndex||[]).filter(function(h){ return !h.deletedAt && creerEntierementDisponible(h) && !creerAppartient(h, cm); }); }   // sans fiche, ou rattachées à une autre fiche
 function creerLibelleFiche(cm){ return (cm.nom||'')+(cm.prenom ? ' '+cm.prenom : ''); }
 function creerLigneCommande(h){ return '<strong>'+escapeHtml(h.labelNumber||'')+'</strong> — '+escapeHtml(h.client||'—')+(h.contremarque && h.contremarque!==h.client ? ' · '+escapeHtml(h.contremarque) : '')+'<br><span style="color:var(--ink-soft);font-size:12.5px;">'+escapeHtml(h.fournisseur||'')+' · '+escapeHtml(h.emplacement||'sans emplacement')+' · '+(h.poids ? escapeHtml(String(h.poids))+' kg · ' : '')+(h.itemsTotal||1)+' article(s)</span>'; }
 function creerOuvrir(){
@@ -2512,8 +2512,8 @@ function creerEtapeConstituer(cm){
     '<div class="btn-row" style="margin:0 0 8px;"><button class="btn ghost" id="btnCreerChangerFiche" style="width:auto;padding:6px 12px;">← Changer de fiche</button></div>'+
     '<div class="card" style="margin-bottom:10px;"><h2 style="font-size:16px;">Dans cette préparation (<span id="creerNbPanier">0</span>)</h2><div id="creerPanier"></div></div>'+
     '<div class="card" style="margin-bottom:10px;"><h2 style="font-size:16px;">Commandes en stock de cette fiche</h2><div id="creerDispo"></div></div>'+
-    '<div class="card" style="margin-bottom:10px;"><h2 style="font-size:16px;">Ajouter une autre commande en stock</h2><p class="hint" style="margin:0 0 6px;">Commandes en stock sans fiche : elles seront associées à « '+escapeHtml(creerLibelleFiche(cm))+' ».</p>'+
-    '<input type="text" id="creerRechOrph" placeholder="Rechercher : n° étiquette, client, fournisseur…" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;margin-bottom:6px;"><div id="creerOrph"></div></div>'+
+    '<div class="card" style="margin-bottom:10px;"><h2 style="font-size:16px;">Ajouter d\'autres commandes en stock</h2><p class="hint" style="margin:0 0 6px;">Commandes sans fiche ou rattachées à une autre fiche : elles seront rattachées à « '+escapeHtml(creerLibelleFiche(cm))+' » pour être préparées et livrées ensemble.</p>'+
+    '<input type="text" id="creerRechOrph" placeholder="Rechercher : n° étiquette, client, fiche, fournisseur…" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;margin-bottom:6px;"><div id="creerOrph"></div></div>'+
     '<div class="card"><div class="field"><label>Destination</label><select id="creerDest">'+destinationOptionsHtml()+'</select></div>'+champsServiceHtml('creerSvc')+'<div id="creerMsgLancer" style="font-size:13px;margin-bottom:6px;"></div>'+
     '<button class="btn primary" id="btnCreerLancer" style="width:100%;" disabled>🚀 Lancer la préparation</button></div>';
   document.getElementById('btnCreerChangerFiche').addEventListener('click', function(){ creerEtapeFiche(); });
@@ -2538,16 +2538,24 @@ function creerDessinerConstitution(){
 }
 function creerDessinerOrph(){
   var el = document.getElementById('creerOrph'); if(!el || !creerEtat) return;
-  var q = (document.getElementById('creerRechOrph').value||'').trim().toLowerCase();
-  var l = creerOrphelines().filter(function(h){ return creerEtat.panier.indexOf(h.id) < 0 && (!q || ((h.labelNumber||'')+' '+(h.client||'')+' '+(h.contremarque||'')+' '+(h.fournisseur||'')).toLowerCase().indexOf(q) >= 0); });
-  el.innerHTML = l.length ? l.slice(0, 15).map(function(h){ return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);"><div style="font-size:14px;">'+creerLigneCommande(h)+'</div><button class="btn ghost creer-associer" data-id="'+escapeHtml(h.id)+'" style="width:auto;padding:6px 10px;flex-shrink:0;">Associer et ajouter</button></div>'; }).join('') + (l.length > 15 ? '<div class="hint">'+(l.length-15)+' autre(s) : affine la recherche.</div>' : '')
-    : '<div class="hint">'+(q ? 'Aucune commande sans fiche pour « '+escapeHtml(q)+' ».' : 'Aucune commande en stock sans fiche.')+'</div>';
+  var cm = creerEtat.cm, q = (document.getElementById('creerRechOrph').value||'').trim().toLowerCase();
+  var l = creerAutresCommandes(cm).map(function(h){ return { h:h, f:planFicheDe(h) }; })
+    .filter(function(x){ return creerEtat.panier.indexOf(x.h.id) < 0 && (!q || ((x.h.labelNumber||'')+' '+(x.h.client||'')+' '+(x.h.contremarque||'')+' '+(x.f ? creerLibelleFiche(x.f) : '')+' '+(x.h.fournisseur||'')).toLowerCase().indexOf(q) >= 0); })
+    .sort(function(a, b){ return (!!a.f - !!b.f) || String(a.f ? a.f.nom : (a.h.contremarque||'')).localeCompare(String(b.f ? b.f.nom : (b.h.contremarque||'')), 'fr', { numeric:true }) || String(a.h.labelNumber||'').localeCompare(String(b.h.labelNumber||'')); });
+  el.innerHTML = l.length ? l.slice(0, 20).map(function(x){
+    var h = x.h, actuelle = x.f ? 'Fiche actuelle : <strong>'+escapeHtml(creerLibelleFiche(x.f))+'</strong>' : (h.contremarque ? 'Nom saisi : « '+escapeHtml(h.contremarque)+' » (aucune fiche)' : 'Sans fiche');
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);"><div style="font-size:14px;">'+creerLigneCommande(h)+'<br><span style="font-size:12.5px;color:'+(x.f ? '#9a6700' : 'var(--ink-soft)')+';">'+actuelle+'</span></div>'+
+      '<button class="btn ghost creer-associer" data-id="'+escapeHtml(h.id)+'" data-ancienne="'+(x.f ? escapeHtml(creerLibelleFiche(x.f)) : '')+'" style="width:auto;padding:6px 10px;flex-shrink:0;">'+(x.f ? 'Rattacher et ajouter' : 'Associer et ajouter')+'</button></div>';
+  }).join('') + (l.length > 20 ? '<div class="hint">'+(l.length-20)+' autre(s) : affine la recherche.</div>' : '')
+    : '<div class="hint">'+(q ? 'Aucune autre commande en stock pour « '+escapeHtml(q)+' ».' : 'Aucune autre commande en stock.')+'</div>';
   Array.prototype.forEach.call(el.querySelectorAll('.creer-associer'), function(b){ b.addEventListener('click', async function(){
-    b.disabled = true; var id = b.getAttribute('data-id'), cm = creerEtat.cm;
+    var id = b.getAttribute('data-id'), ancienne = b.getAttribute('data-ancienne'), cm2 = creerEtat.cm;
     var rec = await getReceptionRecord(id); if(!rec){ banner('Commande introuvable'); return; }
-    rec.data.contremarque = cm.nom; rec.data.contremarqueId = cm.id; await saveReceptionRecord(id, rec);
+    if(ancienne && !confirm('La commande '+(rec.data.labelNumber||'')+' est rattachée à la fiche « '+ancienne+' ».\n\nLa rattacher à « '+creerLibelleFiche(cm2)+' » pour la préparer et la livrer avec les autres commandes ?')) return;
+    b.disabled = true;
+    rec.data.contremarque = cm2.nom; rec.data.contremarqueId = cm2.id; await saveReceptionRecord(id, rec);
     var idx = state.historyIndex.findIndex(function(x){ return x.id===id; }); if(idx >= 0) state.historyIndex[idx] = recordToIndexEntry(rec);
-    banner('Commande associée à la fiche « '+creerLibelleFiche(cm)+' »'); creerEtat.panier.push(id); creerDessinerConstitution();
+    banner('Commande rattachée à la fiche « '+creerLibelleFiche(cm2)+' »'); creerEtat.panier.push(id); creerDessinerConstitution();
   }); });
 }
 async function creerLancer(){
@@ -10345,7 +10353,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0099';
+var APP_VERSION = '2026.0100';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
