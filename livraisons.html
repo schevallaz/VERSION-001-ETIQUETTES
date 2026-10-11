@@ -240,7 +240,7 @@
         <div style="display:flex;flex-direction:column;gap:8px;">
           <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-source" value="occasionnel" style="width:17px;height:17px;">Client occasionnel (saisie libre)</label>
           <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-source" value="tms_groupe" style="width:17px;height:17px;">TMS de notre groupe</label>
-          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-source" value="partenaire" style="width:17px;height:17px;">Partenaire régulier</label>
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:0;"><input type="radio" name="col-source" value="partenaire" style="width:17px;height:17px;">Partenaire régulier ou client (Gestion Clients)</label>
         </div>
       </div>
       <div id="col-source-fields"></div>
@@ -406,7 +406,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0029';
+var APP_VERSION = '2026.0030';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -3064,13 +3064,14 @@ function wirePreuvesPanel(container){
 
 // ================= Collecte marchandise (source externe/TMS/partenaire → livraison directe, retour dépôt, ou regroupement) =================
 async function loadBaseForCollecte(){
-  state.base = { partenaires: [], contremarques: [], livreurs: [], vehicules: [] };
+  state.base = { partenaires: [], clients: [], contremarques: [], livreurs: [], vehicules: [] };
   if(!fsReady() || !configDocRef) return;
   try{
     var snap = await configDocRef.get();
     if(snap.exists){
       var d = snap.data();
       state.base.partenaires = d.partenaires || [];
+      state.base.clients = d.clients || [];
       state.base.contremarques = d.contremarques || [];
       state.base.livreurs = d.livreurs || [];
       state.base.vehicules = d.vehicules || [];
@@ -3172,11 +3173,27 @@ function renderCollecteSourceFields(){
       (state.agenciesList||[]).filter(function(a){ return a.code!==state.currentAgencyCode; }).map(function(a){ return '<option value="'+a.code+'">'+a.code+' — '+escapeHtml(a.name||'')+'</option>'; }).join('')+
       '</select></div>';
   } else if(type==='partenaire'){
-    el.innerHTML = '<div class="field"><label>Partenaire</label><select id="col-src-partenaire" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
+    var part = (state.base.partenaires||[]).map(function(p, idx){ return { p:p, idx:idx }; }).sort(function(x, y){ return String(x.p.nom||'').localeCompare(String(y.p.nom||''), 'fr', { numeric:true }); });
+    var cli = (state.base.clients||[]).map(function(c, idx){ return { c:c, idx:idx }; }).filter(function(x){ return x.c && x.c.nom; }).sort(function(x, y){ return String(x.c.nom||'').localeCompare(String(y.c.nom||''), 'fr', { numeric:true }); });
+    el.innerHTML = '<div class="field"><label>Partenaire ou client</label><select id="col-src-partenaire" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+
       '<option value="">— Choisir —</option>'+
-      (state.base.partenaires||[]).map(function(p,idx){ return '<option value="'+idx+'">'+escapeHtml(p.nom)+'</option>'; }).join('')+
-      '</select></div>';
+      (part.length ? '<optgroup label="Partenaires réguliers">'+part.map(function(x){ return '<option value="p:'+x.idx+'">'+escapeHtml(x.p.nom)+'</option>'; }).join('')+'</optgroup>' : '')+
+      (cli.length ? '<optgroup label="Clients (Gestion Clients)">'+cli.map(function(x){ return '<option value="c:'+x.idx+'">'+escapeHtml(libelleClientCollecte(x.c))+(adresseClientCollecte(x.c).adresse1 ? '' : ' — ⚠ adresse à compléter')+'</option>'; }).join('')+'</optgroup>' : '')+
+      '</select></div><div id="col-src-hint" class="hint" style="margin:-4px 0 8px;"></div>';
+    document.getElementById('col-src-partenaire').addEventListener('change', majHintSourceClient);
   }
+}
+// un client de Gestion Clients : l'enseigne s'il en a une, sinon son nom ; l'adresse est lue au moment de la collecte
+function libelleClientCollecte(c){ return c.nomEntreprise && c.nomEntreprise!==c.nom ? c.nom+' ('+c.nomEntreprise+')' : c.nom; }
+function adresseClientCollecte(c){ return { adresse1:c.adresse1||'', adresse2:c.adresse2||'', cp:c.cp||'', ville:c.ville||'', tel1:c.tel1||c.contactTel1||'', tel2:c.tel2||c.contactTel2||'' }; }
+function majHintSourceClient(){
+  var v = document.getElementById('col-src-partenaire').value, h = document.getElementById('col-src-hint'); if(!h) return;
+  h.style.color = ''; h.textContent = '';
+  if(String(v).indexOf('c:')!==0) return;
+  var c = (state.base.clients||[])[parseInt(String(v).slice(2),10)]; if(!c) return;
+  var a = adresseClientCollecte(c);
+  if(a.adresse1){ h.textContent = '📍 '+[a.adresse1, [a.cp, a.ville].filter(Boolean).join(' ')].filter(Boolean).join(' — ')+(a.tel1 ? ' · '+a.tel1 : ''); }
+  else { h.textContent = '⚠ Adresse non renseignée : complète-la dans Gestion Clients › Fiche client détaillée (elle sera reprise à la prochaine collecte). Tu peux créer la collecte sans adresse.'; h.style.color = '#9a6700'; h.style.fontWeight = '600'; }
 }
 Array.prototype.forEach.call(document.querySelectorAll('input[name="col-source"]'), function(r){
   r.addEventListener('change', renderCollecteSourceFields);
@@ -3408,7 +3425,7 @@ document.getElementById('btnSaveCollecte').addEventListener('click', async funct
   if(!sourceType){ msg.textContent = 'Choisis une source'; msg.style.color='var(--danger)'; return; }
   if(!destType){ msg.textContent = 'Choisis une destination'; msg.style.color='var(--danger)'; return; }
 
-  var sourceNom = '', sourceAdresse = { adresse1:'', adresse2:'', cp:'', ville:'', tel1:'', tel2:'' }, sourceDepotCode = '', sourcePartenaireId = '';
+  var sourceNom = '', sourceAdresse = { adresse1:'', adresse2:'', cp:'', ville:'', tel1:'', tel2:'' }, sourceDepotCode = '', sourcePartenaireId = '', sourceClientCode = '';
   if(sourceType==='occasionnel'){
     sourceNom = document.getElementById('col-src-nom').value.trim();
     sourceAdresse = { adresse1: document.getElementById('col-src-adresse').value.trim(), adresse2:'', cp: document.getElementById('col-src-cp').value.trim(), ville: document.getElementById('col-src-ville').value.trim(), tel1: document.getElementById('col-src-tel').value.trim(), tel2:'' };
@@ -3419,12 +3436,19 @@ document.getElementById('btnSaveCollecte').addEventListener('click', async funct
     sourceNom = ag.name || ag.code;
     sourceAdresse = { adresse1: ag.adresse1||'', adresse2: ag.adresse2||'', cp: ag.cp||'', ville: ag.ville||'', tel1: ag.telephone||'', tel2:'' };
   } else if(sourceType==='partenaire'){
-    var pidx = document.getElementById('col-src-partenaire').value;
-    var pt = state.base.partenaires[parseInt(pidx,10)];
-    if(!pt){ msg.textContent = 'Choisis un partenaire'; msg.style.color='var(--danger)'; return; }
-    sourcePartenaireId = pt.id;
-    sourceNom = pt.nom;
-    sourceAdresse = { adresse1: pt.adresse1||'', adresse2:'', cp: pt.cp||'', ville: pt.ville||'', tel1: pt.tel1||'', tel2:'' };
+    var pidx = document.getElementById('col-src-partenaire').value, pt = null, cl = null;
+    if(String(pidx).indexOf('c:')===0) cl = (state.base.clients||[])[parseInt(String(pidx).slice(2),10)];
+    else pt = state.base.partenaires[parseInt(String(pidx).replace(/^p:/, ''),10)];
+    if(!pt && !cl){ msg.textContent = 'Choisis un partenaire ou un client'; msg.style.color='var(--danger)'; return; }
+    if(cl){   // client de Gestion Clients : l'adresse est lue maintenant, elle suit donc les compléments faits dans la fiche client
+      sourceClientCode = cl.code || '';
+      sourceNom = cl.nomEntreprise || cl.nom;
+      sourceAdresse = adresseClientCollecte(cl);
+    } else {
+      sourcePartenaireId = pt.id;
+      sourceNom = pt.nom;
+      sourceAdresse = { adresse1: pt.adresse1||'', adresse2:'', cp: pt.cp||'', ville: pt.ville||'', tel1: pt.tel1||'', tel2:'' };
+    }
   }
   if(!sourceNom){ msg.textContent = 'La source doit avoir un nom'; msg.style.color='var(--danger)'; return; }
 
@@ -3437,7 +3461,7 @@ document.getElementById('btnSaveCollecte').addEventListener('click', async funct
   var numero = await nextCollecteNumero();
   var collecte = {
     numero: numero, sourceType: sourceType, sourceNom: sourceNom, sourceAdresse: sourceAdresse,
-    sourceDepotCode: sourceDepotCode, sourcePartenaireId: sourcePartenaireId,
+    sourceDepotCode: sourceDepotCode, sourcePartenaireId: sourcePartenaireId, sourceClientCode: sourceClientCode,
     destination: destType,
     poidsEstime: poidsEstime, colisEstime: colisEstime, descriptionMarchandise: descriptionMarchandise,
     dateCollecte: dateCollecte, creneauCollecte: creneauCollecte,
