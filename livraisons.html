@@ -406,7 +406,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0028';
+var APP_VERSION = '2026.0029';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -3478,12 +3478,13 @@ document.getElementById('btnSaveCollecte').addEventListener('click', async funct
       labelNumber: labelNumber, date: dateCollecte||new Date().toISOString().slice(0,10), weekNumber: '',
       client: client, clientCode: '', fournisseur: sourceNom, transporteur: '', contremarque: '',
       nrecep: '', poids: String(poidsEstime), colis: String(colisEstime), palettes: '0', vrac: '', support: '',
-      emplacement: '', receivedAt: new Date().toISOString(), origineCollecte: numero
-    };
-    recData.journal = [evenementJournal('creation', { client:client, fournisseur:sourceNom, contremarque:'', origine:'collecte '+numero }), evenementJournal('reception', { date:recData.receivedAt })];
+      emplacement: '', origineCollecte: numero
+    };   // pas de date de réception : la marchandise n'est pas encore là. La réception reste « en attente » (comme une commande fournisseur) jusqu'au bouton « À Quai » du magasinier dans Gestion Dépôt
+    recData.journal = [evenementJournal('creation', { client:client, fournisseur:sourceNom, contremarque:'', origine:'collecte '+numero })];   // l'événement « reception » sera tracé à la validation « À Quai »
     var receptionsColRefLocal = configDocRef ? configDocRef.collection('receptions') : null;
     if(fsReady() && receptionsColRefLocal){
-      try{ await receptionsColRefLocal.add({ data: recData, savedAt: new Date().toISOString() }); }
+      try{ var recId = Date.now().toString(36)+Math.random().toString(36).slice(2,6);   // même identifiant interne que les réceptions créées par Gestion Dépôt (sans lui, aucune action n'est possible sur la commande)
+        await receptionsColRefLocal.doc(recId).set({ id: recId, savedAt: new Date().toISOString(), data: recData }); }
       catch(e){ console.error('Firestore create reception collecte error', e); }
     }
     collecte.resultReceptionLabel = labelNumber;
