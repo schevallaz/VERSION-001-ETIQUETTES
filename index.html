@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0100">
+<meta name="app-version" content="2026.0101">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -566,10 +566,18 @@
     <div class="card">
       <h2>Commandes en stock</h2>
       <div class="field" style="margin-bottom:12px;">
-        <input type="text" id="histSearch" placeholder="Rechercher : n° étiquette, client, fournisseur...">
+        <input type="text" id="histSearch" placeholder="Rechercher : n° étiquette, client, contremarque, fournisseur...">
       </div>
       <div class="btn-row" style="margin-top:0;margin-bottom:14px;">
         <button class="btn accent" id="btnInventaire">INVENTAIRE (PDF A4)</button>
+      </div>
+      <div id="stkSelBar" style="display:none;position:sticky;top:0;z-index:5;background:#fff;border:2px solid var(--accent);border-radius:12px;padding:10px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.10);">
+        <div style="font-weight:700;margin-bottom:8px;"><span id="stkSelNb">0</span> commande(s) sélectionnée(s)</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn primary" id="btnStkPrep" style="flex:2;">📋 Mettre en préparation</button>
+          <button class="btn ghost" id="btnStkTout" style="flex:1;">Tout cocher</button>
+          <button class="btn ghost" id="btnStkVider" style="flex:1;">Vider</button>
+        </div>
       </div>
       <div id="histList"></div>
     </div>
@@ -2454,7 +2462,8 @@ function creerFermer(){ document.getElementById('creerOverlay').style.display = 
 // ----- étape 1 : la fiche -----
 function creerEtapeFiche(texte){
   creerEtat.etape = 'fiche'; creerEtat.cm = null; creerEtat.panier = [];
-  document.getElementById('creerTitre').textContent = 'Mettre en préparation'; document.getElementById('creerSousTitre').textContent = '1/2 — Choisis la fiche contremarque. Une commande ne peut pas sortir sans fiche.';
+  var nbSel = (creerEtat.preselection||[]).length;
+  document.getElementById('creerTitre').textContent = 'Mettre en préparation'; document.getElementById('creerSousTitre').textContent = (nbSel ? nbSel+' commande(s) sélectionnée(s). Choisis la fiche à laquelle les rattacher : elles seront préparées et livrées ensemble.' : '1/2 — Choisis la fiche contremarque. Une commande ne peut pas sortir sans fiche.');
   document.getElementById('creerCorps').innerHTML =
     '<div class="card"><div class="field" style="margin-bottom:8px;"><input type="text" id="creerRechFiche" placeholder="Rechercher une fiche : nom, prénom, ville…" value="'+escapeHtml(texte||'')+'" style="width:100%;padding:11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;"></div>'+
     '<div id="creerListeFiches"></div></div>'+
@@ -2465,13 +2474,14 @@ function creerEtapeFiche(texte){
 }
 function creerDessinerFiches(){
   var q = (document.getElementById('creerRechFiche').value||'').trim().toLowerCase(), el = document.getElementById('creerListeFiches');
-  var fiches = (state.base.contremarques||[]).map(function(cm){ return { cm:cm, nb:creerCommandesFiche(cm).filter(creerEntierementDisponible).length }; })
+  var parIdSel = {}; (state.historyIndex||[]).forEach(function(h){ parIdSel[h.id] = h; });
+  var fiches = (state.base.contremarques||[]).map(function(cm){ return { cm:cm, nb:creerCommandesFiche(cm).filter(creerEntierementDisponible).length, sel:(creerEtat.preselection||[]).filter(function(id){ var f = parIdSel[id] ? planFicheDe(parIdSel[id]) : null; return f && f.id===cm.id; }).length }; })
     .filter(function(f){ return !q || (creerLibelleFiche(f.cm)+' '+(f.cm.ville||'')+' '+(f.cm.cp||'')).toLowerCase().indexOf(q) >= 0; })
-    .sort(function(a, b){ return (b.nb>0) - (a.nb>0) || String(a.cm.nom||'').localeCompare(String(b.cm.nom||''), 'fr', { numeric:true }); });
+    .sort(function(a, b){ return (b.sel - a.sel) || (b.nb>0) - (a.nb>0) || String(a.cm.nom||'').localeCompare(String(b.cm.nom||''), 'fr', { numeric:true }); });
   if(!fiches.length){ el.innerHTML = '<div class="hint">Aucune fiche'+(q ? ' pour « '+escapeHtml(q)+' »' : '')+'. Tu peux en créer une ci-dessous.</div>'; return; }
   el.innerHTML = fiches.slice(0, 40).map(function(f){
     return '<div class="creer-fiche" data-id="'+escapeHtml(f.cm.id)+'" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px;border:1px solid var(--line-strong);border-radius:11px;margin-bottom:7px;background:#fff;cursor:pointer;'+(f.nb ? '' : 'opacity:.6;')+'">'+
-      '<div><strong>'+escapeHtml(creerLibelleFiche(f.cm))+'</strong><br><span style="color:var(--ink-soft);font-size:12.5px;">'+escapeHtml([f.cm.cp, f.cm.ville].filter(Boolean).join(' ')||'adresse non renseignée')+'</span></div>'+
+      '<div><strong>'+escapeHtml(creerLibelleFiche(f.cm))+'</strong><br><span style="color:var(--ink-soft);font-size:12.5px;">'+escapeHtml([f.cm.cp, f.cm.ville].filter(Boolean).join(' ')||'adresse non renseignée')+'</span>'+(f.sel ? '<br><span style="color:#9a6700;font-weight:700;font-size:12.5px;">'+f.sel+' commande(s) sélectionnée(s) déjà sur cette fiche</span>' : '')+'</div>'+
       '<div style="text-align:right;font-size:13px;white-space:nowrap;">'+(f.nb ? '<strong style="font-size:17px;color:var(--accent);">'+f.nb+'</strong><br>en stock' : 'aucune<br>en stock')+'</div></div>';
   }).join('') + (fiches.length > 40 ? '<div class="hint">'+(fiches.length-40)+' autre(s) fiche(s) : affine la recherche.</div>' : '');
   Array.prototype.forEach.call(el.querySelectorAll('.creer-fiche'), function(d){ d.addEventListener('click', function(){ var cm = (state.base.contremarques||[]).find(function(c){ return c.id===d.getAttribute('data-id'); }); if(cm) creerEtapeConstituer(cm); }); });
@@ -2506,7 +2516,9 @@ async function creerCreerFiche(){
 }
 // ----- étape 2 : constituer la préparation -----
 function creerEtapeConstituer(cm){
-  creerEtat.etape = 'constituer'; creerEtat.cm = cm; creerEtat.panier = [];
+  creerEtat.etape = 'constituer'; creerEtat.cm = cm;
+  var parIdC = {}; (state.historyIndex||[]).forEach(function(h){ parIdC[h.id] = h; });
+  creerEtat.panier = (creerEtat.preselection||[]).filter(function(id){ return parIdC[id] && creerEntierementDisponible(parIdC[id]); });   // les commandes cochées dans « CDE en stock » sont déjà dans le panier
   document.getElementById('creerTitre').textContent = 'Préparation de '+creerLibelleFiche(cm); document.getElementById('creerSousTitre').textContent = '2/2 — Ajoute les commandes à préparer, choisis la destination, puis lance la préparation.';
   document.getElementById('creerCorps').innerHTML =
     '<div class="btn-row" style="margin:0 0 8px;"><button class="btn ghost" id="btnCreerChangerFiche" style="width:auto;padding:6px 12px;">← Changer de fiche</button></div>'+
@@ -2525,7 +2537,7 @@ function creerDessinerConstitution(){
   var cm = creerEtat.cm, tous = creerCommandesFiche(cm), panier = creerEtat.panier;
   var parId = {}; (state.historyIndex||[]).forEach(function(h){ parId[h.id] = h; });
   document.getElementById('creerNbPanier').textContent = panier.length;
-  document.getElementById('creerPanier').innerHTML = panier.length ? panier.map(function(id){ var h = parId[id]; if(!h) return ''; return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);"><div style="font-size:14px;">'+creerLigneCommande(h)+'</div><button class="btn ghost creer-retirer" data-id="'+escapeHtml(id)+'" style="width:auto;padding:6px 10px;flex-shrink:0;">✕</button></div>'; }).join('') : '<div class="hint">Aucune commande ajoutée pour l\'instant.</div>';
+  document.getElementById('creerPanier').innerHTML = panier.length ? panier.map(function(id){ var h = parId[id]; if(!h) return ''; var fa = creerAppartient(h, cm) ? null : planFicheDe(h); var aRat = creerAppartient(h, cm) ? '' : '<br><span style="font-size:12.5px;color:#9a6700;font-weight:600;">Sera rattachée à cette fiche ('+(fa ? 'actuellement : '+escapeHtml(creerLibelleFiche(fa)) : 'actuellement sans fiche')+')</span>'; return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);"><div style="font-size:14px;">'+creerLigneCommande(h)+aRat+'</div><button class="btn ghost creer-retirer" data-id="'+escapeHtml(id)+'" style="width:auto;padding:6px 10px;flex-shrink:0;">✕</button></div>'; }).join('') : '<div class="hint">Aucune commande ajoutée pour l\'instant.</div>';
   var dispo = tous.filter(function(h){ return panier.indexOf(h.id) < 0; });
   document.getElementById('creerDispo').innerHTML = dispo.length ? dispo.map(function(h){
     var part = creerPartiellementAffectee(h);
@@ -2563,13 +2575,20 @@ async function creerLancer(){
   if(!e || !e.panier.length) return;
   var dest = document.getElementById('creerDest').value, champs = lireChampsService('creerSvc', dest);
   if(!champs.ok){ msg.textContent = '⚠️ '+champs.message; msg.style.color = 'var(--danger)'; return; }
+  var parIdL = {}; (state.historyIndex||[]).forEach(function(h){ parIdL[h.id] = h; });
+  var aRattacher = e.panier.filter(function(id){ return parIdL[id] && !creerAppartient(parIdL[id], e.cm); });
+  if(aRattacher.length){
+    var detail = aRattacher.map(function(id){ var f = planFicheDe(parIdL[id]); return '• '+(parIdL[id].labelNumber||'')+' ('+(f ? 'fiche actuelle : '+creerLibelleFiche(f) : 'sans fiche')+')'; }).join('\n');
+    if(!confirm(aRattacher.length+' commande(s) seront rattachées à la fiche « '+creerLibelleFiche(e.cm)+' » pour être préparées et livrées ensemble :\n\n'+detail+'\n\nContinuer ?')) return;
+  }
   btn.disabled = true; btn.textContent = 'Création…';
+  for(var ri = 0; ri < aRattacher.length; ri++){ if(!(await creerRattacher(aRattacher[ri], e.cm))){ msg.textContent = '⚠️ Rattachement impossible : commande introuvable'; msg.style.color = 'var(--danger)'; btn.disabled = false; btn.textContent = '🚀 Lancer la préparation'; return; } }
   var bp = await createBonPreparation(e.cm.id, e.cm.nom, e.panier.map(function(id){ return { commandeId:id, itemIds:null }; }), dest, champs.service);
   if(bp && bp.erreur){
     var detail = (bp.conflits||[]).map(function(c){ return c.commandeId+'/'+c.itemId; }).join(' — ');
     msg.textContent = '⚠️ '+(bp.motif || 'Création refusée : une commande est déjà affectée ailleurs')+(detail ? ' ('+detail+')' : ''); msg.style.color = 'var(--danger)'; btn.disabled = false; btn.textContent = '🚀 Lancer la préparation'; return;
   }
-  e.bp = bp; creerEtapeCree();
+  e.bp = bp; selectionStock = {}; e.preselection = []; creerEtapeCree();
 }
 // ----- étape 3 : la préparation est lancée -----
 function creerEtapeCree(){
@@ -2589,6 +2608,49 @@ function creerEtapeCree(){
 }
 document.getElementById('btnCreerPrep').addEventListener('click', creerOuvrir);
 document.getElementById('btnCreerFermer').addEventListener('click', creerFermer);
+
+
+// ================= Sélection multiple dans « CDE en stock » : une préparation pour plusieurs commandes =================
+var selectionStock = {}, stkVisibles = [];
+function stkSurligner(c){ var it = c.closest('.hist-item'); if(it){ it.style.borderColor = c.checked ? 'var(--accent)' : ''; it.style.background = c.checked ? '#f1faf6' : ''; } }
+function stkMajBarre(){
+  var n = Object.keys(selectionStock).length, b = document.getElementById('stkSelBar');
+  document.getElementById('stkSelNb').textContent = n; b.style.display = n ? 'block' : 'none';
+}
+// après chaque rendu de la liste : on retire de la sélection ce qui n'est plus disponible, et on recoche ce qui l'est encore
+function stkApresRendu(){
+  var parId = {}; (state.historyIndex||[]).forEach(function(h){ parId[h.id] = h; });
+  Object.keys(selectionStock).forEach(function(id){ var h = parId[id]; if(!h || h.deletedAt || !creerEntierementDisponible(h)) delete selectionStock[id]; });
+  stkVisibles = [];
+  Array.prototype.forEach.call(document.querySelectorAll('#histList .stk-sel'), function(c){ var id = c.getAttribute('data-id'); stkVisibles.push(id); c.checked = !!selectionStock[id]; stkSurligner(c); });
+  stkMajBarre();
+}
+document.getElementById('histList').addEventListener('change', function(ev){
+  var c = ev.target.closest ? ev.target.closest('.stk-sel') : null; if(!c) return;
+  var id = c.getAttribute('data-id'); if(c.checked) selectionStock[id] = true; else delete selectionStock[id];
+  stkSurligner(c); stkMajBarre();
+});
+document.getElementById('btnStkTout').addEventListener('click', function(){ stkVisibles.forEach(function(id){ selectionStock[id] = true; }); stkApresRendu(); });
+document.getElementById('btnStkVider').addEventListener('click', function(){ selectionStock = {}; stkApresRendu(); });
+document.getElementById('btnStkPrep').addEventListener('click', function(){ creerOuvrirAvecSelection(); });
+// ouvre le parcours de préparation avec les commandes cochées déjà dans le panier
+function creerOuvrirAvecSelection(){
+  var parId = {}; (state.historyIndex||[]).forEach(function(h){ parId[h.id] = h; });
+  var ids = Object.keys(selectionStock).filter(function(id){ return parId[id] && creerEntierementDisponible(parId[id]); });
+  if(!ids.length){ banner('Aucune commande sélectionnée'); return; }
+  creerEtat = { etape:'fiche', cm:null, panier:[], bp:null, preselection:ids };
+  var ov = document.getElementById('creerOverlay'); ov.style.display = 'block'; ov.scrollTop = 0;
+  var fiches = {}; ids.forEach(function(id){ var f = planFicheDe(parId[id]); if(f) fiches[f.id] = f; });
+  var cles = Object.keys(fiches);
+  if(cles.length === 1) creerEtapeConstituer(fiches[cles[0]]);   // une seule fiche concernée : on va directement à la constitution
+  else creerEtapeFiche();                                          // aucune ou plusieurs fiches : on choisit celle de la livraison
+}
+async function creerRattacher(id, cm){
+  var rec = await getReceptionRecord(id); if(!rec) return false;
+  rec.data.contremarque = cm.nom; rec.data.contremarqueId = cm.id; await saveReceptionRecord(id, rec);
+  var idx = state.historyIndex.findIndex(function(x){ return x.id===id; }); if(idx >= 0) state.historyIndex[idx] = recordToIndexEntry(rec);
+  return true;
+}
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -8273,7 +8335,8 @@ function isPendingEntry(h){
   return !h.receivedAt;
 }
 
-function renderHistory(){
+function renderHistory(){ renderHistoryListe(); stkApresRendu(); }
+function renderHistoryListe(){
   var el = document.getElementById('histList');
   var q = (document.getElementById('histSearch').value || '').trim().toLowerCase();
   var items = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && isFullyRanged(h); });
@@ -8282,6 +8345,7 @@ function renderHistory(){
     items = items.filter(function(h){
       return (h.labelNumber||'').toLowerCase().indexOf(q)>=0 ||
         (h.client||'').toLowerCase().indexOf(q)>=0 ||
+        (h.contremarque||'').toLowerCase().indexOf(q)>=0 ||
         (h.fournisseur||'').toLowerCase().indexOf(q)>=0 ||
         (h.transporteur||'').toLowerCase().indexOf(q)>=0;
     });
@@ -8302,7 +8366,7 @@ function renderHistory(){
     var cmLinked = h.contremarqueId ? (state.base.contremarques||[]).find(function(c){ return c.id===h.contremarqueId; }) : findContremarqueProfile(h.contremarque);
     var cmBtnLabel = cmLinked ? 'Mettre en Préparation' : 'Mettre en Préparation (lier d\'abord)';
     return '<div class="hist-item" data-id="'+h.id+'" data-labelnumber="'+(h.labelNumber||'')+'">'+
-      '<div class="hd"><span class="nom">'+numBadge+nameLine+avarieBadge+mailBadge+'</span><span class="date">'+fmtDate(h.receivedAt||h.date)+'</span></div>'+
+      '<div class="hd"><span class="nom">'+(creerEntierementDisponible(h) ? '<input type="checkbox" class="stk-sel" data-id="'+h.id+'" title="Sélectionner pour une préparation groupée" style="width:22px;height:22px;margin-right:8px;vertical-align:middle;">' : '')+numBadge+nameLine+avarieBadge+mailBadge+'</span><span class="date">'+fmtDate(h.receivedAt||h.date)+'</span></div>'+
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+(blBadge?' · '+blBadge:'')+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
@@ -10353,7 +10417,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0100';
+var APP_VERSION = '2026.0101';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
