@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0104">
+<meta name="app-version" content="2026.0105">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -210,6 +210,9 @@
       </div>
     </div>
   </div>
+</div>
+<div id="supprOverlay" style="display:none;position:fixed;inset:0;background:rgba(20,20,20,.55);z-index:95;overflow-y:auto;padding:16px;">
+  <div style="max-width:470px;margin:20px auto;background:#fff;border-radius:14px;padding:18px;box-shadow:0 6px 30px rgba(0,0,0,.3);"><div id="supprCorps"></div></div>
 </div>
 <div id="creerOverlay" style="display:none;position:fixed;inset:0;background:#f6f5f0;z-index:70;overflow-y:auto;">
   <div style="max-width:560px;margin:0 auto;padding:12px 12px 40px;">
@@ -970,6 +973,8 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="nettoyagebl" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧹</div><div style="font-weight:700;color:var(--ink);">Nettoyage des BL</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="ordreprelevement" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧭</div><div style="font-weight:700;color:var(--ink);">Ordre de prélèvement</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="etiquettestatuts" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏷️</div><div style="font-weight:700;color:var(--ink);">Étiquette des statuts</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="codesuppression" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔐</div><div style="font-weight:700;color:var(--ink);">Mon code de suppression</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="journalsuppr" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🗑</div><div style="font-weight:700;color:var(--ink);">Journal des suppressions</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1340,6 +1345,25 @@
       <div id="etiqStatutsApercu" style="margin-bottom:12px;"></div>
       <div class="field"><label for="etiqStatutsQte">Nombre d'exemplaires</label><input type="number" id="etiqStatutsQte" min="1" max="50" value="1" inputmode="numeric"></div>
       <div class="btn-row"><button class="btn primary" id="btnEtiqStatuts" style="width:100%;">🏷️ Générer l'étiquette (PDF 100 × 150 mm)</button></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-codesuppression" style="display:none;">
+    <div class="card">
+      <h2>🔐 Mon code de suppression</h2>
+      <p class="hint" style="margin:0 0 10px;">Code à 4 chiffres, <strong>propre à chaque administrateur</strong>, demandé avant toute suppression pour garantir la traçabilité (qui a supprimé quoi, quand et pourquoi). Il est stocké chiffré : personne, pas même un autre administrateur, ne peut le lire. Code initial : <strong>1234</strong>, à changer dès la première utilisation.</p>
+      <div id="pinEtatLigne" style="margin-bottom:10px;font-weight:600;"></div>
+      <div class="field"><label for="pinAncien">Code actuel</label><input type="password" id="pinAncien" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"></div>
+      <div class="field"><label for="pinNouveau">Nouveau code (4 chiffres)</label><input type="password" id="pinNouveau" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"></div>
+      <div class="field"><label for="pinConfirm">Confirmer le nouveau code</label><input type="password" id="pinConfirm" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"></div>
+      <div class="btn-row"><button class="btn primary" id="btnPinChanger" style="width:100%;">🔐 Enregistrer mon nouveau code</button></div>
+      <div id="pinMsg" style="margin-top:8px;font-size:13px;"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-journalsuppr" style="display:none;">
+    <div class="card">
+      <h2>🗑 Journal des suppressions</h2>
+      <p class="hint" style="margin:0 0 10px;">Chaque suppression effectuée par un administrateur y est archivée avec le motif, l'auteur, la date et <strong>une copie complète des données supprimées</strong>. Ce journal ne peut ni être modifié ni être vidé depuis l'application.</p>
+      <div id="supprJournalListe"></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
@@ -2742,6 +2766,210 @@ document.getElementById('btnEtiqStatuts').addEventListener('click', function(){
   document.getElementById('etiqStatutsQte').value = q; genererEtiquetteStatuts(q);
 });
 
+
+// ================= Suppression par un administrateur : motif + code personnel + journal infalsifiable =================
+// Code à 4 chiffres PROPRE à chaque administrateur (document stls_codes_admin/<uid>, lisible par lui seul), stocké haché (PBKDF2).
+// Code initial 1234 tant que l'administrateur n'a pas défini le sien : il doit alors en choisir un à la première utilisation.
+// Chaque suppression est d'abord archivée (copie complète) dans stls_depot/<agence>/suppressions : sans archivage, rien n'est supprimé.
+var PIN_DEFAUT = '1234', PIN_ITER = 150000, PIN_ESSAIS = 3, PIN_VERROU_MIN = 5;
+function pinRef(){ return (fsReady() && currentUid()) ? db.collection('stls_codes_admin').doc(currentUid()) : null; }
+async function pinLire(){ var ref = pinRef(); if(!ref) throw { code:'indisponible' }; var sn = await ref.get(); return sn.exists ? sn.data() : null; }
+function pinHex(buf){ return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ('0'+b.toString(16)).slice(-2); }).join(''); }
+function pinDepuisHex(h){ var a = new Uint8Array(h.length/2); for(var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i*2, 2), 16); return a; }
+async function pinHacher(code, saltHex, iter){
+  var cle = await crypto.subtle.importKey('raw', new TextEncoder().encode(code+'|'+currentUid()), 'PBKDF2', false, ['deriveBits']);
+  return pinHex(await crypto.subtle.deriveBits({ name:'PBKDF2', hash:'SHA-256', salt:pinDepuisHex(saltHex), iterations:iter }, cle, 256));
+}
+async function pinEnregistrer(code){
+  var salt = pinHex(crypto.getRandomValues(new Uint8Array(16)));
+  await pinRef().set({ salt:salt, hash:await pinHacher(code, salt, PIN_ITER), iterations:PIN_ITER, algo:'PBKDF2-SHA256', majLe:new Date().toISOString(), majPar:currentIdentity(), echecs:0, verrouJusqua:'' });
+}
+// vérifie le code ; compte les échecs (3 erreurs = verrouillage de 5 minutes, conservé côté base donc valable sur tous les appareils)
+async function pinVerifier(code){
+  var doc = await pinLire(), defaut = !doc || !doc.hash, now = Date.now();
+  if(doc && doc.verrouJusqua && new Date(doc.verrouJusqua).getTime() > now) return { ok:false, verrou:true, jusqua:doc.verrouJusqua };
+  var bon = defaut ? (code === PIN_DEFAUT) : ((await pinHacher(code, doc.salt, doc.iterations||PIN_ITER)) === doc.hash);
+  if(bon){ if(doc && (doc.echecs||doc.verrouJusqua)) await pinRef().set({ echecs:0, verrouJusqua:'' }, { merge:true }); return { ok:true, defaut:defaut }; }
+  var echecs = ((doc && doc.echecs) || 0) + 1, maj = { echecs:echecs };
+  if(echecs >= PIN_ESSAIS){ maj.echecs = 0; maj.verrouJusqua = new Date(now + PIN_VERROU_MIN*60000).toISOString(); }
+  await pinRef().set(maj, { merge:true });
+  await journaliserSuppression({ type:'code_refuse', libelle:'Code de suppression erroné'+(maj.verrouJusqua ? ' — compte verrouillé '+PIN_VERROU_MIN+' min' : ''), motif:'', details:{ essai:echecs } });
+  return { ok:false, restants: maj.verrouJusqua ? 0 : PIN_ESSAIS - echecs, verrou:!!maj.verrouJusqua, jusqua:maj.verrouJusqua||'' };
+}
+function pinHeure(iso){ return new Date(iso).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); }
+function copieSansLourd(o){   // copie JSON d'un enregistrement ; un champ très volumineux (photo, PDF intégré) est remplacé par un repère
+  var c = JSON.parse(JSON.stringify(o));
+  (function nettoyer(x){ if(x && typeof x === 'object') Object.keys(x).forEach(function(k){ var v = x[k]; if(typeof v === 'string' && v.length > 60000) x[k] = '[contenu volumineux omis : '+v.length+' caractères]'; else nettoyer(v); }); })(c);
+  return c;
+}
+async function journaliserSuppression(entree){
+  if(!fsReady() || !configDocRef) return false;
+  try{
+    await configDocRef.collection('suppressions').add(Object.assign({ le:new Date().toISOString(), par:currentIdentity(), parUid:currentUid(), agence:state.currentAgencyCode||'' }, JSON.parse(JSON.stringify(entree))));
+    return true;
+  }catch(e){ console.error('journaliserSuppression', e); return false; }
+}
+// Fenêtre de confirmation : motif obligatoire + code personnel. Retourne { motif } ou null (annulé / refusé).
+// o : { titre, libelle, lignes:[html], bloque:'html' (suppression impossible), motif:'texte déjà saisi' }
+async function demanderSuppressionAdmin(o){
+  if(!state.isAdmin){ banner('Réservé aux administrateurs'); return null; }
+  if(!(window.crypto && crypto.subtle)){ banner('⚠ Navigateur sans chiffrement disponible : suppression impossible (utilise une adresse https)'); return null; }
+  var etat; try{ etat = await pinLire(); }catch(e){ banner('⚠ Code de suppression inaccessible ('+((e && e.code)||'erreur')+') : vérifie les règles de sécurité (version 7) et ta connexion'); return null; }
+  var defaut = !etat || !etat.hash, ov = document.getElementById('supprOverlay'), box = document.getElementById('supprCorps');
+  var champ = 'width:100%;padding:11px;border:1px solid var(--line-strong);border-radius:9px;font-size:16px;font-family:inherit;';
+  var entete = '<h2 style="margin:0 0 6px;font-size:18px;">🗑 '+escapeHtml(o.titre)+'</h2>'+(o.libelle ? '<div style="font-weight:700;margin-bottom:8px;">'+escapeHtml(o.libelle)+'</div>' : '')+
+    (o.lignes||[]).map(function(l){ return '<div class="hint" style="margin:3px 0;">'+l+'</div>'; }).join('');
+  if(o.bloque){
+    box.innerHTML = entete+'<div style="background:#fdf2f0;border:1px solid #f0c9c3;color:#8a2c20;border-radius:10px;padding:10px;margin:10px 0;">'+o.bloque+'</div><div class="btn-row"><button class="btn ghost" id="btnSupprAnnuler" style="width:100%;">Fermer</button></div>';
+    ov.style.display = 'block';
+    return new Promise(function(resolve){ document.getElementById('btnSupprAnnuler').addEventListener('click', function(){ ov.style.display = 'none'; resolve(null); }); });
+  }
+  box.innerHTML = entete+
+    '<div style="background:#fdf2f0;border:1px solid #f0c9c3;color:#8a2c20;border-radius:10px;padding:9px;margin:10px 0;font-size:13px;">⚠ Suppression <strong>définitive</strong>. Une copie complète des données est conservée dans le journal des suppressions (traçabilité).</div>'+
+    (o.motif ? '<div class="field"><label>Motif de la suppression</label><div style="padding:9px;background:#f6f5f0;border-radius:9px;">'+escapeHtml(o.motif)+'</div></div>'
+             : '<div class="field"><label for="supprMotif">Motif de la suppression * <span class="hint">(5 caractères minimum)</span></label><textarea id="supprMotif" rows="3" maxlength="300" style="'+champ+'"></textarea></div>')+
+    '<div class="field"><label for="supprCode">Mon code à 4 chiffres *</label><input type="password" id="supprCode" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••" style="'+champ+'letter-spacing:6px;"></div>'+
+    (defaut ? '<div style="background:#fff8e1;border:1px solid #f0dd9a;border-radius:10px;padding:9px;margin:8px 0;font-size:13px;"><strong>Première utilisation :</strong> saisis le code initial <strong>1234</strong> ci-dessus, puis choisis ton code personnel (4 chiffres, différent de 1234). Il sera demandé à chacune de tes suppressions.</div>'+
+      '<div class="field"><label for="supprNouveau">Mon nouveau code personnel *</label><input type="password" id="supprNouveau" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••" style="'+champ+'letter-spacing:6px;"></div>'+
+      '<div class="field"><label for="supprConfirm">Confirmer mon nouveau code *</label><input type="password" id="supprConfirm" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••" style="'+champ+'letter-spacing:6px;"></div>' : '')+
+    '<div class="btn-row"><button class="btn danger" id="btnSupprOk" style="flex:2;">🗑 Supprimer définitivement</button><button class="btn ghost" id="btnSupprAnnuler" style="flex:1;">Annuler</button></div><div id="supprMsg" style="margin-top:8px;font-size:13px;font-weight:600;color:var(--danger);"></div>';
+  ov.style.display = 'block'; ov.scrollTop = 0;
+  Array.prototype.forEach.call(box.querySelectorAll('input[type="password"]'), function(i){ i.addEventListener('input', function(){ i.value = i.value.replace(/\D/g, '').slice(0, 4); }); });
+  return new Promise(function(resolve){
+    var fin = function(r){ ov.style.display = 'none'; box.innerHTML = ''; resolve(r); };
+    document.getElementById('btnSupprAnnuler').addEventListener('click', function(){ fin(null); });
+    document.getElementById('btnSupprOk').addEventListener('click', async function(){
+      var bouton = this, msg = document.getElementById('supprMsg'), erreur = function(t){ msg.textContent = '⚠ '+t; };
+      var motif = o.motif || (document.getElementById('supprMotif').value||'').trim(), code = document.getElementById('supprCode').value;
+      if(motif.length < 5){ erreur('Le motif est obligatoire (5 caractères minimum).'); return; }
+      if(!/^\d{4}$/.test(code)){ erreur('Saisis ton code à 4 chiffres.'); return; }
+      var nouveau = '';
+      if(defaut){
+        nouveau = document.getElementById('supprNouveau').value;
+        if(!/^\d{4}$/.test(nouveau)){ erreur('Choisis un nouveau code de 4 chiffres.'); return; }
+        if(nouveau === PIN_DEFAUT){ erreur('Le nouveau code doit être différent du code initial 1234.'); return; }
+        if(nouveau !== document.getElementById('supprConfirm').value){ erreur('Les deux saisies du nouveau code ne correspondent pas.'); return; }
+      }
+      bouton.disabled = true; msg.textContent = '';
+      try{
+        var v = await pinVerifier(code);
+        if(!v.ok){
+          bouton.disabled = false;
+          erreur(v.verrou ? 'Trop d\'essais : saisie bloquée jusqu\'à '+pinHeure(v.jusqua)+'.' : 'Code incorrect — '+v.restants+' essai(s) restant(s) avant blocage de '+PIN_VERROU_MIN+' minutes.');
+          return;
+        }
+        if(defaut){ await pinEnregistrer(nouveau); banner('Code personnel enregistré'); }
+        fin({ motif:motif, premiereUtilisation:defaut });
+      }catch(e){ console.error('code de suppression', e); bouton.disabled = false; erreur('Vérification impossible ('+((e && e.code)||'erreur')+'). Rien n\'a été supprimé.'); }
+    });
+  });
+}
+
+// ---------- suppression d'une commande ----------
+async function analyserSuppressionCommande(id){
+  var rec = await getReceptionRecord(id); if(!rec) return null;
+  var aff = rec.data.itemAffectation || {}, bl = {}, bp = {}, bloquants = [], cascade = [];
+  Object.keys(aff).forEach(function(it){ var a = aff[it]; if(!a) return; if(a.type==='bl') bl[a.id] = 1; else if(a.type==='bp') bp[a.id] = 1; });
+  for(var n in bl){ if(!blColRef) continue; var sb = await blColRef.doc(n).get(); if(sb.exists && ['livre','retourne','annule'].indexOf(sb.data().statut) < 0) bloquants.push('le bon de livraison <strong>'+escapeHtml(n)+'</strong> (statut : '+escapeHtml(STATUT_BL_LIBELLE[sb.data().statut] || sb.data().statut || '—')+')'); }
+  for(var m in bp){ if(!bpColRef) continue; var sp = await bpColRef.doc(m).get(); if(sp.exists && sp.data().statut !== 'sorti') cascade.push(m); }
+  var nbPieces = 0, pc = piecesCol(id); if(pc){ try{ nbPieces = (await pc.get()).size; }catch(e){} }
+  return { rec:rec, bloquants:bloquants, cascade:cascade, nbPieces:nbPieces };
+}
+async function supprimerCommandeAdmin(id){
+  if(!state.isAdmin){ banner('Réservé aux administrateurs'); return false; }
+  var a = await analyserSuppressionCommande(id); if(!a){ banner('Commande introuvable'); return false; }
+  var d = a.rec.data, h = state.historyIndex.find(function(x){ return x.id===id; }) || {}, st = h.labelNumber ? statutCommande(h) : null;
+  var lignes = [escapeHtml([d.client, d.contremarque && ('contremarque '+d.contremarque), d.fournisseur].filter(Boolean).join(' · '))+(st ? ' · <strong>ST '+('0'+st.code).slice(-2)+'</strong> '+escapeHtml(st.libelle) : '')];
+  if(a.cascade.length) lignes.push('Elle sera retirée du/des bon(s) de préparation en cours : <strong>'+a.cascade.map(escapeHtml).join(', ')+'</strong>.');
+  if(a.nbPieces) lignes.push(a.nbPieces+' pièce(s) jointe(s) (photos, documents) seront aussi supprimées.');
+  var rep = await demanderSuppressionAdmin({ titre:'Supprimer la commande', libelle:(d.labelNumber||id), lignes:lignes,
+    bloque: a.bloquants.length ? '<strong>Suppression impossible</strong> : cette commande est encore dans '+a.bloquants.join(' et dans ')+'.<br>Annule ce bon (ou retire-en la commande) avant de la supprimer.' : '' });
+  if(!rep) return false;
+  a = await analyserSuppressionCommande(id);   // revérifié au dernier moment : le dossier a pu évoluer pendant la saisie
+  if(!a){ banner('Commande introuvable'); return false; }
+  if(a.bloquants.length){ banner('⚠ Suppression annulée : la commande vient d\'être affectée à un bon de livraison en cours'); return false; }
+  var ok = await journaliserSuppression({ type:'commande', objetId:id, libelle:(d.labelNumber||id)+' — '+[d.client, d.contremarque].filter(Boolean).join(' · '), motif:rep.motif,
+    details:{ statut: st ? 'ST '+('0'+st.code).slice(-2)+' '+st.libelle : '', retireDesBP:a.cascade, piecesSupprimees:a.nbPieces, premiereUtilisationDuCode:!!rep.premiereUtilisation }, snapshot:copieSansLourd(a.rec) });
+  if(!ok){ banner('⚠ Suppression annulée : le journal des suppressions est inaccessible (rien n\'a été supprimé)'); return false; }
+  for(var i = 0; i < a.cascade.length; i++){
+    var num = a.cascade[i];
+    await db.runTransaction(async function(tx){
+      var ref = bpColRef.doc(num), sn = await tx.get(ref); if(!sn.exists) return;
+      var bp = sn.data(); bp.lignes = (bp.lignes||[]).filter(function(l){ return l.commandeId !== id; });
+      bp.historique = (bp.historique||[]).concat([{ action:'commande_supprimee', commande:(d.labelNumber||id), par:currentIdentity(), le:new Date().toISOString(), motif:rep.motif }]);
+      tx.set(ref, bp);
+    });
+  }
+  var pc = piecesCol(id); if(pc){ try{ var sp = await pc.get(); for(var k = 0; k < sp.docs.length; k++) await sp.docs[k].ref.delete(); }catch(e){ console.error('suppression des pièces', e); } }
+  await deleteReceptionRecord(id);
+  state.historyIndex = state.historyIndex.filter(function(x){ return x.id !== id; });
+  await saveHistoryIndex();
+  renderPendingList(); renderToRangeList(); renderHistory(); renderArchiveList(); renderTrashList(); renderPlanningList();
+  banner('Commande '+(d.labelNumber||'')+' supprimée — motif enregistré au journal');
+  return true;
+}
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest ? ev.target.closest('[data-act="supprAdmin"]') : null; if(!b) return;
+  var it = b.closest('.hist-item'), id = it && it.getAttribute('data-id'); if(id) supprimerCommandeAdmin(id);
+});
+
+// ---------- Paramètres : mon code et journal des suppressions ----------
+async function renderCodeSuppression(){
+  var ligne = document.getElementById('pinEtatLigne'), msg = document.getElementById('pinMsg'); msg.textContent = '';
+  ['pinAncien','pinNouveau','pinConfirm'].forEach(function(i){ document.getElementById(i).value = ''; });
+  if(!state.isAdmin){ ligne.textContent = 'Réservé aux administrateurs.'; ligne.style.color = 'var(--danger)'; return; }
+  ligne.style.color = ''; ligne.textContent = 'Lecture…';
+  try{
+    var doc = await pinLire();
+    if(!doc || !doc.hash){ ligne.innerHTML = '⚠ Tu utilises encore le <strong>code initial 1234</strong> : choisis ton code personnel.'; ligne.style.color = '#9a6700'; }
+    else { ligne.innerHTML = '✅ Code personnel défini le <strong>'+new Date(doc.majLe).toLocaleDateString('fr-FR')+'</strong>.'; ligne.style.color = '#1e8e3e'; }
+  }catch(e){ ligne.textContent = '⚠ Lecture impossible ('+((e && e.code)||'erreur')+') : règles de sécurité version 7 à publier ?'; ligne.style.color = 'var(--danger)'; }
+}
+Array.prototype.forEach.call(document.querySelectorAll('#pinAncien, #pinNouveau, #pinConfirm'), function(i){ i.addEventListener('input', function(){ i.value = i.value.replace(/\D/g, '').slice(0, 4); }); });
+document.getElementById('btnPinChanger').addEventListener('click', async function(){
+  var msg = document.getElementById('pinMsg'), btn = this, err = function(t){ msg.textContent = '⚠ '+t; msg.style.color = 'var(--danger)'; };
+  if(!state.isAdmin){ err('Réservé aux administrateurs.'); return; }
+  if(!(window.crypto && crypto.subtle)){ err('Chiffrement indisponible dans ce navigateur (utilise une adresse https).'); return; }
+  var ancien = document.getElementById('pinAncien').value, n = document.getElementById('pinNouveau').value, c = document.getElementById('pinConfirm').value;
+  if(!/^\d{4}$/.test(ancien)){ err('Saisis ton code actuel (4 chiffres).'); return; }
+  if(!/^\d{4}$/.test(n)){ err('Le nouveau code doit comporter 4 chiffres.'); return; }
+  if(n === PIN_DEFAUT){ err('Le nouveau code doit être différent du code initial 1234.'); return; }
+  if(n === ancien){ err('Le nouveau code doit être différent de l\'actuel.'); return; }
+  if(n !== c){ err('Les deux saisies du nouveau code ne correspondent pas.'); return; }
+  btn.disabled = true;
+  try{
+    var v = await pinVerifier(ancien);
+    if(!v.ok){ err(v.verrou ? 'Trop d\'essais : saisie bloquée jusqu\'à '+pinHeure(v.jusqua)+'.' : 'Code actuel incorrect — '+v.restants+' essai(s) restant(s) avant blocage.'); btn.disabled = false; return; }
+    await pinEnregistrer(n);
+    await journaliserSuppression({ type:'code_modifie', libelle:'Code de suppression modifié', motif:'', details:{ premiereUtilisation:v.defaut } });
+    banner('Code de suppression modifié'); await renderCodeSuppression();   // rafraîchit l'état et vide les champs, puis on affiche la confirmation
+    msg.textContent = '✅ Ton nouveau code est enregistré.'; msg.style.color = '#1e8e3e';
+  }catch(e){ console.error('changement de code', e); err('Enregistrement impossible ('+((e && e.code)||'erreur')+').'); }
+  btn.disabled = false;
+});
+var TYPES_SUPPR = { commande:'📦 Commande', fiche_contremarque:'🗂 Fiche contremarque', fiche_contremarque_definitive:'🗂 Fiche (définitif)', code_refuse:'🔒 Code refusé', code_modifie:'🔐 Code modifié' };
+async function renderJournalSuppressions(){
+  var el = document.getElementById('supprJournalListe');
+  if(!state.isAdmin){ el.innerHTML = '<div class="empty">Réservé aux administrateurs.</div>'; return; }
+  el.innerHTML = '<div class="hint">Lecture du journal…</div>';
+  try{
+    var sn = await configDocRef.collection('suppressions').get(), l = [];
+    sn.forEach(function(d){ var x = d.data(); x.__id = d.id; l.push(x); });
+    l.sort(function(a, b){ return String(b.le||'').localeCompare(String(a.le||'')); });
+    if(!l.length){ el.innerHTML = '<div class="empty">Aucune suppression enregistrée.</div>'; return; }
+    el.innerHTML = l.slice(0, 200).map(function(x, i){
+      return '<div class="hist-item"><div class="hd"><span class="nom">'+(TYPES_SUPPR[x.type]||escapeHtml(x.type||'—'))+'</span><span class="date">'+new Date(x.le).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' })+'</span></div>'+
+        '<div class="sub"><strong>'+escapeHtml(x.libelle||'')+'</strong></div>'+
+        '<div class="sub">Par <strong>'+escapeHtml(x.par||'—')+'</strong>'+(x.motif ? ' · Motif : '+escapeHtml(x.motif) : '')+'</div>'+
+        (x.snapshot ? '<div class="actions"><button class="btn ghost suppr-json" data-i="'+i+'">⬇ Copie des données supprimées</button></div>' : '')+'</div>';
+    }).join('')+(l.length > 200 ? '<div class="hint">'+(l.length-200)+' entrée(s) plus anciennes non affichées.</div>' : '');
+    Array.prototype.forEach.call(el.querySelectorAll('.suppr-json'), function(b){ b.addEventListener('click', function(){
+      var x = l[parseInt(b.getAttribute('data-i'), 10)], blob = new Blob([JSON.stringify(x.snapshot, null, 2)], { type:'application/json' }), a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'suppression_'+String(x.type||'')+'_'+String(x.objetId||x.__id).replace(/[^A-Za-z0-9_-]+/g, '_')+'.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+    }); });
+  }catch(e){ console.error('journal des suppressions', e); el.innerHTML = '<div class="hint" style="color:var(--danger);">⚠ Lecture impossible ('+((e && e.code)||'erreur')+').</div>'; }
+}
+
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
   if(!fsReady() || statutsWatchStarted) return; statutsWatchStarted = true;
@@ -2902,12 +3130,8 @@ async function restoreFromTrash(id){
 }
 
 async function permanentlyDeleteFromTrash(id, labelNumber){
-  if(!confirm('Supprimer définitivement '+(labelNumber||'cette commande')+' ? Cette action est irréversible, elle ne pourra plus être récupérée.')) return;
-  await deleteReceptionRecord(id);
-  state.historyIndex = state.historyIndex.filter(function(h){ return h.id!==id; });
-  await saveHistoryIndex();
-  renderTrashList();
-  banner('Commande supprimée définitivement');
+  if(!state.isAdmin){ banner('Réservé aux administrateurs'); return; }
+  await supprimerCommandeAdmin(id);   // motif + code personnel + archivage dans le journal des suppressions
 }
 
 function renderTrashList(){
@@ -4606,8 +4830,13 @@ async function ouvrirSuppressionCm(idx){
   if(u.bp) morceaux.push(u.bp+' bon(s) de préparation en cours');
   if(u.bl) morceaux.push(u.bl+' bon(s) de livraison en cours');
   if(morceaux.length){
-    box.innerHTML = '<div style="background:#fdf2f0;border:1px solid #f0c9c3;color:#8a2c20;border-radius:10px;padding:10px;"><strong>Suppression impossible</strong> : cette fiche est encore utilisée par<br>• '+morceaux.map(escapeHtml).join('<br>• ')+'<div class="hint" style="margin-top:6px;color:#8a2c20;">Termine ou annule ces dossiers (sortie, livraison, annulation), puis reviens la supprimer.</div></div><div class="btn-row"><button class="btn ghost cmsupp-annuler" style="width:auto;">Fermer</button></div>';
+    box.innerHTML = '<div style="background:#fdf2f0;border:1px solid #f0c9c3;color:#8a2c20;border-radius:10px;padding:10px;"><strong>Suppression impossible</strong> : cette fiche est encore utilisée par<br>• '+morceaux.map(escapeHtml).join('<br>• ')+'<div class="hint" style="margin-top:6px;color:#8a2c20;">Termine ou annule ces dossiers (sortie, livraison, annulation), puis reviens la supprimer.</div></div><div class="btn-row"><button class="btn ghost cmsupp-annuler" style="width:auto;">Fermer</button>'+(state.isAdmin ? '<button class="btn danger cmsupp-force" style="width:auto;">🗑 Supprimer quand même (administrateur)</button>' : '')+'</div>';
     box.querySelector('.cmsupp-annuler').addEventListener('click', function(){ box.style.display = 'none'; });
+    var fb = box.querySelector('.cmsupp-force');
+    if(fb) fb.addEventListener('click', async function(){
+      var rep = await demanderSuppressionAdmin({ titre:'Supprimer la fiche contremarque', libelle:(cm.nom||'')+' '+(cm.prenom||''), lignes:['Cette fiche est <strong>encore utilisée</strong> par '+morceaux.map(escapeHtml).join(', ')+'. Ces dossiers perdront leur lien avec la fiche.', 'La fiche ira à la corbeille des fiches : elle pourra être restaurée.'] });
+      if(rep) await supprimerContremarque(idx, rep.motif, { force:true, rep:rep });
+    });
     return;
   }
   box.innerHTML = '<div class="hint" style="font-weight:600;margin-bottom:6px;">Mettre « '+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+' » à la corbeille</div>'+
@@ -4623,13 +4852,26 @@ async function ouvrirSuppressionCm(idx){
     if(!motif){ msg.textContent = '⚠️ Choisis un motif de suppression.'; msg.style.color = 'var(--danger)'; return; }
     if(motif==='Autre' && precision.length < 5){ msg.textContent = '⚠️ Pour « Autre », précise le motif (5 caractères minimum).'; msg.style.color = 'var(--danger)'; return; }
     this.disabled = true;
-    await supprimerContremarque(idx, motif + (precision ? ' — '+precision : ''));
+    var motifComplet = motif + (precision ? ' — '+precision : '');
+    if(state.isAdmin){   // un administrateur confirme avec son code personnel (le motif est déjà saisi ci-dessus)
+      var rep = await demanderSuppressionAdmin({ titre:'Mettre la fiche à la corbeille', libelle:(cm.nom||'')+' '+(cm.prenom||''), lignes:['La fiche pourra être restaurée depuis la corbeille des fiches.'], motif:motifComplet });
+      if(!rep){ this.disabled = false; return; }
+      await supprimerContremarque(idx, motifComplet, { rep:rep }); return;
+    }
+    await supprimerContremarque(idx, motifComplet);
   });
 }
-async function supprimerContremarque(idx, motif){
+async function supprimerContremarque(idx, motif, opts){
+  opts = opts || {};
   var cm = (state.base.contremarques||[])[idx]; if(!cm) return;
-  var u = await usageContremarque(cm);   // revérifié au dernier moment : un dossier a pu être créé entre-temps
-  if(u.erreur || u.commandes || u.bp || u.bl){ banner('⚠ Suppression annulée : la fiche vient d\'être utilisée ou la vérification a échoué'); renderContremarquesList(); return; }
+  if(!opts.force){
+    var u = await usageContremarque(cm);   // revérifié au dernier moment : un dossier a pu être créé entre-temps
+    if(u.erreur || u.commandes || u.bp || u.bl){ banner('⚠ Suppression annulée : la fiche vient d\'être utilisée ou la vérification a échoué'); renderContremarquesList(); return; }
+  }
+  if(opts.rep){   // suppression par un administrateur : archivage obligatoire avant d'agir
+    var okJ = await journaliserSuppression({ type:'fiche_contremarque', objetId:cm.id||'', libelle:'Fiche '+(cm.nom||'')+' '+(cm.prenom||''), motif:motif, details:{ forcee:!!opts.force, premiereUtilisationDuCode:!!opts.rep.premiereUtilisation }, snapshot:copieSansLourd(cm) });
+    if(!okJ){ banner('⚠ Suppression annulée : le journal des suppressions est inaccessible (rien n\'a été supprimé)'); renderContremarquesList(); return; }
+  }
   var now = new Date().toISOString(), entree = JSON.parse(JSON.stringify(cm));
   entree.deletedAt = now; entree.deletedBy = currentIdentity(); entree.deletedByUid = currentUid(); entree.motifSuppression = motif;
   entree.historiqueFiche = (entree.historiqueFiche||[]).concat([{ action:'suppression', le:now, par:currentIdentity(), motif:motif }]);
@@ -4673,8 +4915,11 @@ async function restaurerContremarque(i){
 async function purgerContremarque(i){
   if(!state.isAdmin) return;
   var arr = state.base.contremarquesCorbeille || [], e = arr[i]; if(!e) return;
-  if(!confirm('Supprimer DÉFINITIVEMENT la fiche « '+(e.nom||'')+' '+(e.prenom||'')+' » ?\n\nCette action est irréversible : la fiche ne pourra plus être restaurée.')) return;
-  arr.splice(i, 1); await saveBase(); renderCmCorbeille(); banner('Fiche supprimée définitivement');
+  var rep = await demanderSuppressionAdmin({ titre:'Supprimer définitivement la fiche', libelle:(e.nom||'')+' '+(e.prenom||''), lignes:['Elle ne pourra plus être restaurée depuis la corbeille.'] });
+  if(!rep) return;
+  var okJ = await journaliserSuppression({ type:'fiche_contremarque_definitive', objetId:e.id||'', libelle:'Fiche '+(e.nom||'')+' '+(e.prenom||'')+' (définitif)', motif:rep.motif, details:{ premiereUtilisationDuCode:!!rep.premiereUtilisation }, snapshot:copieSansLourd(e) });
+  if(!okJ){ banner('⚠ Suppression annulée : le journal des suppressions est inaccessible (rien n\'a été supprimé)'); return; }
+  arr.splice(i, 1); await saveBase(); renderCmCorbeille(); banner('Fiche supprimée définitivement — motif enregistré au journal');
 }
 document.getElementById('listCmCorbeille').addEventListener('click', function(ev){
   var item = ev.target.closest('.hist-item'); if(!item) return; var i = parseInt(item.getAttribute('data-i'), 10);
@@ -8461,6 +8706,7 @@ function renderHistoryListe(){
       '<div class="sub">'+escapeHtml(h.fournisseur||'—')+' · '+escapeHtml(h.transporteur||'—')+(daysBadge?' · '+daysBadge:'')+(empBadge?' · '+empBadge:'')+(blBadge?' · '+blBadge:'')+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
+        (state.isAdmin ? '<button class="btn ghost" data-act="supprAdmin" style="color:#c0392b;">🗑 Supprimer</button>' : '')+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="pdf">PDF (toutes)</button>'+
         '<button class="btn ghost" data-act="reprint">Réimprimer 1 étiquette</button>'+
@@ -8602,6 +8848,7 @@ function renderPendingList(){
       '<div class="sub" style="color:var(--ink-soft);">'+dateLine+weekLine+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
+        (state.isAdmin ? '<button class="btn ghost" data-act="supprAdmin" style="color:#c0392b;">🗑 Supprimer</button>' : '')+
         '<button class="btn ghost" data-act="edit">Modifier</button>'+
         '<button class="btn ghost" data-act="lienfiche">🔗 Lien fiche</button>'+
         '<button class="btn primary" data-act="quai">À Quai</button>'+
@@ -9044,6 +9291,7 @@ function renderArchiveList(){
       ligneSortieHtml(h)+zoneEditHtml(h)+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
+        (state.isAdmin ? '<button class="btn ghost" data-act="supprAdmin" style="color:#c0392b;">🗑 Supprimer</button>' : '')+
         (!h.sortieBP && !h.bonLivraisonId && state.isAdmin ? '<button class="btn ghost" data-act="restock">Remettre en stock (ancienne sortie)</button>' : '')+
         (state.isAdmin ? '<button class="btn danger" data-act="del">Supprimer</button>' : '')+
       '</div>'+
@@ -9434,6 +9682,7 @@ function renderToRangeList(){
       '<div class="sub" style="color:var(--accent);font-weight:600;">'+progress+'</div>'+
       '<div class="actions">'+
         '<button class="btn ghost" data-act="journal">📜 Journal</button>'+
+        (state.isAdmin ? '<button class="btn ghost" data-act="supprAdmin" style="color:#c0392b;">🗑 Supprimer</button>' : '')+
         '<button class="btn accent" data-act="load">Ranger cette commande</button>'+
         '<button class="btn ghost" data-act="unreceive">Remettre en attente</button>'+
         '<button class="btn ghost" data-act="photos">📷 Photos réception</button>'+
@@ -10223,6 +10472,8 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='nettoyagebl'){ renderNettoyageBL(); }
     if(btn.getAttribute('data-key')==='ordreprelevement'){ renderOrdrePrelevement(); }
     if(btn.getAttribute('data-key')==='etiquettestatuts'){ renderEtiquetteStatutsApercu(); }
+    if(btn.getAttribute('data-key')==='codesuppression'){ renderCodeSuppression(); }
+    if(btn.getAttribute('data-key')==='journalsuppr'){ renderJournalSuppressions(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
     if(btn.getAttribute('data-key')==='liens'){ renderLiensClients(); }
   });
@@ -10532,7 +10783,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0104';
+var APP_VERSION = '2026.0105';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
