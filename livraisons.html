@@ -406,7 +406,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0030';
+var APP_VERSION = '2026.0031';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -677,7 +677,7 @@ async function retourMarchandiseAuDepot(commandeIds, depuis, motif){
       if(!cibles.length) return { ok:false, motif:'plus aucune marchandise n\'est affectée à ce document (déjà retournée ?)' };
       cibles.forEach(function(r){
         var d = r.record.data;
-        r.mine.forEach(function(it){ d.itemAffectation[it] = { type:'retour', id:depuis.id, par:par, parUid:parUid, le:le }; });
+        r.mine.forEach(function(it){ d.itemAffectation[it] = { type:'retour', id:depuis.id, par:par, parUid:parUid, le:le, quaiRequis:true }; });   // quaiRequis : le magasinier doit valider l'arrivée à quai (Gestion Dépôt) avant le rangement
         var reste = Object.keys(d.itemAffectation).some(function(it){ var a = d.itemAffectation[it]; return a && (a.type==='bl' || a.type==='bp'); });
         if(!reste){
           d.historiqueSorties = (d.historiqueSorties||[]).concat([{ sortieLe:d.exitedAt, bp:d.sortieBP||'', destination:d.sortieDestination||'', zone:d.zoneSortie||'', depuis:{ type:depuis.type, id:depuis.id }, retourLe:le, par:par, parUid:parUid, motif:motif||'' }]);
@@ -698,18 +698,35 @@ function demanderMotifRetour(titre){
   m = m.trim(); if(!m){ banner('Un motif est obligatoire'); return null; }
   return m;
 }
+
+// commandes revenues d'une tournée dont la marchandise n'est pas encore validée à quai par le magasinier (bloquent la fin de la tournée)
+async function retoursAttendantQuai(inst){
+  var col = receptionsCol(); if(!col) return [];
+  var bls = state.bons.filter(function(b){ return b.statut==='retourne' && b.retourDepot && b.retourDepot.instanceId===inst.id; }), out = [];
+  for(var i = 0; i < bls.length; i++){
+    var ids = (bls[i].commandeIds||[]).filter(function(v, k, a){ return a.indexOf(v)===k; });
+    for(var j = 0; j < ids.length; j++){
+      var snap = await col.doc(ids[j]).get(); if(!snap.exists) continue;
+      var d = snap.data().data || {}, aff = d.itemAffectation || {};
+      var attente = Object.keys(aff).some(function(it){ var a = aff[it]; return a && a.type==='retour' && a.id===bls[i].numero && a.quaiRequis && !a.quaiValide; });
+      if(attente) out.push({ bl:bls[i].numero, label:d.labelNumber || ids[j] });
+    }
+  }
+  return out;
+}
 async function retourBLAuDepot(num, motifDonne){
   var b = state.bons.find(function(x){ return x.numero===num; }); if(!b) return false;
   var ids = (b.commandeIds||[]).filter(function(v,i,a){ return a.indexOf(v)===i; });
   if(!ids.length){ banner('Ce BL ne contient aucune commande en stock : rien à retourner'); return false; }
+  var refTournee = b.affectation || ((b.historiqueAffectations||[]).filter(function(h){ return h.action==='retrait'; }).slice(-1)[0]) || {};   // tournée dont ce BL vient d'être retiré
   var motif = motifDonne || demanderMotifRetour('Retour de la marchandise du BL '+num+' au dépôt.');
   if(!motif) return false;
   if(!confirm('Confirmer : la marchandise du BL '+num+' est physiquement revenue au dépôt ?\n\nElle repassera par « CDE à Ranger » et ne redeviendra disponible qu\'une fois rangée à nouveau. Ce BL sera clos (« Retourné au dépôt »).')) return false;
   var res = await retourMarchandiseAuDepot(ids, { type:'bl', id:num }, motif);
   if(!res.ok){ banner('Retour impossible — '+res.motif); return false; }
   if(b.statut==='affecte_tournee'){ await retirerBLDeTournee(num, 'Retour au dépôt : '+motif, { force:true }); }
-  await saveBonPatch(num, { statut:'retourne', tourneeId:'', tourneeInstanceId:'', affectation:null, retourDepot:{ motif:motif, par:currentIdentity(), parUid:currentUid(), le:new Date().toISOString() } });
-  banner('Marchandise du BL '+num+' revenue au dépôt : à ranger dans Gestion Dépôt');
+  await saveBonPatch(num, { statut:'retourne', tourneeId:'', tourneeInstanceId:'', affectation:null, retourDepot:{ motif:motif, par:currentIdentity(), parUid:currentUid(), le:new Date().toISOString(), instanceId:refTournee.instanceId||'', tourneeId:refTournee.tourneeId||b.tourneeId||'', dateTournee:refTournee.date||'' } });
+  banner('Marchandise du BL '+num+' revenue au dépôt : à valider à quai par le magasinier dans Gestion Dépôt (Planning)');
   return true;
 }
 async function retourBPAuDepot(numero){
@@ -2476,6 +2493,8 @@ function renderTourneesPlanifiees(){
     var inst = byId(btn.getAttribute('data-id'));
     var restants = bonsDeInstance(inst).filter(function(b){ return b.statut!=='livre'; });
     if(restants.length){ banner('Il reste '+restants.length+' BL non livré(s) : '+restants.map(function(b){ return b.numero; }).join(', ')); return; }
+    var attenteQuai = await retoursAttendantQuai(inst);
+    if(attenteQuai.length){ alert('Tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' : impossible de la terminer.\n\n'+attenteQuai.length+' commande(s) revenue(s) de cette tournée attendent la validation à quai par le magasinier :\n'+attenteQuai.map(function(x){ return '• '+x.label+' (BL '+x.bl+')'; }).join('\n')+'\n\nGestion Dépôt › Planning › Commande en retour de tournée › « À quai ».'); return; }
     if(!confirm('Terminer la tournée '+inst.tourneeId+' du '+fmtDate(inst.date)+' ? Toutes les livraisons sont terminées.')) return;
     await transitionInstance(inst, 'terminee', { terminePar: currentIdentity(), termineLe: new Date().toISOString() }, 'fin');
     banner('Tournée terminée'); renderTourneesPlanifiees();

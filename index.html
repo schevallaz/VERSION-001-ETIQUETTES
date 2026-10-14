@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0102">
+<meta name="app-version" content="2026.0103">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -1952,6 +1952,9 @@ function recordToIndexEntry(rec){
   entry.itemsRetour = affVals.filter(function(v){ return v && v.type==='retour'; }).length;   // marchandise revenue au dépôt, pas encore rangée
   var affRetour = affVals.filter(function(v){ return v && v.type==='retour'; })[0];
   if(affRetour){ entry.retourId = affRetour.id || ''; entry.retourLe = affRetour.le || ''; }   // BL ou BP dont la marchandise est revenue
+  var locksRetour = affVals.filter(function(v){ return v && v.type==='retour'; });
+  entry.retourQuaiAttente = locksRetour.filter(function(v){ return v.quaiRequis && !v.quaiValide; }).length;   // retour de tournée : à valider à quai par le magasinier
+  entry.retourQuaiValide = locksRetour.length > 0 && locksRetour.every(function(v){ return !!v.quaiValide; });
   if(d.facturation && d.facturation.statut) entry.statutFacturation = d.facturation.statut;   // réservé au futur module Facturation : 'a_facturer' | 'facturee'
   var blVals = affVals.filter(function(v){ return v && v.type==='bl'; }).map(function(v){ return v.id; });
   var blUniques = blVals.filter(function(v,i){ return blVals.indexOf(v)===i; });
@@ -1968,7 +1971,7 @@ function isFullyRanged(h){
 }
 // à ranger : déjà réceptionnée (pas en attente), pas encore sortie, pas à la corbeille, mais pas totalement rangée
 function isToRangeEntry(h){
-  return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && !isFullyRanged(h);
+  return !h.exitedAt && !h.deletedAt && !isPendingEntry(h) && !isFullyRanged(h) && !(h.retourQuaiAttente > 0);   // un retour de tournée n'arrive ici qu'une fois validé à quai
 }
 
 
@@ -1985,7 +1988,10 @@ function statutCommande(h, blMap, bpMap){
   var R = function(code, motif, anomalie){ return { code:code, motif:motif||'', anomalie:!!anomalie }; };
   if(h.deletedAt) return R(99);
   if(!h.receivedAt) return h.origineCollecte ? R(8, 'enlèvement à effectuer : la marchandise n\'est pas encore au dépôt') : R(5);   // 08 : STLS doit aller la chercher ; 05 : un fournisseur doit la livrer
-  if((h.itemsRetour||0) > 0) return R(35, 'marchandise revenue au dépôt, à ranger');
+  if((h.itemsRetour||0) > 0){
+    if(h.retourQuaiValide) return R(10, 'retour validé à quai : à ranger');
+    return R(35, h.retourQuaiAttente ? 'retour de tournée : à valider à quai par le magasinier' : 'marchandise revenue au dépôt, à ranger');
+  }
   var blNum = (h.bonLivraisonId && h.bonLivraisonId!=='partiel') ? h.bonLivraisonId : '';
   var bpNum = (h.bonPreparationId && h.bonPreparationId!=='partiel') ? h.bonPreparationId : '';
   // une vue (Dossier) peut fournir ses propres tables ; à défaut, ou si un document y manque, on prend les tables globales
@@ -2650,6 +2656,34 @@ async function creerRattacher(id, cm){
   rec.data.contremarque = cm.nom; rec.data.contremarqueId = cm.id; await saveReceptionRecord(id, rec);
   var idx = state.historyIndex.findIndex(function(x){ return x.id===id; }); if(idx >= 0) state.historyIndex[idx] = recordToIndexEntry(rec);
   return true;
+}
+
+
+// ================= Retour de tournée : validation à quai par le magasinier =================
+// Une commande revenue d'une tournée (verrou « retour » posé par Livraisons avec quaiRequis) reste en zone de retour (ST 35) tant que
+// le magasinier n'a pas confirmé qu'elle est physiquement à quai ; elle passe alors en ST 10 et tombe dans « CDE à ranger ».
+async function validerRetourQuai(ids){
+  if(!fsReady() || !receptionsColRef || !ids || !ids.length) return { ok:false, motif:'Connexion indisponible' };
+  var par = currentIdentity(), parUid = currentUid(), le = new Date().toISOString();
+  try{
+    var nb = await db.runTransaction(async function(tx){
+      var refs = ids.map(function(id){ return receptionsColRef.doc(id); }), snaps = [];
+      for(var i = 0; i < refs.length; i++) snaps.push(await tx.get(refs[i]));
+      var maj = [];
+      snaps.forEach(function(sn, i){
+        if(!sn.exists) return;
+        var rec = sn.data(), d = rec.data, aff = d.itemAffectation || {}, items = [];
+        Object.keys(aff).forEach(function(it){ var a = aff[it]; if(a && a.type==='retour' && a.quaiRequis && !a.quaiValide){ a.quaiValide = { par:par, parUid:parUid, le:le }; items.push(it); } });
+        if(!items.length) return;
+        ajouterEvenements(d, [evenement('retour_quai', { items:items })]); maj.push({ ref:refs[i], rec:rec });
+      });
+      maj.forEach(function(m){ tx.set(m.ref, m.rec); });
+      return maj.length;
+    });
+    if(!nb) return { ok:false, motif:'plus rien à valider (déjà validé par quelqu\'un d\'autre ?)' };
+    for(var j = 0; j < ids.length; j++){ var rec2 = await getReceptionRecord(ids[j]); var ix = state.historyIndex.findIndex(function(x){ return x.id===ids[j]; }); if(rec2 && ix >= 0) state.historyIndex[ix] = recordToIndexEntry(rec2); }
+    return { ok:true, nb:nb };
+  }catch(e){ console.error('validerRetourQuai', e); return { ok:false, motif:(e && e.message) || 'erreur' }; }
 }
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
@@ -3829,6 +3863,7 @@ function libelleEvenement(e){
   switch(e.k){
     case 'creation': return ['🆕', 'Commande créée'+(d.origine?' ('+d.origine+')':'')+(d.client?' — '+d.client:'')+(d.fournisseur?' · '+d.fournisseur:'')];
     case 'reception': return ['📥', 'Marchandise réceptionnée le '+dateCourte(d.date)];
+    case 'retour_quai': return ['📥', 'Retour de tournée validé à quai'+(d.items && d.items.length ? ' : '+itemsTexte(d.items) : '')];
     case 'reception_annulee': return ['↩️', 'Réception annulée : retour en « CDE en attente »'];
     case 'rangement': return ['📍', 'Rangée : '+itemsTexte(d.items)];
     case 'inventaire': return ['📋', 'Inventaire du '+dateCourte(d.date)+' : '+(d.constat||'')+((d.de||d.vers) ? ' ('+(d.de||'—')+' → '+(d.vers||'—')+')' : '')+(d.emp ? ' à '+d.emp : '')];
@@ -8778,8 +8813,10 @@ function planLigneSuivi(x, genre){
     var src = h.retourId ? (blDetails[h.retourId] || bpDetails[h.retourId] || null) : null, rd = (src && src.retourDepot) || {};
     var quand = rd.le || h.retourLe || '';
     l.push('↩️ '+(h.retourId ? (blDetails[h.retourId] ? planLienBL(h.retourId) : 'BP '+escapeHtml(h.retourId)) : 'Retour au dépôt')+(quand ? ' · retour le '+fmtDate(String(quand).slice(0,10)) : '')+(rd.par ? ' par '+escapeHtml(rd.par) : ''));
+    if(rd.tourneeId) l.push('🚛 Tournée '+escapeHtml(rd.tourneeId)+(rd.dateTournee ? ' du '+fmtDate(rd.dateTournee) : ''));
     l.push('<strong>Motif :</strong> '+escapeHtml(rd.motif || 'non renseigné'));
-    l.push('<span style="color:#9a6700;font-weight:600;">À ranger avant de redevenir disponible</span> <button class="btn ghost plan-vers-ranger" style="width:auto;padding:3px 10px;font-size:12px;margin-left:6px;">→ CDE à ranger</button>');
+    if(h.retourQuaiAttente > 0) l.push('<span style="color:#9a6700;font-weight:600;">⏳ À valider à quai par le magasinier</span> <button class="btn accent plan-quai" data-id="'+escapeHtml(String(h.id))+'" style="width:auto;padding:4px 12px;font-size:13px;margin-left:6px;">✅ À quai</button>');
+    else l.push('<span style="color:#9a6700;font-weight:600;">À ranger avant de redevenir disponible</span> <button class="btn ghost plan-vers-ranger" style="width:auto;padding:3px 10px;font-size:12px;margin-left:6px;">→ CDE à ranger</button>');
   } else {
     l.push(x.num ? planLienBL(x.num) : (x.st.anomalie ? '<span style="color:var(--danger);">'+escapeHtml(x.st.motif||'anomalie')+'</span>' : 'Sortie validée : <strong>BL à créer</strong>'));
     var af = x.bl && x.bl.affectation;
@@ -8825,6 +8862,10 @@ function renderPlanning(){
     var qk = (document.getElementById('planSearch-'+k).value||'').trim().toLowerCase(), liste = g[k].filter(function(x){ return planFiltre(x, qk); }).sort(tris[k]);
     var htmlK = liste.length ? liste.map(function(x){ return planLigneSuivi(x, k); }).join('') : '';
     var nbTotal = g[k].length;
+    if(k==='retour'){
+      var aValider = liste.filter(function(x){ return x.h.retourQuaiAttente > 0; });
+      if(aValider.length) htmlK = '<div style="border:2px solid var(--accent);border-radius:12px;padding:10px;margin-bottom:12px;background:#f1faf6;"><div style="font-weight:700;margin-bottom:6px;">'+aValider.length+' commande(s) revenue(s) de tournée à valider à quai</div><button class="btn primary" id="btnPlanQuaiTout" data-ids="'+aValider.map(function(x){ return escapeHtml(String(x.h.id)); }).join(',')+'" style="width:100%;">✅ Valider à quai les '+aValider.length+' commande(s) affichée(s)</button><div class="hint" style="margin:6px 0 0;">Le magasinier confirme que la marchandise est bien physiquement à quai : elle passe alors dans « CDE à ranger ».</div></div>'+htmlK;
+    }
     if(k==='retour'){   // enlèvements à ramasser (ST 08) : même tuile, en seconde partie
       var ram = g.ramasser.filter(function(x){ return planFiltre(x, qk); }).sort(function(a, b){ return String(a.h.date||'9999').localeCompare(String(b.h.date||'9999')); });
       nbTotal += g.ramasser.length;
@@ -8833,6 +8874,20 @@ function renderPlanning(){
     document.getElementById('planList-'+k).innerHTML = htmlK || '<div class="empty">'+(nbTotal ? 'Aucun résultat' : 'Aucune commande')+'</div>';
     Array.prototype.forEach.call(document.querySelectorAll('#planList-'+k+' .plan-vers-ranger'), function(b){ b.addEventListener('click', function(){ switchTab('ranger'); }); });
     Array.prototype.forEach.call(document.querySelectorAll('#planList-'+k+' .plan-vers-attente'), function(b){ b.addEventListener('click', function(){ switchTab('attente'); }); });
+    Array.prototype.forEach.call(document.querySelectorAll('#planList-'+k+' .plan-quai'), function(b){ b.addEventListener('click', async function(){
+      if(!confirm('Confirmer : cette marchandise est bien physiquement à quai ?')) return;
+      b.disabled = true; var r = await validerRetourQuai([b.getAttribute('data-id')]);
+      if(!r.ok){ banner('Validation impossible — '+r.motif); b.disabled = false; return; }
+      banner('Retour validé à quai : la commande passe en « CDE à ranger »'); renderPlanning();
+    }); });
+    var toutQ = document.getElementById('btnPlanQuaiTout');
+    if(toutQ && k==='retour') toutQ.addEventListener('click', async function(){
+      var ids = toutQ.getAttribute('data-ids').split(',').filter(Boolean);
+      if(!confirm('Confirmer : les '+ids.length+' commande(s) affichée(s) sont bien physiquement à quai ?')) return;
+      toutQ.disabled = true; var r = await validerRetourQuai(ids);
+      if(!r.ok){ banner('Validation impossible — '+r.motif); toutQ.disabled = false; return; }
+      banner(r.nb+' commande(s) validée(s) à quai : elles passent en « CDE à ranger »'); renderPlanning();
+    });
   });
   // compteurs
   var n = { apreparer:g.apreparer.length, alivrer:g.alivrer.length, emporte:g.emporte.length, souffrance:g.souffrance.length, retour:g.retour.length + g.ramasser.length };
@@ -10420,7 +10475,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0102';
+var APP_VERSION = '2026.0103';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
