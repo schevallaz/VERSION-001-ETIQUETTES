@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0103">
+<meta name="app-version" content="2026.0104">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -969,6 +969,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="destinations" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🚪</div><div style="font-weight:700;color:var(--ink);">Destinations de sortie</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="nettoyagebl" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧹</div><div style="font-weight:700;color:var(--ink);">Nettoyage des BL</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="ordreprelevement" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧭</div><div style="font-weight:700;color:var(--ink);">Ordre de prélèvement</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="etiquettestatuts" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏷️</div><div style="font-weight:700;color:var(--ink);">Étiquette des statuts</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="parametres" style="display:none;"><button class="btn ghost submodule-back" data-prefix="parametres" style="width:100%;">← Retour aux modules Paramètres</button></div>
@@ -1330,6 +1331,15 @@
       <div class="field"><label style="display:flex;align-items:center;gap:10px;font-weight:600;"><input type="radio" name="ordrePrelev" value="ZA" style="width:20px;height:20px;"> De Z à A <span class="hint" style="margin:0;font-weight:400;">(ZZ-99-99 en premier)</span></label></div>
       <div class="btn-row"><button class="btn primary" id="btnOrdrePrelev" style="width:auto;">Enregistrer</button></div>
       <div class="hint" id="ordrePrelevMsg" style="margin-top:6px;"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-etiquettestatuts" style="display:none;">
+    <div class="card">
+      <h2>🏷️ Étiquette des statuts</h2>
+      <p class="hint" style="margin:0 0 12px;">Une étiquette <strong>Zebra 100 × 150 mm</strong> qui liste tous les statuts de commande (code « ST ») dans l'ordre de la marchandise, à afficher au dépôt, dans les camions ou au bureau. Elle reprend la liste de l'application : si un statut change, l'étiquette suit.</p>
+      <div id="etiqStatutsApercu" style="margin-bottom:12px;"></div>
+      <div class="field"><label for="etiqStatutsQte">Nombre d'exemplaires</label><input type="number" id="etiqStatutsQte" min="1" max="50" value="1" inputmode="numeric"></div>
+      <div class="btn-row"><button class="btn primary" id="btnEtiqStatuts" style="width:100%;">🏷️ Générer l'étiquette (PDF 100 × 150 mm)</button></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-tournees" style="display:none;">
@@ -2685,6 +2695,52 @@ async function validerRetourQuai(ids){
     return { ok:true, nb:nb };
   }catch(e){ console.error('validerRetourQuai', e); return { ok:false, motif:(e && e.message) || 'erreur' }; }
 }
+
+
+// ================= Étiquette Zebra des statuts (100 × 150 mm) =================
+// Générée à partir de STATUTS_COMMANDE : la liste affichée dans l'application et celle de l'étiquette ne peuvent pas diverger.
+function codesStatutsOrdonnes(){ return Object.keys(STATUTS_COMMANDE).map(Number).sort(function(a, b){ return a - b; }); }
+function renderEtiquetteStatutsApercu(){
+  document.getElementById('etiqStatutsApercu').innerHTML = codesStatutsOrdonnes().map(function(c){
+    var def = STATUTS_COMMANDE[c];
+    return '<div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-top:1px solid var(--line);"><span class="st-badge" style="background:'+def[1]+';margin:0;min-width:46px;text-align:center;">ST '+('0'+c).slice(-2)+'</span><span style="font-size:14px;">'+escapeHtml(def[0])+'</span></div>';
+  }).join('');
+}
+function dessinerEtiquetteStatuts(doc){
+  var W = 100, H = 150;
+  doc.setDrawColor(0,0,0); doc.setLineWidth(0.4); doc.rect(2, 2, W-4, H-4);
+  doc.setTextColor(0,0,0); doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5); doc.text('STATUTS DES COMMANDES', W/2, 11.5, { align:'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.text('Le code « ST » s\'affiche à côté du nom de la contremarque', W/2, 16.5, { align:'center' });
+  doc.setLineWidth(0.5); doc.line(8, 20, W-8, 20);
+  var y = 24;
+  codesStatutsOrdonnes().forEach(function(c){
+    var lignes = doc.splitTextToSize(STATUTS_COMMANDE[c][0], 66);
+    doc.setFillColor(0,0,0); doc.roundedRect(6, y, 19, 6, 1.2, 1.2, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.text('ST '+('0'+c).slice(-2), 15.5, y + 4.3, { align:'center' });
+    doc.setTextColor(0,0,0); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text(lignes, 28, lignes.length > 1 ? y + 2.6 : y + 4.2, { lineHeightFactor:1.15 });
+    y += (lignes.length > 1 ? 8.4 + 3.4 * (lignes.length - 1) : 8.4);
+  });
+  doc.setLineWidth(0.5); doc.line(8, y + 1.5, W-8, y + 1.5);
+  // triangle d'anomalie (le symbole ⚠ n'existe pas dans la police du PDF)
+  var ty = y + 7; doc.setLineWidth(0.4); doc.triangle(7, ty + 3.6, 11.4, ty + 3.6, 9.2, ty - 0.3, 'S');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text('!', 9.2, ty + 3.1, { align:'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.text('à côté du code : donnée incohérente, à vérifier', 14, ty + 2.9);
+  doc.setFontSize(6.5); doc.text('Statut calculé automatiquement par le TMS : il ne se saisit pas.', W/2, H - 8.5, { align:'center' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.text('STLS — Édité le '+new Date().toLocaleDateString('fr-FR'), W/2, H - 4.5, { align:'center' });
+}
+function genererEtiquetteStatuts(qte){
+  if(!(window.jspdf && window.jspdf.jsPDF)){ banner('Générateur de PDF indisponible'); return; }
+  var doc = new window.jspdf.jsPDF({ unit:'mm', format:[100, 150] });
+  for(var i = 0; i < qte; i++){ if(i > 0) doc.addPage([100, 150], 'portrait'); dessinerEtiquetteStatuts(doc); }
+  downloadPdf(doc, 'etiquette_statuts_commandes_'+qte+'ex.pdf');
+  banner(qte+' étiquette(s) des statuts — PDF 100 × 150 mm téléchargé');
+}
+document.getElementById('btnEtiqStatuts').addEventListener('click', function(){
+  var q = parseInt(document.getElementById('etiqStatutsQte').value, 10);
+  if(!(q >= 1)) q = 1; if(q > 50) q = 50;
+  document.getElementById('etiqStatutsQte').value = q; genererEtiquetteStatuts(q);
+});
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -10166,6 +10222,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='destinations'){ renderDestinationsAdmin(); }
     if(btn.getAttribute('data-key')==='nettoyagebl'){ renderNettoyageBL(); }
     if(btn.getAttribute('data-key')==='ordreprelevement'){ renderOrdrePrelevement(); }
+    if(btn.getAttribute('data-key')==='etiquettestatuts'){ renderEtiquetteStatutsApercu(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
     if(btn.getAttribute('data-key')==='liens'){ renderLiensClients(); }
   });
@@ -10475,7 +10532,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0103';
+var APP_VERSION = '2026.0104';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
