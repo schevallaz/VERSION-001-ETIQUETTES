@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0105">
+<meta name="app-version" content="2026.0106">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -2979,13 +2979,25 @@ function watchStatutsBLBP(){
 }
 
 var receptionsWatchStarted = false;
+// Réparation d'une commande dont le document n'a pas de champ « id » : sans lui, elle s'affichait dans les listes
+// mais restait introuvable dès qu'on agissait dessus. On y écrit son identifiant réel (une seule tentative par document et par session).
+var idsEnReparation = {};
+function reparerIdReception(docId){
+  if(idsEnReparation[docId] || !receptionsColRef) return;
+  idsEnReparation[docId] = true;
+  receptionsColRef.doc(docId).set({ id:docId }, { merge:true }).catch(function(e){ console.error('réparation de l\'identifiant de la commande '+docId, e); });
+}
 function watchReceptions(){
   if(!fsReady() || receptionsWatchStarted) return;
   receptionsWatchStarted = true;
   receptionsColRef.onSnapshot(function(qsnap){
     var items = [];
     qsnap.forEach(function(doc){
-      try{ items.push(recordToIndexEntry(doc.data())); }
+      try{
+        var rec = doc.data();
+        if(!rec.id){ rec.id = doc.id; reparerIdReception(doc.id); }   // document sans champ id (ancien enlèvement) : on s'appuie sur son identifiant réel et on le répare
+        items.push(recordToIndexEntry(rec));
+      }
       catch(e){ console.error('recordToIndexEntry error pour le document '+doc.id+' — ignoré, ne bloque plus le reste de la liste', e); }
     });
     items.sort(function(a,b){ return (b.savedAt||'').localeCompare(a.savedAt||''); });
@@ -3054,6 +3066,7 @@ function diffReception(prev, cur){
 }
 
 async function saveReceptionRecord(id, record){
+  if(record && !record.id) record.id = id;   // un document enregistré porte toujours son identifiant
   // journal : on compare à la commande telle qu'elle a été lue (ou, à défaut, telle qu'elle est en base)
   try{
     var prev = (id in receptionBase) ? receptionBase[id] : undefined;
@@ -3079,7 +3092,7 @@ async function getReceptionRecord(id){
   if(fsReady()){
     try{
       var snap = await receptionsColRef.doc(id).get();
-      if(snap.exists){ lsSet('reception:'+id, JSON.stringify(snap.data())); receptionBase[id] = cloneData(snap.data().data); return snap.data(); }
+      if(snap.exists){ var r0 = snap.data(); if(!r0.id) r0.id = snap.id; lsSet('reception:'+id, JSON.stringify(r0)); receptionBase[id] = cloneData(r0.data); return r0; }
     }catch(e){ console.error('Firestore getReceptionRecord error', e); }
   }
   var raw = lsGet('reception:'+id);
@@ -10783,7 +10796,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0105';
+var APP_VERSION = '2026.0106';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
