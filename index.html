@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0107">
+<meta name="app-version" content="2026.0108">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -3012,6 +3012,10 @@ function getModelesFiche(){
 }
 function modeleFicheDe(id){ var l = getModelesFiche(); return l.find(function(m){ return m.id===id; }) || l[0]; }
 function modeleIdDuClient(code){ var l = liensClients[code], id = l && l.modeleId; return (id && getModelesFiche().some(function(m){ return m.id===id; })) ? id : 'classique'; }
+function modeleRacine(id){   // modèle fourni dont dérive un modèle : c'est lui qui décide du comportement de la fiche en ligne
+  var m = modeleFicheDe(id), n = 0; while(m && !m.systeme && m.base && n < 20){ m = modeleFicheDe(m.base); n++; }
+  return (m && m.systeme) ? m.id : 'classique';
+}
 function clientsDuModele(id){ return (state.base.clients||[]).filter(function(c){ return modeleIdDuClient(c.code)===id; }).sort(function(a, b){ return String(a.nom||'').localeCompare(String(b.nom||''), 'fr', { numeric:true }); }); }
 async function enregistrerModelesFiche(liste){
   if(!fsReady() || !configDocRef){ banner('⚠ Connexion indisponible'); return false; }
@@ -3100,7 +3104,7 @@ function modeleChampHtml(code){
 document.getElementById('listLiensClients').addEventListener('change', async function(ev){
   var sel = ev.target.closest ? ev.target.closest('.lc-modele') : null; if(!sel) return;
   var c = clientDeCarte(ev); if(!c) return;
-  var ok = await ecrireLienClient(c, { modeleId:sel.value });
+  var ok = await ecrireLienClient(c, { modeleId:sel.value, modeleBase:modeleRacine(sel.value) });
   if(ok) banner('Modèle « '+modeleFicheDe(sel.value).nom+' » affecté à '+c.nom); else sel.value = modeleIdDuClient(c.code);
 });
 
@@ -5154,7 +5158,7 @@ function meilleureContremarque(f){
   if(idx<0) idx = cms.findIndex(function(c){ return normNom(c.nom)===n; });
   return idx;
 }
-var FICHE_LIBELLES = { nom:'Nom', prenom:'Prénom', tel1:'Téléphone 1', tel2:'Téléphone 2', adresse1:'Adresse 1', adresse2:'Adresse 2', departement:'Département', cp:'Code postal', ville:'Ville', mail:'Mail', etage:'Étages',
+var FICHE_LIBELLES = { pays:'Pays', nom:'Nom', prenom:'Prénom', tel1:'Téléphone 1', tel2:'Téléphone 2', adresse1:'Adresse 1', adresse2:'Adresse 2', departement:'Département', cp:'Code postal', ville:'Ville', mail:'Mail', etage:'Étages',
   accesPrecisions:'Précisions d\'accès', datePose:'Date de pose', contraintes:'Contraintes', ascenseur:'Ascenseur', villa:'Villa', immeuble:'Immeuble', bureau:'Bureau', escalier:'Escalier', accesDifficile:'Accès difficile', accesAutre:'Accès : autre',
   optDeballage:'Déballage', optRepriseEmballages:'Reprise des emballages', optMontageSimple:'Montage simple', optMiseEnPlace:'Mise en place', optEvacuation:'Évacuation ancien matériel',
   joursTous:'Tous les jours', lundi:'Lundi', mardi:'Mardi', mercredi:'Mercredi', jeudi:'Jeudi', vendredi:'Vendredi', samedi:'Samedi', dimanche:'Dimanche' };
@@ -5178,7 +5182,7 @@ function appliquerFicheAContremarque(f, cm){
 function resumeFicheHtml(f){
   var oui = function(ks){ return ks.filter(function(k){ return f[k]; }).map(function(k){ return FICHE_LIBELLES[k]; }).join(', ') || '—'; };
   var ln = function(l, v){ return v ? '<div class="sub"><strong>'+escapeHtml(l)+' :</strong> '+escapeHtml(v)+'</div>' : ''; };
-  return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+
+  return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+ln('Pays', f.pays)+ln('Livraison', /^2[AB]$/i.test(f.departement||'') ? 'Corse : uniquement sur devis' : '')+
     ln('Accès', oui(['ascenseur','villa','immeuble','bureau','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose?dateCourte(f.datePose):'')+
     ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
@@ -5191,7 +5195,8 @@ async function renderFichesRecues(){
   el.innerHTML = fichesRecues.map(function(f){
     return '<div class="hist-item" data-num="'+escapeHtml(f.numero)+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml(f.nom+' '+f.prenom)+'</span><span class="date">'+escapeHtml(dateHeureCourte(f.createdAt))+'</span></div>'+
-      '<div class="sub">'+escapeHtml(f.numero)+' · '+escapeHtml(f.cp+' '+f.ville)+(f.ref?' · réf. '+escapeHtml(f.ref):'')+(f.enseigne?' · '+escapeHtml(f.enseigne):'')+'</div>'+
+      '<div class="sub">'+escapeHtml(f.numero)+' · '+escapeHtml(f.cp+' '+f.ville)+(f.pays?' · '+escapeHtml(f.pays):'')+(f.ref?' · réf. '+escapeHtml(f.ref):'')+(f.enseigne?' · '+escapeHtml(f.enseigne):'')+'</div>'+
+      (/^2[AB]$/i.test(f.departement||'') ? '<div class="sub" style="color:#9a6700;font-weight:700;">Corse : uniquement sur devis</div>' : '')+
       (f.clientNom ? '<div class="sub" style="color:var(--accent);">🔗 Reçue via le lien de <strong>'+escapeHtml(f.clientNom)+'</strong>'+(f.tarifHT!=null ? ' · tarif annoncé '+escapeHtml(fmtE(f.tarifHT))+' HT' : '')+'</div>' : '')+
       '<div class="actions"><button class="btn accent fr-ouvrir">Traiter…</button></div>'+
       '<div class="fr-panel" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div></div>';
@@ -10932,7 +10937,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0107';
+var APP_VERSION = '2026.0108';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
