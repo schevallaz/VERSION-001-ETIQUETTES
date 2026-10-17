@@ -209,12 +209,24 @@ function zoneDistance(distance, params, zones){
 }
 // les 5 options de la fiche = les 5 compléments de Tarifs (par identifiant, à défaut par nom)
 var OPTION_COMPLEMENT = [['optDeballage','cp_deballage',/d[ée]ball/i],['optRepriseEmballages','cp_reprise_embal',/reprise/i],['optMontageSimple','cp_montage',/montage/i],['optMiseEnPlace','cp_mise_place',/mise en place/i],['optEvacuation','cp_evacuation',/[ée]vacu/i]];
+
+// ================= Réglages propres au client (étape E2) : coefficient, prix des cinq options, jours d’ouverture =================
+// Valeurs publiées par l’agence sur le lien du client (stls_fiches_clients) ; le moteur de Tarifs n’est pas modifié.
+// Sans réglage (ou réglage invalide), la fiche se comporte exactement comme avant.
+function arrondi2(x){ return Math.round(x*100)/100; }
+function coefficientClient(){ var k = clientConf ? Number(clientConf.coefficient) : 1; return (k > 0 && isFinite(k)) ? k : 1; }
+function prixOptionClient(id){ var p = clientConf && clientConf.prixOptions, v = p ? p[id] : null; return (typeof v==='number' && v >= 0 && isFinite(v)) ? v : null; }
+function joursProposes(){
+  var j = clientConf && clientConf.joursOuverture; if(!Array.isArray(j) || !j.length || j.length >= JOURS.length) return JOURS;
+  var f = JOURS.filter(function(x){ return j.indexOf(x[0]) >= 0; }); return f.length ? f : JOURS;
+}
+function joursLimites(){ return joursProposes().length < JOURS.length; }
 function complementsChoisis(options, complements){
   var out = [];
   OPTION_COMPLEMENT.forEach(function(o){
     if(!options[o[0]]) return;
     var c = (complements||[]).find(function(x){ return x.id===o[1]; }) || (complements||[]).find(function(x){ return o[2].test(x.nom||''); });
-    if(c) out.push({ nom:c.nom, prixHT:c.prixHT });
+    if(c){ var propre = prixOptionClient(o[0]), k = coefficientClient(); out.push({ nom:c.nom, prixHT:(propre!=null ? arrondi2(propre) : (k===1 ? c.prixHT : arrondi2(c.prixHT*k))), propre:(propre!=null) }); }
   });
   return out;
 }
@@ -271,13 +283,13 @@ async function calculerTarif(d){
   if(dist.km==null) return { statut:'a_confirmer', raison:dist.raison };
   var zr = zoneDistance(dist.km, tarifDoc.params, tarifDoc.zones); if(!zr) return { statut:'a_confirmer', raison:'Zone non définie : STLS vous confirmera le tarif.' };
   var r = calculerPrestation(tarifDoc.params, zr.zone, { poids:d.poidsTotal, colisLourd:d.colisLourd, colisLong:d.colisLong, nbEtages:d.etage, ascenseur:d.ascenseur });
-  var equipe = Math.min(3, Math.max(1, r.personnesNecessaires)), base = r['LV'+equipe];
+  var equipe = Math.min(3, Math.max(1, r.personnesNecessaires)), kc = coefficientClient(), base = (kc===1 ? r['LV'+equipe] : arrondi2(r['LV'+equipe]*kc)), surE = (kc===1 ? r.surchargeEtage : arrondi2(r.surchargeEtage*kc));
   var comps = complementsChoisis(d.options, tarifDoc.params.complements), totComp = comps.reduce(function(s, c){ return s + c.prixHT; }, 0);
   var ht = base + totComp, alertes = [];
   if(r.personnesNecessaires>3) alertes.push('Le colis le plus lourd nécessite plus de 3 personnes : STLS confirmera l\'équipe et le tarif.');
   if(d.etage>0 && !d.ascenseur) alertes.push('Livraison à l\'étage sans ascenseur : un supplément est inclus.');
-  return { statut:'ok', km:dist.km, methode:dist.methode, zone:zr.zone.code, equipe:equipe, personnes:r.personnesNecessaires, baseHT:base, surchargeEtage:r.surchargeEtage, complements:comps, totalComplements:totComp,
-    montantHT:ht, tva:ht*0.2, ttc:ht*1.2, alertes:alertes, versionTarif:tarifDoc.publieLe||'', calculeLe:new Date().toISOString() };
+  return { statut:'ok', km:dist.km, methode:dist.methode, zone:zr.zone.code, equipe:equipe, personnes:r.personnesNecessaires, baseHT:base, surchargeEtage:surE, complements:comps, totalComplements:totComp,
+    montantHT:ht, tva:ht*0.2, ttc:ht*1.2, alertes:alertes, versionTarif:(tarifDoc.publieLe||'')+(kc!==1 ? ' · coef '+String(kc).replace('.', ',') : '')+(comps.some(function(c){ return c.propre; }) ? ' · prix client' : ''), calculeLe:new Date().toISOString() };
 }
 function fmtE(n){ return (Math.round(n*100)/100).toFixed(2).replace('.', ',')+' €'; }
 function tarifHtml(t){
@@ -373,7 +385,7 @@ function afficherFormulaire(){
         'Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires.</div>'+
       (comportement==='generique' ? champDatePoseGenerique() : champ('datePose','Date de la pose',{type:'date'}))+
     '</div>'+
-    '<h2>4. Jours de livraison possibles</h2><div class="card"><div class="cases">'+cb('joursTous','Tous')+JOURS.map(function(j){ return cb(j[0], j[1]); }).join('')+'</div></div>'+
+    '<h2>4. Jours de livraison possibles</h2><div class="card"><div class="cases">'+cb('joursTous','Tous')+joursProposes().map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">Seuls les jours d’ouverture sont proposés.</div>' : '')+'</div>'+
     '<h2>5. Informations complémentaires / contraintes</h2><div class="card">'+zone('contraintes','',1500)+'</div>'+
     '<h2>6. Marchandise &amp; enlèvements</h2><div class="card">'+
       champ('nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+
@@ -403,8 +415,8 @@ function afficherFormulaire(){
     '</form>'
   );
   // « Tous » coche / décoche les jours
-  el('joursTous').addEventListener('change', function(){ JOURS.forEach(function(j){ el(j[0]).checked = el('joursTous').checked; }); });
-  JOURS.forEach(function(j){ el(j[0]).addEventListener('change', function(){ if(!el(j[0]).checked) el('joursTous').checked = false; }); });
+  el('joursTous').addEventListener('change', function(){ joursProposes().forEach(function(j){ el(j[0]).checked = el('joursTous').checked; }); });
+  joursProposes().forEach(function(j){ el(j[0]).addEventListener('change', function(){ if(!el(j[0]).checked) el('joursTous').checked = false; }); });
   document.querySelectorAll('input[name="modeReception"]').forEach(function(r){ r.addEventListener('change', majModeReception); });
   el('nbPointsEnlevement').addEventListener('input', majEnlevements);
   if(clientConf){
