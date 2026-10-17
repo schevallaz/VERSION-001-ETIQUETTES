@@ -21,6 +21,10 @@
   .field label.l{ display:block; font-size:12.5px; color:var(--soft); margin-bottom:4px; font-weight:700; }
   .field input[type=text], .field input[type=tel], .field input[type=email], .field input[type=date], .field input[type=number], .field textarea{ width:100%; padding:11px; border:1px solid var(--line-strong); border-radius:9px; font-size:16px; background:#fff; font-family:inherit; }
   .field textarea{ min-height:84px; resize:vertical; }
+  .field select{ width:100%; padding:11px; border:1px solid var(--line-strong); border-radius:9px; font-size:16px; background:#fff; font-family:inherit; }
+  .field.err select{ border-color:var(--red); background:#fdf2f0; }
+  .aide.rouge{ color:var(--red); font-weight:700; }
+  .aide.info{ color:#8a5a00; font-weight:700; background:#fff8e1; border:1px solid #f0dd9a; border-radius:8px; padding:6px 9px; margin:0 0 10px; font-size:13px; }
   .field.err input, .field.err textarea{ border-color:var(--red); background:#fdf2f0; }
   .logo-client{ max-height:58px; max-width:210px; display:block; }
   .logo.client-nom{ font-size:24px; letter-spacing:.5px; }
@@ -260,7 +264,7 @@ function lireDeclarations(){
   return { adresse1:valeur('adresse1'), cp:valeur('cp'), ville:valeur('ville'), etage:etage, ascenseur:coche('ascenseur'),
     poidsTotal:nombre('poidsTotalKg'), colisLourd:nombre('colisLourdPoidsKg'), colisLong:nombre('colisLongLongueurCm'), options:options };
 }
-function declarationsCompletes(d){ return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
+function declarationsCompletes(d){ if(comportement==='generique' && (estCorse() || estOutreMer() || estEtranger())) return false; return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
 async function calculerTarif(d){
   if(!tarifDoc) return { statut:'indisponible', raison:'Le barème de STLS n\'est pas disponible pour le moment : STLS vous confirmera le tarif.' };
   var dist = await estimerDistance(d.adresse1, d.cp, d.ville);
@@ -289,6 +293,7 @@ function tarifHtml(t){
 }
 async function afficherTarif(force){
   var d = lireDeclarations(), zone = el('tarifResultat'); if(!zone) return null;
+  var special = tarifSpecialHtml(); if(special){ zone.innerHTML = special; dernierTarif = null; return null; }
   if(!declarationsCompletes(d)){ zone.innerHTML = '<div class="aide">Renseignez votre adresse (code postal et ville), la marchandise (poids total, colis le plus long et le plus lourd) : votre tarif s\'affichera ici.</div>'; dernierTarif = null; return null; }
   var seq = ++tarifEnCours; zone.innerHTML = '<div class="aide">Calcul de votre tarif…</div>';
   var t = await calculerTarif(d); if(seq !== tarifEnCours) return null;
@@ -343,13 +348,15 @@ function afficherFormulaire(){
     '<p class="sous">Merci de renseigner les informations nécessaires à la bonne organisation de votre livraison.'+(nomAgence?' ('+esc(nomAgence)+')':'')+'</p>'+
     ((refCommande||enseigne) ? '<div class="ref">'+(enseigne?'<div><strong>'+esc(enseigne)+'</strong></div>':'')+(refCommande?'<div>Référence de commande : <strong>'+esc(refCommande)+'</strong></div>':'')+'</div>' : '')+
     '<form id="fiche" novalidate autocomplete="on">'+
+    (comportement==='generique' ? section1Generique() : (
     '<h2>1. Informations de la contremarque</h2><div class="card">'+
       '<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
       '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel'})+'</div>'+
       '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
       '<div class="row2">'+champ('departement','Département',{req:1,max:3,inputmode:'numeric'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code'})+'</div>'+
       '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email'})+'</div>'+
-    '</div>'+
+    '</div>'
+    ))+
     '<h2>2. Accès à l\'adresse</h2><div class="card">'+
       '<div class="cases">'+ACCES.map(function(a){ return cb(a[0], a[1]); }).join('')+'</div>'+
       zone('accesPrecisions','Précisions utiles (interphone, stationnement, ascenseur…)',600)+
@@ -402,6 +409,7 @@ function afficherFormulaire(){
     el('fiche').addEventListener('input', planifierTarif); el('fiche').addEventListener('change', planifierTarif);
     el('btnTarif').addEventListener('click', function(){ afficherTarif(true); });
   }
+  if(comportement==='generique') brancherCoordonneesGenerique();
   el('fiche').addEventListener('submit', function(ev){ ev.preventDefault(); envoyer(); });
 }
 
@@ -414,11 +422,13 @@ function validerSaisie(){
   function ko(id, t){ erreur(id, t); n++; if(!premier) premier = id; }
   ['nom','prenom','adresse1','ville','demandeur'].forEach(function(id){ if(!valeur(id)) ko(id, 'Champ obligatoire'); });
   var tel = valeur('tel1').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
-  if(!valeur('tel1')) ko('tel1','Champ obligatoire'); else if(!/^0[1-9]\d{8}$/.test(tel)) ko('tel1','Numéro invalide (10 chiffres, ex. 06 12 34 56 78)');
+  if(!valeur('tel1')) ko('tel1','Champ obligatoire'); else if(!estEtranger() && !/^0[1-9]\d{8}$/.test(tel)) ko('tel1','Numéro invalide (10 chiffres, ex. 06 12 34 56 78)');
   var tel2 = valeur('tel2').replace(/[\s.\-]/g,'').replace(/^\+33/,'0').replace(/^0033/,'0');
-  if(valeur('tel2') && !/^0[1-9]\d{8}$/.test(tel2)) ko('tel2','Numéro invalide');
+  if(valeur('tel2') && !estEtranger() && !/^0[1-9]\d{8}$/.test(tel2)) ko('tel2','Numéro invalide');
+  if(comportement==='generique'){ validerAdresseGenerique(ko); } else {
   if(!valeur('departement')) ko('departement','Champ obligatoire'); else if(!/^(2A|2B|\d{2,3})$/i.test(valeur('departement'))) ko('departement','Département invalide (ex. 83)');
   if(!valeur('cp')) ko('cp','Champ obligatoire'); else if(!/^\d{5}$/.test(valeur('cp'))) ko('cp','Code postal invalide (5 chiffres)');
+  }
   if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide');
   if(valeur('etage') && !/^\d{1,3}$/.test(valeur('etage'))) ko('etage','Nombre invalide');
   if(valeur('datePose') && !/^\d{4}-\d{2}-\d{2}$/.test(valeur('datePose'))) ko('datePose','Date invalide');
@@ -456,7 +466,7 @@ function validerSaisie(){
   }
   if(!coche('certifie')) ko('certifie','Merci de confirmer avoir vérifié les informations');
   if(!coche('certifieMarchandise')) ko('certifieMarchandise','Merci de confirmer avoir vérifié les informations de marchandise et d\'enlèvements');
-  return { n:n, premier:premier, tel1:tel, tel2:tel2 };
+  return { n:n, premier:premier, tel1:(estEtranger() ? valeur('tel1') : tel), tel2:(estEtranger() ? valeur('tel2') : tel2) };
 }
 function numeroFiche(){
   var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); };
@@ -480,6 +490,7 @@ async function envoyer(){
     departement:valeur('departement').toUpperCase(), cp:valeur('cp'), ville:valeur('ville'), mail:valeur('mail'), etage:valeur('etage'),
     accesPrecisions:valeur('accesPrecisions'), datePose:valeur('datePose'), contraintes:valeur('contraintes'), demandeur:valeur('demandeur'),
     joursTous:coche('joursTous'), certifie:true, certifieMarchandise:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
+  if(estEtranger()) doc.pays = valeur('paysLibre');   // seul champ nouveau, uniquement hors de France (règles de sécurité version 8)
   var arrondi = function(x){ return Math.round(x*100)/100; };
   doc.nbFournisseurs = nombre('nbFournisseurs'); doc.modeReception = modeChoisi();
   if(doc.modeReception !== 'depot'){
@@ -561,6 +572,137 @@ function afficherConfirmation(numero, d, tarif){
   el('btnImprimer').addEventListener('click', function(){ window.print(); });
   document.querySelectorAll('.btn-aut').forEach(function(b){ b.addEventListener('click', function(){ telechargerAutorisation(d, parseInt(b.getAttribute('data-i'), 10)); }); });
 }
+
+// ================= Modèle « Générique » (étape E1a) : coordonnées du client =================
+// Le modèle du client (document stls_fiches_clients : champs modeleId et modeleBase) décide du comportement.
+// Sans modèle, ou avec le modèle « Classique » : la fiche reste exactement celle d’avant.
+var comportement = 'classique';
+function comportementDuModele(conf){ var b = conf && (conf.modeleBase || conf.modeleId); return b==='generique' ? 'generique' : 'classique'; }
+var LIB_SECTION1_GENERIQUE = 'Coordonnées du client';
+var DEP_VALIDE_RE = /^(0[1-9]|1\d|2[1-9]|[3-8]\d|9[0-5]|2[AB])$/;   // métropole et Corse (2A, 2B) ; le 20 n’existe plus
+var geoCache = {};   // département -> communes avec codes postaux (API officielle geo.api.gouv.fr)
+function paysChoisi(){ var e = el('pays'); return e ? e.value : 'FR'; }
+function estEtranger(){ return comportement==='generique' && paysChoisi()!=='FR'; }
+function depCourant(){ return valeur('departement').toUpperCase(); }
+function estCorse(){ return comportement==='generique' && !estEtranger() && /^2[AB]$/.test(depCourant()); }
+function estOutreMer(){ return comportement==='generique' && !estEtranger() && /^9[78]/.test(depCourant()); }
+function section1Generique(){
+  return '<h2>1. '+esc(LIB_SECTION1_GENERIQUE)+'</h2><div class="card">'+
+    '<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+    '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel',attrs:'placeholder="06 12 34 56 78"'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel',attrs:'placeholder="06 12 34 56 78"'})+'</div>'+
+    '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
+    '<div class="field" id="f-pays"><label class="l" for="pays">Pays *</label><select id="pays" autocomplete="country"><option value="FR" selected>FR - France</option><option value="AUTRE">Autre pays</option></select></div>'+
+    '<div class="field" id="f-paysLibre" style="display:none;"><label class="l" for="paysLibre">Nom du pays *</label><input type="text" id="paysLibre" maxlength="40" autocomplete="country-name"><div class="msgerr" id="e-paysLibre"></div></div>'+
+    '<div class="row2">'+champ('departement','Département',{req:1,max:3,ac:'off',attrs:'placeholder="83"'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code',attrs:'list="listeCp"'})+'</div>'+
+    '<datalist id="listeCp"></datalist><div class="aide" id="msgDepartement"></div>'+
+    '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email'})+'</div>'+
+  '</div>';
+}
+// ----- téléphone : masque 00 00 00 00 00 pour la France, saisie libre ailleurs -----
+function normaliserTelFR(brut){ var c = String(brut||'').replace(/[^\d+]/g, ''); if(c.indexOf('+33')===0) c = '0'+c.slice(3); else if(c.indexOf('0033')===0) c = '0'+c.slice(4); return c.replace(/\D/g, '').slice(0, 10); }
+function formaterTelFR(brut){ return normaliserTelFR(brut).replace(/(\d{2})(?=\d)/g, '$1 ').trim(); }
+function brancherMasqueTel(id){
+  var e = el(id); if(!e) return;
+  e.addEventListener('input', function(){ if(estEtranger() || /^\s*\+/.test(e.value)) return; var f = formaterTelFR(e.value); if(f !== e.value) e.value = f; });
+  e.addEventListener('blur', function(){ if(!estEtranger() && e.value) e.value = formaterTelFR(e.value); });   // +33 6 12… devient 06 12…
+}
+// ----- adresse en cascade : département -> code postal -> ville (API officielle ; saisie libre si elle ne répond pas) -----
+async function chargerDepartement(dep){
+  if(geoCache[dep]) return geoCache[dep];
+  try{
+    var r = await avecDelai(fetch('https://geo.api.gouv.fr/departements/'+encodeURIComponent(dep)+'/communes?fields=nom,codesPostaux'), 7000);
+    if(!r.ok) throw new Error('geo'); var j = await r.json();
+    if(Array.isArray(j) && j.length) geoCache[dep] = j;
+  }catch(e){ console.error('communes du département', dep, e); }
+  return geoCache[dep] || null;
+}
+function deduireDepartement(cp){ var p = cp.slice(0, 2); if(p==='20') return (+cp >= 20200) ? '2B' : '2A'; return p; }
+function cpDuDepartement(cp, dep){ return /^2[AB]$/.test(dep) ? cp.slice(0, 2)==='20' : cp.slice(0, 2)===dep; }
+function majMessageDepartement(){
+  var m = el('msgDepartement'), v = depCourant(), t = '', cls = 'aide';
+  if(!estEtranger() && v){
+    if(/^9[78]/.test(v)){ t = 'Livraison non assurée dans ce département.'; cls = 'aide rouge'; }
+    else if(v==='20'){ t = 'Corse : saisissez 2A (Corse-du-Sud) ou 2B (Haute-Corse).'; cls = 'aide info'; }
+    else if(/^2[AB]$/.test(v)){ t = 'Livraison en Corse : uniquement sur devis.'; cls = 'aide info'; }
+  }
+  m.className = cls; m.textContent = t;
+}
+function remplirCp(communes){
+  var liste = el('listeCp'), set = {};
+  if(Array.isArray(communes)) communes.forEach(function(c){ (c.codesPostaux||[]).forEach(function(cp){ set[cp] = 1; }); });
+  liste.innerHTML = Object.keys(set).sort().map(function(cp){ return '<option value="'+cp+'"></option>'; }).join('');
+}
+function ecrireChampVille(mode, noms){
+  var f = el('f-ville'), ancien = valeur('ville');
+  if(mode==='liste'){
+    var choisi = noms.filter(function(n){ return n.toLowerCase()===ancien.toLowerCase(); })[0] || (noms.length===1 ? noms[0] : '');
+    f.innerHTML = '<label class="l" for="ville">Ville *</label><select id="ville" autocomplete="address-level2"><option value="">— Choisir la ville —</option>'+noms.map(function(n){ return '<option value="'+esc(n)+'"'+(n===choisi ? ' selected' : '')+'>'+esc(n)+'</option>'; }).join('')+'</select><div class="msgerr" id="e-ville"></div>';
+  } else if(f.querySelector('select')){
+    f.innerHTML = '<label class="l" for="ville">Ville *</label><input type="text" id="ville" maxlength="80" autocomplete="address-level2"><div class="msgerr" id="e-ville"></div>';
+    el('ville').value = ancien;
+  }
+}
+function majVilles(){
+  if(estEtranger()){ ecrireChampVille('libre'); return; }
+  var cp = valeur('cp'), communes = geoCache[depCourant()];
+  if(/^\d{5}$/.test(cp) && Array.isArray(communes)){
+    var noms = communes.filter(function(c){ return (c.codesPostaux||[]).indexOf(cp) >= 0; }).map(function(c){ return c.nom; }).sort(function(a, b){ return a.localeCompare(b, 'fr'); });
+    if(noms.length){ ecrireChampVille('liste', noms); return; }
+  }
+  ecrireChampVille('libre');
+}
+async function majDepartement(){
+  var e = el('departement'), v = e.value.toUpperCase().replace(/[^0-9AB]/g, '').slice(0, 3); if(v !== e.value) e.value = v;
+  majMessageDepartement();
+  if(DEP_VALIDE_RE.test(v)){ var communes = await chargerDepartement(v); if(depCourant() !== v) return; remplirCp(communes); } else remplirCp(null);
+  majVilles();
+}
+async function majCodePostal(){
+  var e = el('cp');
+  if(!estEtranger()){ var v = e.value.replace(/\D/g, '').slice(0, 5); if(v !== e.value) e.value = v; }
+  if(!estEtranger() && /^\d{5}$/.test(e.value) && !depCourant()){ el('departement').value = deduireDepartement(e.value); await majDepartement(); return; }
+  majVilles();
+}
+function majPays(){
+  var ext = estEtranger(), cp = el('cp');
+  el('f-paysLibre').style.display = ext ? 'block' : 'none';
+  el('f-departement').style.display = ext ? 'none' : 'block';
+  cp.maxLength = ext ? 12 : 5; cp.setAttribute('inputmode', ext ? 'text' : 'numeric'); if(ext) cp.removeAttribute('list'); else cp.setAttribute('list', 'listeCp');
+  if(ext){ el('departement').value = '99'; majMessageDepartement(); ecrireChampVille('libre'); }
+  else { if(el('departement').value==='99') el('departement').value = ''; majDepartement(); }
+}
+function brancherCoordonneesGenerique(){
+  brancherMasqueTel('tel1'); brancherMasqueTel('tel2');
+  el('pays').addEventListener('change', majPays);
+  el('departement').addEventListener('input', majDepartement);
+  el('cp').addEventListener('input', majCodePostal);
+}
+function validerAdresseGenerique(ko){
+  if(estEtranger()){
+    if(!valeur('paysLibre')) ko('paysLibre','Champ obligatoire');
+    if(!valeur('cp')) ko('cp','Champ obligatoire'); else if(valeur('cp').length > 12) ko('cp','Code postal trop long');
+    return;
+  }
+  var dep = depCourant(), cp = valeur('cp');
+  if(!dep) ko('departement','Champ obligatoire');
+  else if(/^9[78]/.test(dep)) ko('departement','Livraison non assurée dans ce département.');
+  else if(dep==='20') ko('departement','Corse : saisissez 2A ou 2B.');
+  else if(!DEP_VALIDE_RE.test(dep)) ko('departement','Département invalide (ex. 83).');
+  if(!cp) ko('cp','Champ obligatoire');
+  else if(!/^\d{5}$/.test(cp)) ko('cp','Code postal invalide (5 chiffres).');
+  else if(DEP_VALIDE_RE.test(dep)){
+    if(!cpDuDepartement(cp, dep)) ko('cp','Ce code postal ne correspond pas au département '+dep+'.');
+    else { var l = geoCache[dep]; if(Array.isArray(l) && !l.some(function(c){ return (c.codesPostaux||[]).indexOf(cp) >= 0; })) ko('cp','Code postal inconnu dans le département '+dep+'.'); }
+  }
+}
+function tarifSpecialHtml(){
+  if(comportement!=='generique') return '';
+  if(estOutreMer()) return '<div class="note"><strong>Livraison non assurée dans ce département.</strong></div>';
+  if(estCorse()) return '<div class="note"><strong>Livraison en Corse : uniquement sur devis.</strong><br>Votre fiche sera transmise à STLS, qui vous adressera un devis.</div>';
+  if(estEtranger()) return '<div class="note"><strong>Tarif à confirmer par STLS.</strong><br>L’adresse est située hors de France : STLS vous adressera un devis.</div>';
+  return '';
+}
+
 async function demarrer(){
   agence = qs('a'); refCommande = qs('ref').slice(0,60); enseigne = qs('e').slice(0,60);
   if(!agence){ msgPage('Lien incomplet', 'Utilisez le lien transmis par STLS pour accéder à la fiche de livraison.'); return; }
@@ -579,6 +721,7 @@ async function demarrer(){
       var sc = await db.collection('stls_fiches_clients').doc(agence+'_'+clientCode).get();
       if(!sc.exists || sc.data().actif !== true){ msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez votre interlocuteur pour en obtenir un nouveau.'); return; }
       clientConf = sc.data();
+      comportement = comportementDuModele(clientConf);
     }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
     try{
       var st = await db.collection('stls_devis_public').doc(agence).get();
