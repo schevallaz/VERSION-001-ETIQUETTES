@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0110">
+<meta name="app-version" content="2026.0111">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -1010,6 +1010,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="nettoyagebl" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧹</div><div style="font-weight:700;color:var(--ink);">Nettoyage des BL</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="ordreprelevement" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧭</div><div style="font-weight:700;color:var(--ink);">Ordre de prélèvement</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="etiquettestatuts" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏷️</div><div style="font-weight:700;color:var(--ink);">Étiquette des statuts</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="marchandises" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📦</div><div style="font-weight:700;color:var(--ink);">Marchandises de la fiche</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="codesuppression" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔐</div><div style="font-weight:700;color:var(--ink);">Mon code de suppression</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="journalsuppr" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🗑</div><div style="font-weight:700;color:var(--ink);">Journal des suppressions</div></button>
       </div>
@@ -1373,6 +1374,15 @@
       <div class="field"><label style="display:flex;align-items:center;gap:10px;font-weight:600;"><input type="radio" name="ordrePrelev" value="ZA" style="width:20px;height:20px;"> De Z à A <span class="hint" style="margin:0;font-weight:400;">(ZZ-99-99 en premier)</span></label></div>
       <div class="btn-row"><button class="btn primary" id="btnOrdrePrelev" style="width:auto;">Enregistrer</button></div>
       <div class="hint" id="ordrePrelevMsg" style="margin-top:6px;"></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-marchandises" style="display:none;">
+    <div class="card">
+      <h2>📦 Marchandises de la fiche de livraison</h2>
+      <p class="hint" style="margin:0 0 10px;">Liste générale des familles de marchandise proposées dans la section « Marchandise » de la fiche en ligne, pour les modèles qui l'activent (Gestion Clients › Modèles de fiche). « Autre », avec un champ libre, est toujours ajouté. Une famille par ligne, 40 au plus, 40 caractères chacune. Liste vide : la liste par défaut s'applique.</p>
+      <div class="field"><label for="marchandisesListe">Familles de marchandise (une par ligne)</label><textarea id="marchandisesListe" rows="10" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:15px;"></textarea></div>
+      <div id="marchandisesMsg" style="margin:6px 0;font-size:13px;font-weight:600;"></div>
+      <div class="btn-row"><button class="btn primary" id="btnMarchandisesSave" style="width:auto;">Enregistrer la liste</button><button class="btn ghost" id="btnMarchandisesDefaut" style="width:auto;">Remettre la liste par défaut</button></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-etiquettestatuts" style="display:none;">
@@ -3018,14 +3028,14 @@ async function renderJournalSuppressions(){
 // (stls_fiches_clients, champ modeleId) pour que la fiche en ligne puisse le lire aux étapes suivantes. Sans choix : Classique.
 var MODELES_FICHE_PAR_DEFAUT = [
   { id:'classique', nom:'Classique', description:'Reproduit exactement la fiche de livraison d\'aujourd\'hui. Modèle de référence : il ne se modifie pas.', systeme:true, verrouille:true, parametres:{} },
-  { id:'generique', nom:'Générique', description:'Fiche client paramétrable : coordonnées du client, adresse en cascade, accès et pose revus. Identique à Classique tant que les étapes suivantes ne sont pas livrées.', systeme:true, verrouille:false, parametres:{} }
+  { id:'generique', nom:'Générique', description:'Fiche client paramétrable : coordonnées du client, adresse en cascade (département, code postal, ville), accès et pose revus. Ses blocs et options se règlent ci-dessous.', systeme:true, verrouille:false, parametres:{} }
 ];
 function getModelesFiche(){
   var stock = Array.isArray(state.modelesFiche) ? state.modelesFiche : [];
   var res = MODELES_FICHE_PAR_DEFAUT.map(function(d){
     var x = stock.find(function(y){ return y.id===d.id; });
     if(d.verrouille || !x) return Object.assign({}, d);
-    return Object.assign({}, d, { nom:x.nom || d.nom, description:(x.description!==undefined ? x.description : d.description), parametres:x.parametres || {}, majLe:x.majLe, majPar:x.majPar });
+    return Object.assign({}, d, { nom:x.nom || d.nom, description:((x.description!==undefined && x.description!=='Fiche client paramétrable : coordonnées du client, adresse en cascade, accès et pose revus. Identique à Classique tant que les étapes suivantes ne sont pas livrées.') ? x.description : d.description), parametres:x.parametres || {}, majLe:x.majLe, majPar:x.majPar });
   });
   stock.forEach(function(x){ if(!MODELES_FICHE_PAR_DEFAUT.some(function(d){ return d.id===x.id; })) res.push(x); });
   return res;
@@ -3064,12 +3074,13 @@ async function dupliquerModeleFiche(id){
   var src = modeleFicheDe(id), n = 'Copie de '+src.nom, k = 2; while(!nomModeleValide(n).ok && k < 50){ n = 'Copie de '+src.nom+' ('+k+')'; k++; }
   return creerModeleFiche(n, src.description, src.id);
 }
-async function modifierModeleFiche(id, nom, description){
+async function modifierModeleFiche(id, nom, description, parametres){
   if(!state.isAdmin) return { ok:false, motif:'Réservé aux administrateurs' };
   var m = modeleFicheDe(id); if(m.verrouille) return { ok:false, motif:'Le modèle « '+m.nom+' » ne se modifie pas.' };
   var v = nomModeleValide(nom, id); if(!v.ok) return v;
-  var liste = getModelesFiche().map(function(x){ return x.id===id ? Object.assign({}, x, { nom:v.nom, description:String(description||'').trim().slice(0, 300), majLe:new Date().toISOString(), majPar:currentIdentity() }) : x; });
-  return (await enregistrerModelesFiche(liste)) ? { ok:true } : { ok:false, motif:'Enregistrement impossible' };
+  var liste = getModelesFiche().map(function(x){ return x.id===id ? Object.assign({}, x, { nom:v.nom, description:String(description||'').trim().slice(0, 300), parametres:(parametres ? normaliserParametres(parametres) : x.parametres), majLe:new Date().toISOString(), majPar:currentIdentity() }) : x; });
+  if(!(await enregistrerModelesFiche(liste))) return { ok:false, motif:'Enregistrement impossible' };
+  return { ok:true, liens:(await publierModeleSurLiens(id)) };   // les liens des clients qui utilisent ce modèle portent ses réglages
 }
 async function supprimerModeleFiche(id){
   if(!state.isAdmin) return { ok:false, motif:'Réservé aux administrateurs' };
@@ -3087,11 +3098,11 @@ async function renderModelesFiche(){
   el.innerHTML = liste.map(function(m){
     var u = clientsDuModele(m.id);
     return '<div class="hist-item mf" data-id="'+escapeHtml(m.id)+'"><div class="hd"><span class="nom">'+escapeHtml(m.nom)+(m.systeme ? ' <span class="code" style="font-size:11px;font-weight:600;background:#eceae2;border-radius:6px;padding:2px 7px;margin-left:6px;color:var(--ink-soft);vertical-align:middle;">Fourni</span>' : '')+(m.verrouille ? ' <span class="code" style="font-size:11px;font-weight:600;background:#eceae2;border-radius:6px;padding:2px 7px;margin-left:6px;color:var(--ink-soft);vertical-align:middle;">Verrouillé</span>' : '')+'</span><span class="date">'+u.length+' client'+(u.length > 1 ? 's' : '')+'</span></div>'+
-      (m.description ? '<div class="sub">'+escapeHtml(m.description)+'</div>' : '')+
+      (m.description ? '<div class="sub">'+escapeHtml(m.description)+'</div>' : '')+(m.verrouille ? '' : '<div class="sub" style="color:var(--accent);">'+escapeHtml(resumeParametresModele(m))+'</div>')+
       '<div class="actions"><button class="btn ghost mf-voir">Voir les clients</button>'+
       (admin ? '<button class="btn ghost mf-dup">Dupliquer</button>'+(m.verrouille ? '' : '<button class="btn ghost mf-modif">Modifier</button>')+(m.systeme ? '' : '<button class="btn ghost mf-suppr" style="color:#c0392b;">Supprimer</button>') : '')+'</div>'+
       '<div class="mf-clients" style="display:none;margin-top:8px;font-size:14px;">'+(u.length ? u.map(function(c){ return '<div>'+escapeHtml(c.nom)+' <span class="code">'+escapeHtml(c.code||'')+'</span></div>'; }).join('') : '<span class="hint">Aucun client n\'utilise ce modèle.</span>')+'</div>'+
-      '<div class="mf-edit" style="display:none;margin-top:8px;"><div class="field"><label>Nom du modèle *</label><input type="text" class="mf-edit-nom" maxlength="60" value="'+escapeHtml(m.nom)+'"></div><div class="field"><label>Description</label><textarea class="mf-edit-desc" rows="2" maxlength="300" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:15px;">'+escapeHtml(m.description||'')+'</textarea></div><div class="btn-row"><button class="btn primary mf-edit-ok" style="width:auto;">Enregistrer</button><button class="btn ghost mf-edit-annuler" style="width:auto;">Annuler</button></div></div></div>';
+      '<div class="mf-edit" style="display:none;margin-top:8px;"><div class="field"><label>Nom du modèle *</label><input type="text" class="mf-edit-nom" maxlength="60" value="'+escapeHtml(m.nom)+'"></div><div class="field"><label>Description</label><textarea class="mf-edit-desc" rows="2" maxlength="300" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:15px;">'+escapeHtml(m.description||'')+'</textarea></div>'+parametresEditHtml(m)+'<div class="btn-row"><button class="btn primary mf-edit-ok" style="width:auto;">Enregistrer</button><button class="btn ghost mf-edit-annuler" style="width:auto;">Annuler</button></div></div></div>';
   }).join('');
   var base = document.getElementById('mfNouveauBase'); if(base) base.innerHTML = liste.map(function(m){ return '<option value="'+escapeHtml(m.id)+'">'+escapeHtml(m.nom)+'</option>'; }).join('');
   var nouveau = document.getElementById('modelesFicheNouveau'); if(nouveau) nouveau.style.display = admin ? 'block' : 'none';
@@ -3102,7 +3113,7 @@ document.getElementById('modelesFicheListe').addEventListener('click', async fun
   if(b.classList.contains('mf-voir')){ var z = carte.querySelector('.mf-clients'); z.style.display = z.style.display==='none' ? 'block' : 'none'; return; }
   if(b.classList.contains('mf-modif')){ carte.querySelector('.mf-edit').style.display = 'block'; return; }
   if(b.classList.contains('mf-edit-annuler')){ carte.querySelector('.mf-edit').style.display = 'none'; return; }
-  if(b.classList.contains('mf-edit-ok')){ r = await modifierModeleFiche(id, carte.querySelector('.mf-edit-nom').value, carte.querySelector('.mf-edit-desc').value); msgModeles(r.ok ? 'Modèle modifié.' : '⚠ '+r.motif, r.ok); if(r.ok) renderModelesFiche(); return; }
+  if(b.classList.contains('mf-edit-ok')){ r = await modifierModeleFiche(id, carte.querySelector('.mf-edit-nom').value, carte.querySelector('.mf-edit-desc').value, lireParametresEdit(carte)); msgModeles(r.ok ? 'Modèle modifié.'+(r.liens ? ' '+r.liens+' lien'+(r.liens > 1 ? 's' : '')+' client mis à jour.' : '') : '⚠ '+r.motif, r.ok); if(r.ok) renderModelesFiche(); return; }
   if(b.classList.contains('mf-dup')){ r = await dupliquerModeleFiche(id); msgModeles(r.ok ? 'Modèle dupliqué.' : '⚠ '+r.motif, r.ok); if(r.ok) renderModelesFiche(); return; }
   if(b.classList.contains('mf-suppr')){
     if(!confirm('Supprimer le modèle « '+modeleFicheDe(id).nom+' » ?')) return;
@@ -3171,6 +3182,75 @@ function reglagesLienHtml(c){
   if(Array.isArray(l.joursOuverture) && l.joursOuverture.length) p.push('jours : '+l.joursOuverture.join(', '));
   return '<div class="hint" style="margin:2px 0 8px;">Réglages de la fiche : '+(p.length ? '<strong>'+escapeHtml(p.join(' · '))+'</strong>' : 'aucun (grille de Tarifs, tous les jours)')+'. À régler dans Fiche client détaillée.</div>';
 }
+
+
+// ================= Options simples des modèles (étape E3) =================
+// Blocs masquables et options de la fiche en ligne, réglés par modèle (Gestion Clients › Modèles de fiche), publiés sur le lien de chaque client
+// qui utilise le modèle (modeleParametres). « Marchandise et enlèvements » n'est jamais masqué. Sans réglage : la fiche d'aujourd'hui.
+var BLOCS_FICHE = [['acces','Accès à l\'adresse'],['options','Options souhaitées'],['datePose','Date de la pose'],['jours','Jours de livraison possibles'],['infos','Informations complémentaires'],['tarif','Tarif estimatif']];
+var OPTIONS_FICHE = [['numeroCommande','Numéro de commande obligatoire'],['mailObligatoire','Mail obligatoire'],['avertissementPose','Avertissement si la date de pose est dans moins de 3 jours'],['marchandise','Section « Marchandise » (famille + « Autre »)']];
+function parametresParDefaut(){ var b = {}, p; BLOCS_FICHE.forEach(function(x){ b[x[0]] = true; }); p = { blocs:b }; OPTIONS_FICHE.forEach(function(x){ p[x[0]] = false; }); return p; }
+function normaliserParametres(p){ var d = parametresParDefaut(), b = (p && p.blocs) || {}; BLOCS_FICHE.forEach(function(x){ d.blocs[x[0]] = b[x[0]] !== false; }); OPTIONS_FICHE.forEach(function(x){ d[x[0]] = !!p && p[x[0]] === true; }); return d; }
+function parametresPublicsModele(id){ var m = modeleFicheDe(id); if(!m || m.id==='classique') return null; var n = normaliserParametres(m.parametres); return JSON.stringify(n)===JSON.stringify(parametresParDefaut()) ? null : n; }
+function appliquerParametresModele(doc){
+  delete doc.modeleParametres;
+  var id = (doc.modeleId && getModelesFiche().some(function(m){ return m.id===doc.modeleId; })) ? doc.modeleId : 'classique', p = parametresPublicsModele(id);
+  if(p) doc.modeleParametres = p;
+}
+function resumeParametresModele(m){
+  var n = normaliserParametres(m.parametres), masques = BLOCS_FICHE.filter(function(x){ return !n.blocs[x[0]]; }).map(function(x){ return x[1]; }), opts = OPTIONS_FICHE.filter(function(x){ return n[x[0]]; }).map(function(x){ return x[1]; });
+  if(!masques.length && !opts.length) return 'Fiche : tous les blocs affichés, aucune option.';
+  return 'Fiche : '+(masques.length ? 'masqué : '+masques.join(', ') : 'tous les blocs affichés')+(opts.length ? ' · options : '+opts.join(', ') : '')+'.';
+}
+function parametresEditHtml(m){
+  var n = normaliserParametres(m.parametres), cb = function(cls, k, lib, coche){ return '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" class="'+cls+'" data-k="'+k+'"'+(coche ? ' checked' : '')+' style="width:17px;height:17px;">'+escapeHtml(lib)+'</label>'; };
+  return '<div class="field"><label>Blocs affichés dans la fiche en ligne</label><div style="display:flex;flex-direction:column;gap:8px;">'+BLOCS_FICHE.map(function(x){ return cb('mf-bloc', x[0], x[1], n.blocs[x[0]]); }).join('')+'</div><div class="hint" style="margin:6px 0 0;">« Marchandise et enlèvements » est toujours affiché : il est indispensable à la prise en charge.</div></div>'+
+    '<div class="field"><label>Options</label><div style="display:flex;flex-direction:column;gap:8px;">'+OPTIONS_FICHE.map(function(x){ return cb('mf-opt', x[0], x[1], n[x[0]]); }).join('')+'</div></div>';
+}
+function lireParametresEdit(carte){
+  var p = { blocs:{} };
+  carte.querySelectorAll('.mf-bloc').forEach(function(e){ p.blocs[e.getAttribute('data-k')] = e.checked; });
+  carte.querySelectorAll('.mf-opt').forEach(function(e){ p[e.getAttribute('data-k')] = e.checked; });
+  return p;
+}
+async function publierModeleSurLiens(id){
+  await chargerLiensClients();
+  var cl = clientsDuModele(id).filter(function(c){ return liensClients[c.code]; }), n = 0;
+  for(var i = 0; i < cl.length; i++){ if(await ecrireLienClient(cl[i], {})) n++; }
+  return n;
+}
+// liste générale des marchandises de l'agence (lue par la fiche en ligne, document public de l'agence)
+var MARCHANDISES_DEFAUT = ['Cuisine','Salle de bain','Dressing','Électroménager','Canapé','Meubles'];
+function msgMarchandises(t, ok){ var e = document.getElementById('marchandisesMsg'); e.textContent = t || ''; e.style.color = ok ? '#1e8e3e' : 'var(--danger)'; }
+async function renderMarchandisesFiche(){
+  var zone = document.getElementById('marchandisesListe'), admin = !!state.isAdmin; msgMarchandises('');
+  zone.disabled = !admin; document.getElementById('btnMarchandisesSave').style.display = admin ? '' : 'none'; document.getElementById('btnMarchandisesDefaut').style.display = admin ? '' : 'none';
+  var liste = MARCHANDISES_DEFAUT;
+  try{ var sn = await db.collection('stls_fiches_public').doc(state.currentAgencyCode).get(); if(sn.exists && Array.isArray(sn.data().marchandises) && sn.data().marchandises.length) liste = sn.data().marchandises; }catch(e){ console.error('marchandises', e); }
+  zone.value = liste.join('\n');
+}
+function lireListeMarchandises(){
+  var vus = {}, out = [], lignes = document.getElementById('marchandisesListe').value.split('\n');
+  for(var i = 0; i < lignes.length; i++){
+    var t = lignes[i].trim().replace(/\s+/g, ' '); if(!t) continue;
+    if(t.length > 40) return { ok:false, erreur:'« '+t.slice(0, 30)+'… » dépasse 40 caractères.' };
+    var k = t.toLowerCase(); if(vus[k]) continue; vus[k] = 1; out.push(t);
+  }
+  if(out.length > 40) return { ok:false, erreur:'Au plus 40 familles (il y en a '+out.length+').' };
+  return { ok:true, liste:out };
+}
+async function enregistrerMarchandises(liste){
+  if(!state.isAdmin){ msgMarchandises('⚠ Réservé aux administrateurs'); return false; }
+  try{ await db.collection('stls_fiches_public').doc(state.currentAgencyCode).set({ marchandises:liste }, { merge:true }); return true; }
+  catch(e){ console.error('marchandises', e); msgMarchandises('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return false; }
+}
+document.getElementById('btnMarchandisesSave').addEventListener('click', async function(){
+  var r = lireListeMarchandises(); if(!r.ok){ msgMarchandises('⚠ '+r.erreur); return; }
+  if(await enregistrerMarchandises(r.liste)){ document.getElementById('marchandisesListe').value = (r.liste.length ? r.liste : MARCHANDISES_DEFAUT).join('\n'); msgMarchandises(r.liste.length ? r.liste.length+' famille'+(r.liste.length > 1 ? 's' : '')+' enregistrée'+(r.liste.length > 1 ? 's' : '')+'.' : 'Liste vide : la liste par défaut s\'applique.', true); }
+});
+document.getElementById('btnMarchandisesDefaut').addEventListener('click', async function(){
+  if(await enregistrerMarchandises([])){ document.getElementById('marchandisesListe').value = MARCHANDISES_DEFAUT.join('\n'); msgMarchandises('Liste par défaut rétablie.', true); }
+});
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -5255,7 +5335,7 @@ function resumeFicheHtml(f){
   var oui = function(ks){ return ks.filter(function(k){ return f[k]; }).map(function(k){ return FICHE_LIBELLES[k]; }).join(', ') || '—'; };
   var ln = function(l, v){ return v ? '<div class="sub"><strong>'+escapeHtml(l)+' :</strong> '+escapeHtml(v)+'</div>' : ''; };
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+ln('Pays', f.pays)+ln('Livraison', /^2[AB]$/i.test(f.departement||'') ? 'Corse : uniquement sur devis' : '')+
-    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Précisions', f.accesPrecisions)+
+    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose ? dateCourte(f.datePose)+(f.posePar ? ' · pose par '+(f.posePar==='magasin' ? 'le magasin' : 'l\'artisan') : '') : '')+
     ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
@@ -5475,7 +5555,8 @@ async function ecrireLienClient(client, patch){
   if(!state.isAdmin){ banner('Réservé à l\'administrateur'); return false; }
   var cur = liensClients[client.code] || {};
   var doc = Object.assign({ agence:state.currentAgencyCode, clientCode:client.code, clientNom:client.nom, actif:false, logo:'' }, cur, patch, { clientNom:client.nom, majLe:new Date().toISOString(), majPar:currentIdentity() });
-  appliquerReglagesPublics(doc, client);   // coefficient, prix des options et jours d'ouverture du client (lus par la fiche en ligne)
+  appliquerReglagesPublics(doc, client);
+  appliquerParametresModele(doc);   // réglages du modèle du client (blocs masqués, options) lus par la fiche en ligne   // coefficient, prix des options et jours d'ouverture du client (lus par la fiche en ligne)
   try{ await db.collection('stls_fiches_clients').doc(clientLienId(client.code)).set(doc); liensClients[client.code] = doc; return true; }
   catch(e){ console.error('lien client', e); banner('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return false; }
 }
@@ -10698,6 +10779,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='nettoyagebl'){ renderNettoyageBL(); }
     if(btn.getAttribute('data-key')==='ordreprelevement'){ renderOrdrePrelevement(); }
     if(btn.getAttribute('data-key')==='etiquettestatuts'){ renderEtiquetteStatutsApercu(); }
+    if(btn.getAttribute('data-key')==='marchandises'){ renderMarchandisesFiche(); }
     if(btn.getAttribute('data-key')==='codesuppression'){ renderCodeSuppression(); }
     if(btn.getAttribute('data-key')==='journalsuppr'){ renderJournalSuppressions(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
@@ -11010,7 +11092,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0110';
+var APP_VERSION = '2026.0111';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){

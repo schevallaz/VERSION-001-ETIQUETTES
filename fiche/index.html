@@ -355,39 +355,45 @@ function nombre(id){ var v = valeur(id).replace(',', '.'); return v==='' ? NaN :
 var NUM_RE = /^\d+([.,]\d{1,2})?$/;
 
 function afficherFormulaire(){
+  nSection = 0;
   var aujourdhui = new Date().toISOString().slice(0,10);
   aff(
     '<p class="sous">Merci de renseigner les informations nécessaires à la bonne organisation de votre livraison.'+(nomAgence?' ('+esc(nomAgence)+')':'')+'</p>'+
     ((refCommande||enseigne) ? '<div class="ref">'+(enseigne?'<div><strong>'+esc(enseigne)+'</strong></div>':'')+(refCommande?'<div>Référence de commande : <strong>'+esc(refCommande)+'</strong></div>':'')+'</div>' : '')+
     '<form id="fiche" novalidate autocomplete="on">'+
     (comportement==='generique' ? section1Generique() : (
-    '<h2>1. Informations de la contremarque</h2><div class="card">'+
-      '<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+    titreSection('Informations de la contremarque')+'<div class="card">'+
+      champNumeroCommande()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
       '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel'})+'</div>'+
       '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
       '<div class="row2">'+champ('departement','Département',{req:1,max:3,inputmode:'numeric'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code'})+'</div>'+
-      '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email'})+'</div>'+
+      '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email',req:(mailObligatoire() ? 1 : 0)})+'</div>'+
     '</div>'
     ))+
+    (blocVisible('acces') ? (
     (comportement==='generique' ? section2Generique() : (
-    '<h2>2. Accès à l\'adresse</h2><div class="card">'+
+    titreSection('Accès à l\'adresse')+'<div class="card">'+
       '<div class="cases">'+ACCES.map(function(a){ return cb(a[0], a[1]); }).join('')+'</div>'+
       zone('accesPrecisions','Précisions utiles (interphone, stationnement, ascenseur…)',600)+
       champ('etage','Nombre d\'étages',{max:3,inputmode:'numeric'})+
     '</div>'
-    ))+
-    '<h2>3. Options souhaitées</h2><div class="card">'+
+    ))
+    ) : '')+
+    (paramModele().marchandise ? sectionMarchandise() : '')+
+    ((blocVisible('options') || blocVisible('datePose')) ? (titreSection(blocVisible('options') ? 'Options souhaitées' : 'Date de la pose')+'<div class="card">'+
+      (blocVisible('options') ? (
       '<div class="cases">'+OPTIONS.map(function(o){ return cb(o[0], o[1]); }).join('')+'</div>'+
       '<div class="note"><strong>* Informations importantes concernant les options :</strong><br>'+
         '<strong>Montage simple :</strong> durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.<br>'+
         '<strong>Mise en place :</strong> positionnement du mobilier ou de l\'équipement <strong>sans aucune fixation</strong>.<br>'+
         '<strong>Évacuation ancien matériel :</strong> uniquement si le matériel est <strong>transportable et préalablement emballé</strong>.<br>'+
-        'Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires.</div>'+
-      (comportement==='generique' ? champDatePoseGenerique() : champ('datePose','Date de la pose',{type:'date'}))+
-    '</div>'+
-    '<h2>4. Jours de livraison possibles</h2><div class="card"><div class="cases">'+cb('joursTous','Tous')+joursProposes().map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">Seuls les jours d’ouverture sont proposés.</div>' : '')+'</div>'+
-    '<h2>5. Informations complémentaires / contraintes</h2><div class="card">'+zone('contraintes','',1500)+'</div>'+
-    '<h2>6. Marchandise &amp; enlèvements</h2><div class="card">'+
+        'Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires.</div>'
+      ) : '')+
+      (blocVisible('datePose') ? blocDatePose() : '')+
+    '</div>') : '')+
+    (blocVisible('jours') ? (titreSection('Jours de livraison possibles')+'<div class="card"><div class="cases">'+cb('joursTous','Tous')+joursProposes().map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">Seuls les jours d’ouverture sont proposés.</div>' : '')+'</div>') : '')+
+    (blocVisible('infos') ? (titreSection('Informations complémentaires / contraintes')+'<div class="card">'+zone('contraintes','',1500)+'</div>') : '')+
+    titreSection('Marchandise &amp; enlèvements')+'<div class="card">'+
       champ('nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+
       '<div class="field" id="f-modeReception"><label class="l">Mode de réception de la marchandise *</label><div class="cases" style="flex-direction:column;gap:10px;">'+MODES.map(function(m){ return radioMode(m[0], m[1]); }).join('')+'</div><div class="msgerr" id="e-modeReception"></div></div>'+
       '<div id="blocEnlevements" style="display:none;">'+
@@ -401,8 +407,8 @@ function afficherFormulaire(){
       '<div class="row2">'+champ('colisLourdPoidsKg','Poids (kg)',{req:1,max:8,inputmode:'decimal'})+champ('colisLourdDescription','Description ou référence',{max:200})+'</div>'+
       (clientConf ? '<label class="l" style="margin-top:6px;">Ensemble de la commande</label><div class="row2">'+champ('poidsTotalKg','Poids total estimé (kg)',{req:1,max:8,inputmode:'decimal',aide:'Poids de l\'ensemble de la marchandise à livrer (une estimation suffit). Il sert au calcul de votre tarif.'})+champ('nbColisTotal','Nombre total de colis',{type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>' : '')+
     '</div>'+
-    (clientConf ? '<h2>7. Votre tarif estimatif</h2><div class="card" id="cardTarif"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations : adresse, étage et ascenseur, marchandise et options choisies. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>' : '')+
-    '<h2>'+(clientConf ? '8' : '7')+'. Confirmation</h2><div class="card">'+
+    ((clientConf && blocVisible('tarif')) ? titreSection('Votre tarif estimatif')+'<div class="card" id="cardTarif"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations : adresse, étage et ascenseur, marchandise et options choisies. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>' : '')+
+    titreSection('Confirmation')+'<div class="card">'+
       '<div class="certif">Je certifie que les informations communiquées sont exactes et permettent d\'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu\'une nouvelle facturation.</div>'+
       '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> J\'ai vérifié les informations de livraison</label><div class="msgerr" id="e-certifie"></div></div>'+
       '<div class="field" id="f-certifieMarchandise"><label class="case"><input type="checkbox" id="certifieMarchandise"> J\'ai vérifié les informations de marchandise et d\'enlèvements</label><div class="msgerr" id="e-certifieMarchandise"></div></div>'+
@@ -415,15 +421,18 @@ function afficherFormulaire(){
     '</form>'
   );
   // « Tous » coche / décoche les jours
+  if(el('joursTous')){
   el('joursTous').addEventListener('change', function(){ joursProposes().forEach(function(j){ el(j[0]).checked = el('joursTous').checked; }); });
   joursProposes().forEach(function(j){ el(j[0]).addEventListener('change', function(){ if(!el(j[0]).checked) el('joursTous').checked = false; }); });
+  }
   document.querySelectorAll('input[name="modeReception"]').forEach(function(r){ r.addEventListener('change', majModeReception); });
   el('nbPointsEnlevement').addEventListener('input', majEnlevements);
   if(clientConf){
     el('fiche').addEventListener('input', planifierTarif); el('fiche').addEventListener('change', planifierTarif);
-    el('btnTarif').addEventListener('click', function(){ afficherTarif(true); });
+    if(el('btnTarif')) el('btnTarif').addEventListener('click', function(){ afficherTarif(true); });
   }
   if(comportement==='generique') brancherCoordonneesGenerique();
+  brancherOptionsModele();
   el('fiche').addEventListener('submit', function(ev){ ev.preventDefault(); envoyer(); });
 }
 
@@ -443,7 +452,9 @@ function validerSaisie(){
   if(!valeur('departement')) ko('departement','Champ obligatoire'); else if(!/^(2A|2B|\d{2,3})$/i.test(valeur('departement'))) ko('departement','Département invalide (ex. 83)');
   if(!valeur('cp')) ko('cp','Champ obligatoire'); else if(!/^\d{5}$/.test(valeur('cp'))) ko('cp','Code postal invalide (5 chiffres)');
   }
-  if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide');
+  if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide'); else if(!valeur('mail') && mailObligatoire()) ko('mail','Champ obligatoire');
+  if(paramModele().numeroCommande && !valeur('numCommande')) ko('numCommande','Champ obligatoire');
+  if(paramModele().marchandise){ if(!valeur('famille')) ko('famille','Merci de choisir la famille de marchandise'); else if(valeur('famille')==='__autre' && !valeur('familleAutre')) ko('familleAutre','Merci de préciser la marchandise'); }
   if(valeur('etage') && !/^\d{1,3}$/.test(valeur('etage'))) ko('etage','Nombre invalide');
   if(valeur('datePose') && !/^\d{4}-\d{2}-\d{2}$/.test(valeur('datePose'))) ko('datePose','Date invalide');
   else if(comportement==='generique' && valeur('datePose') && !posePar()) ko('posePar','Merci de préciser qui réalise la pose (magasin ou artisan).');
@@ -498,7 +509,7 @@ async function envoyer(){
   if(valeur('siteweb')){ envoye = true; afficherConfirmation('FL000000-X', null); return; }
   var btn = el('btnEnvoyer'); btn.disabled = true; btn.textContent = 'Envoi en cours…';
   var tarifFinal = null;
-  if(clientConf){ try{ var dcl = lireDeclarations(); if(declarationsCompletes(dcl)) tarifFinal = await calculerTarif(dcl); }catch(e){ console.error('tarif', e); } }   // le tarif enregistré correspond exactement à la fiche envoyée
+  if(clientConf && blocVisible('tarif')){ try{ var dcl = lireDeclarations(); if(declarationsCompletes(dcl)) tarifFinal = await calculerTarif(dcl); }catch(e){ console.error('tarif', e); } }   // le tarif enregistré correspond exactement à la fiche envoyée
   var numero = numeroFiche();
   var doc = { numero:numero, agence:agence, ref:refCommande, enseigne:enseigne,
     nom:valeur('nom'), prenom:valeur('prenom'), tel1:v.tel1, tel2:v.tel2, adresse1:valeur('adresse1'), adresse2:valeur('adresse2'),
@@ -506,6 +517,8 @@ async function envoyer(){
     accesPrecisions:valeur('accesPrecisions'), datePose:valeur('datePose'), contraintes:valeur('contraintes'), demandeur:valeur('demandeur'),
     joursTous:coche('joursTous'), certifie:true, certifieMarchandise:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
   if(comportement==='generique'){ if(coche('magasin')) doc.magasin = true; if(valeur('datePose') && posePar()) doc.posePar = posePar(); }   // champs nouveaux, envoyés seulement s’ils sont utilisés (règles de sécurité version 9)
+  if(paramModele().numeroCommande) doc.ref = valeur('numCommande');
+  if(paramModele().marchandise){ doc.famille = valeur('famille')==='__autre' ? 'Autre' : valeur('famille'); if(valeur('famille')==='__autre') doc.familleAutre = valeur('familleAutre'); }   // champs nouveaux, uniquement si la section Marchandise est activée (règles de sécurité version 10)
   if(estEtranger()) doc.pays = valeur('paysLibre');   // seul champ nouveau, uniquement hors de France (règles de sécurité version 8)
   var arrondi = function(x){ return Math.round(x*100)/100; };
   doc.nbFournisseurs = nombre('nbFournisseurs'); doc.modeReception = modeChoisi();
@@ -603,15 +616,15 @@ function depCourant(){ return valeur('departement').toUpperCase(); }
 function estCorse(){ return comportement==='generique' && !estEtranger() && /^2[AB]$/.test(depCourant()); }
 function estOutreMer(){ return comportement==='generique' && !estEtranger() && /^9[78]/.test(depCourant()); }
 function section1Generique(){
-  return '<h2>1. '+esc(LIB_SECTION1_GENERIQUE)+'</h2><div class="card">'+
-    '<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+  return titreSection(esc(LIB_SECTION1_GENERIQUE))+'<div class="card">'+
+    champNumeroCommande()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
     '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel',attrs:'placeholder="06 12 34 56 78"'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel',attrs:'placeholder="06 12 34 56 78"'})+'</div>'+
     '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
     '<div class="field" id="f-pays"><label class="l" for="pays">Pays *</label><select id="pays" autocomplete="country"><option value="FR" selected>FR - France</option><option value="AUTRE">Autre pays</option></select></div>'+
     '<div class="field" id="f-paysLibre" style="display:none;"><label class="l" for="paysLibre">Nom du pays *</label><input type="text" id="paysLibre" maxlength="40" autocomplete="country-name"><div class="msgerr" id="e-paysLibre"></div></div>'+
     '<div class="row2">'+champ('departement','Département',{req:1,max:3,ac:'off',attrs:'placeholder="83"'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code',attrs:'list="listeCp"'})+'</div>'+
     '<datalist id="listeCp"></datalist><div class="aide" id="msgDepartement"></div>'+
-    '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email'})+'</div>'+
+    '<div class="row2">'+champ('ville','Ville',{req:1,max:80,ac:'address-level2'})+champ('mail','Mail',{type:'email',max:120,ac:'email',req:(mailObligatoire() ? 1 : 0)})+'</div>'+
   '</div>';
 }
 // ----- téléphone : masque 00 00 00 00 00 pour la France, saisie libre ailleurs -----
@@ -716,7 +729,7 @@ function validerAdresseGenerique(ko){
 // ----- accès à l’adresse et pose (étape E1b) -----
 function posePar(){ var r = document.querySelector('input[name="posePar"]:checked'); return r ? r.value : ''; }
 function section2Generique(){
-  return '<h2>2. Accès à l’adresse</h2><div class="card">'+
+  return titreSection('Accès à l’adresse')+'<div class="card">'+
     '<div class="field"><label class="l">Type de site</label><div class="cases">'+
       [['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['magasin','Magasin'],['accesAutre','Autre']].map(function(t){ return '<label class="case"><input type="radio" name="typeSite" id="'+t[0]+'"> '+t[1]+'</label>'; }).join('')+
     '</div></div>'+
@@ -726,24 +739,63 @@ function section2Generique(){
   '</div>';
 }
 function champDatePoseGenerique(){
-  return champ('datePose','Date de la pose',{type:'date'})+
+  return champ('datePose','Date de la pose',{type:'date'})+avertPoseHtml()+
     '<div class="field" id="f-posePar" style="display:none;"><label class="l">Pose réalisée par *</label><div class="cases">'+
       '<label class="case"><input type="radio" name="posePar" id="poseMagasin" value="magasin"> Magasin</label><label class="case"><input type="radio" name="posePar" id="poseArtisan" value="artisan"> Artisan</label></div>'+
       (nomAgence ? '<div class="aide">Agence : '+esc(nomAgence)+'</div>' : '')+'<div class="msgerr" id="e-posePar"></div></div>';
 }
 function majEtage(){
-  var n = parseInt(valeur('etage'), 10), voir = n >= 1, bloc = el('blocAscEsc');
+  var n = parseInt(valeur('etage'), 10), voir = n >= 1, bloc = el('blocAscEsc'); if(!bloc) return;
   bloc.style.display = voir ? 'inline-flex' : 'none';
   if(!voir){ el('ascenseur').checked = false; el('escalier').checked = false; }
 }
 function majPose(){
+  if(!el('f-posePar')) return;
   var voir = !!valeur('datePose'); el('f-posePar').style.display = voir ? 'block' : 'none';
   if(!voir) document.querySelectorAll('input[name="posePar"]').forEach(function(r){ r.checked = false; });
 }
 function brancherAccesPoseGenerique(){
-  el('etage').addEventListener('input', majEtage);
-  el('datePose').addEventListener('input', majPose); el('datePose').addEventListener('change', majPose);
+  if(el('etage')) el('etage').addEventListener('input', majEtage);
+  if(el('datePose')){ el('datePose').addEventListener('input', majPose); el('datePose').addEventListener('change', majPose); }
   majEtage(); majPose();
+}
+
+// ================= Options simples du modèle (étape E3) =================
+// Le modèle du client publie ses réglages sur son lien (stls_fiches_clients : modeleParametres). Sans réglage : la fiche reste celle d’avant.
+// Blocs masquables : accès, options, date de la pose, jours, informations complémentaires, tarif. « Marchandise et enlèvements » n’est jamais masqué.
+var nSection = 0;
+function titreSection(t){ nSection++; return '<h2>'+nSection+'. '+t+'</h2>'; }
+var BLOCS_MASQUABLES = ['acces','options','datePose','jours','infos','tarif'];
+function paramModele(){
+  var p = (clientConf && clientConf.modeleParametres) || {}, b = p.blocs || {}, r = { blocs:{} };
+  BLOCS_MASQUABLES.forEach(function(k){ r.blocs[k] = b[k] !== false; });   // seul « false » masque un bloc
+  ['numeroCommande','mailObligatoire','avertissementPose','marchandise'].forEach(function(k){ r[k] = p[k] === true; });
+  return r;
+}
+function blocVisible(k){ return paramModele().blocs[k]; }
+function mailObligatoire(){ return paramModele().mailObligatoire; }
+function champNumeroCommande(){ return paramModele().numeroCommande ? champ('numCommande','Numéro de commande',{req:1,max:60,aide:'Le numéro de la commande à livrer : il permet à STLS de la retrouver au chargement.'}) : ''; }
+function avertPoseHtml(){ return paramModele().avertissementPose ? '<div class="aide info" id="avertPose" style="display:none;margin-top:6px;"></div>' : ''; }
+function blocDatePose(){ return comportement==='generique' ? champDatePoseGenerique() : champ('datePose','Date de la pose',{type:'date'})+avertPoseHtml(); }
+var MARCHANDISES_PAR_DEFAUT = ['Cuisine','Salle de bain','Dressing','Électroménager','Canapé','Meubles'];
+var marchandisesAgence = null;   // liste générale de l’agence (stls_fiches_public)
+function listeMarchandises(){ var l = Array.isArray(marchandisesAgence) ? marchandisesAgence.filter(function(x){ return typeof x==='string' && x.trim(); }).slice(0, 40) : []; return l.length ? l : MARCHANDISES_PAR_DEFAUT; }
+function sectionMarchandise(){
+  return titreSection('Marchandise')+'<div class="card">'+
+    '<div class="field" id="f-famille"><label class="l" for="famille">Famille de marchandise *</label><select id="famille"><option value="">— Choisir —</option>'+listeMarchandises().map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join('')+'<option value="__autre">Autre</option></select><div class="msgerr" id="e-famille"></div></div>'+
+    '<div class="field" id="f-familleAutre" style="display:none;"><label class="l" for="familleAutre">Précisez la marchandise *</label><input type="text" id="familleAutre" maxlength="100"><div class="msgerr" id="e-familleAutre"></div></div>'+
+  '</div>';
+}
+function majAvertissementPose(){
+  var z = el('avertPose'), d = valeur('datePose'); if(!z) return;
+  var ok = /^\d{4}-\d{2}-\d{2}$/.test(d), jours = ok ? Math.round((new Date(d+'T00:00:00') - new Date(aujourdhuiISO()+'T00:00:00')) / 86400000) : NaN;
+  if(ok && jours >= 0 && jours < 3){ z.textContent = 'Attention : cette date est dans moins de 3 jours. STLS ne pourra pas forcément s’organiser ; la date de pose est indicative et n’engage à rien.'; z.style.display = 'block'; }
+  else { z.textContent = ''; z.style.display = 'none'; }
+}
+function brancherOptionsModele(){
+  if(el('numCommande') && refCommande) el('numCommande').value = refCommande;
+  if(el('famille')) el('famille').addEventListener('change', function(){ el('f-familleAutre').style.display = el('famille').value==='__autre' ? 'block' : 'none'; });
+  if(el('avertPose') && el('datePose')){ el('datePose').addEventListener('input', majAvertissementPose); el('datePose').addEventListener('change', majAvertissementPose); }
 }
 function tarifSpecialHtml(){
   if(comportement!=='generique') return '';
@@ -762,6 +814,7 @@ async function demarrer(){
     var snap = await db.collection('stls_fiches_public').doc(agence).get();
     if(!snap.exists || snap.data().actif !== true){ msgPage('Formulaire indisponible', 'Ce lien n\'est pas (ou plus) actif. Contactez STLS pour en obtenir un nouveau.'); return; }
     nomAgence = snap.data().agencyName || '';
+    marchandisesAgence = snap.data().marchandises || null;
     agenceInfo = Object.assign({ nom:nomAgence }, snap.data().agence || {});
   }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
   // lien personnalisé d'un client de STLS : logo du client + tarif estimatif (le lien ne marche que si le client l'a activé)
