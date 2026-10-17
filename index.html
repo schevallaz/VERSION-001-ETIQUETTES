@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0106">
+<meta name="app-version" content="2026.0107">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -762,6 +762,7 @@
         <button type="button" class="submodule-tile" data-prefix="clients" data-key="list" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏢</div><div style="font-weight:700;color:var(--ink);">Clients</div></button>
         <button type="button" class="submodule-tile" data-prefix="clients" data-key="fiche" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📋</div><div style="font-weight:700;color:var(--ink);">Fiche client détaillée</div></button>
         <button type="button" class="submodule-tile" data-prefix="clients" data-key="liens" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔗</div><div style="font-weight:700;color:var(--ink);">Liens contremarques</div></button>
+        <button type="button" class="submodule-tile" data-prefix="clients" data-key="modeles" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧩</div><div style="font-weight:700;color:var(--ink);">Modèles de fiche</div></button>
       </div>
     </div>
     <div class="btn-row submodule-back-row" data-prefix="clients" style="display:none;"><button class="btn ghost submodule-back" data-prefix="clients" style="width:100%;">← Retour aux modules Clients</button></div>
@@ -772,6 +773,22 @@
       <div id="liensEtatGeneral" class="hint" style="font-weight:600;"></div>
     </div>
     <div id="listLiensClients"></div>
+    </div>
+    <div class="submodule-content" id="sub-clients-modeles" style="display:none;">
+    <div class="card">
+      <h2>🧩 Modèles de fiche</h2>
+      <p class="hint" style="margin:0 0 10px;">Un modèle décide de ce que voit la contremarque dans la fiche de livraison en ligne. On le règle une fois, puis on l'affecte à plusieurs clients, sur la carte du client dans « Liens contremarques ». Le modèle <strong>Classique</strong> reproduit exactement la fiche d'aujourd'hui et ne se modifie pas : un client sans modèle choisi l'utilise.</p>
+      <div class="hint" style="background:#fff8e1;border:1px solid #f0dd9a;border-radius:9px;padding:8px 10px;">La fiche en ligne n'utilise pas encore ces modèles : ils servent à préparer les étapes suivantes. Pour l'instant, tous les clients voient la même fiche.</div>
+      <div id="mfMsg" style="margin:8px 0;font-size:13px;font-weight:600;"></div>
+      <div id="modelesFicheListe"></div>
+    </div>
+    <div class="card" id="modelesFicheNouveau">
+      <h2>➕ Nouveau modèle</h2>
+      <div class="field"><label for="mfNouveauNom">Nom du modèle *</label><input type="text" id="mfNouveauNom" maxlength="60" placeholder="Exemple : Fiche magasin Foir'Fouille"></div>
+      <div class="field"><label for="mfNouveauDesc">Description (facultative)</label><textarea id="mfNouveauDesc" rows="2" maxlength="300" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:15px;"></textarea></div>
+      <div class="field"><label for="mfNouveauBase">Partir de</label><select id="mfNouveauBase" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"></select></div>
+      <div class="btn-row"><button class="btn primary" id="btnMfCreer" style="width:100%;">Créer le modèle</button></div>
+    </div>
     </div>
     <div class="submodule-content" id="sub-clients-list" style="display:none;">
     <div class="card">
@@ -1498,6 +1515,7 @@ var state = {
   destinationsSortie: null, // destinations de sortie paramétrables (null = valeurs par défaut)
   motifsService: null,
   zonesSortie: null,
+  modelesFiche: null, // modèles de fiche de livraison de l'agence (null = modèles fournis uniquement)
   tournees: []
 };
 
@@ -1782,6 +1800,7 @@ async function loadBase(){
           emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
           receivedAtMigrated: !!d0.receivedAtMigrated
         };
+        state.modelesFiche = d0.modelesFiche || null;
         lsSet('base-data', JSON.stringify(state.base));
         watchBase();
         return;
@@ -1839,6 +1858,7 @@ function watchBase(){
       emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
       receivedAtMigrated: !!d.receivedAtMigrated
     };
+    state.modelesFiche = d.modelesFiche || null;
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
     renderEmplacementsList();
@@ -2969,6 +2989,120 @@ async function renderJournalSuppressions(){
     }); });
   }catch(e){ console.error('journal des suppressions', e); el.innerHTML = '<div class="hint" style="color:var(--danger);">⚠ Lecture impossible ('+((e && e.code)||'erreur')+').</div>'; }
 }
+
+
+// ================= Modèles de fiche de livraison (étape E1) =================
+// Un modèle décide de ce que voit la contremarque dans la fiche en ligne. Deux modèles sont fournis : « Classique » (la fiche d'aujourd'hui,
+// verrouillé) et « Générique » (la fiche client paramétrable, identique à Classique tant que les étapes suivantes ne sont pas livrées).
+// Les modèles sont propres à l'agence (document de l'agence, champ modelesFiche). Le modèle d'un client est inscrit sur son lien
+// (stls_fiches_clients, champ modeleId) pour que la fiche en ligne puisse le lire aux étapes suivantes. Sans choix : Classique.
+var MODELES_FICHE_PAR_DEFAUT = [
+  { id:'classique', nom:'Classique', description:'Reproduit exactement la fiche de livraison d\'aujourd\'hui. Modèle de référence : il ne se modifie pas.', systeme:true, verrouille:true, parametres:{} },
+  { id:'generique', nom:'Générique', description:'Fiche client paramétrable : coordonnées du client, adresse en cascade, accès et pose revus. Identique à Classique tant que les étapes suivantes ne sont pas livrées.', systeme:true, verrouille:false, parametres:{} }
+];
+function getModelesFiche(){
+  var stock = Array.isArray(state.modelesFiche) ? state.modelesFiche : [];
+  var res = MODELES_FICHE_PAR_DEFAUT.map(function(d){
+    var x = stock.find(function(y){ return y.id===d.id; });
+    if(d.verrouille || !x) return Object.assign({}, d);
+    return Object.assign({}, d, { nom:x.nom || d.nom, description:(x.description!==undefined ? x.description : d.description), parametres:x.parametres || {}, majLe:x.majLe, majPar:x.majPar });
+  });
+  stock.forEach(function(x){ if(!MODELES_FICHE_PAR_DEFAUT.some(function(d){ return d.id===x.id; })) res.push(x); });
+  return res;
+}
+function modeleFicheDe(id){ var l = getModelesFiche(); return l.find(function(m){ return m.id===id; }) || l[0]; }
+function modeleIdDuClient(code){ var l = liensClients[code], id = l && l.modeleId; return (id && getModelesFiche().some(function(m){ return m.id===id; })) ? id : 'classique'; }
+function clientsDuModele(id){ return (state.base.clients||[]).filter(function(c){ return modeleIdDuClient(c.code)===id; }).sort(function(a, b){ return String(a.nom||'').localeCompare(String(b.nom||''), 'fr', { numeric:true }); }); }
+async function enregistrerModelesFiche(liste){
+  if(!fsReady() || !configDocRef){ banner('⚠ Connexion indisponible'); return false; }
+  var maj = JSON.parse(JSON.stringify(liste));
+  try{ await configDocRef.set({ modelesFiche:maj }, { merge:true }); state.modelesFiche = maj; return true; }
+  catch(e){ console.error('modèles de fiche', e); banner('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return false; }
+}
+function nomModeleValide(nom, idExclu){
+  nom = String(nom||'').trim().replace(/\s+/g, ' ');
+  if(nom.length < 2) return { ok:false, motif:'Donne un nom d\'au moins 2 caractères.' };
+  if(nom.length > 60) return { ok:false, motif:'Le nom ne doit pas dépasser 60 caractères.' };
+  var dup = getModelesFiche().find(function(m){ return m.id!==idExclu && m.nom.toLowerCase()===nom.toLowerCase(); });
+  if(dup) return { ok:false, motif:'Un modèle « '+dup.nom+' » existe déjà.' };
+  return { ok:true, nom:nom };
+}
+function msgModeles(t, ok){ var e = document.getElementById('mfMsg'); if(!e) return; e.textContent = t || ''; e.style.color = ok ? '#1e8e3e' : 'var(--danger)'; }
+async function creerModeleFiche(nom, description, baseId){
+  if(!state.isAdmin) return { ok:false, motif:'Réservé aux administrateurs' };
+  var v = nomModeleValide(nom); if(!v.ok) return v;
+  var base = modeleFicheDe(baseId || 'classique'), liste = getModelesFiche();
+  liste.push({ id:'mf_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), nom:v.nom, description:String(description||'').trim().slice(0, 300), base:base.id, systeme:false, verrouille:false, parametres:JSON.parse(JSON.stringify(base.parametres||{})), creeLe:new Date().toISOString(), creePar:currentIdentity() });
+  return (await enregistrerModelesFiche(liste)) ? { ok:true } : { ok:false, motif:'Enregistrement impossible' };
+}
+async function dupliquerModeleFiche(id){
+  if(!state.isAdmin) return { ok:false, motif:'Réservé aux administrateurs' };
+  var src = modeleFicheDe(id), n = 'Copie de '+src.nom, k = 2; while(!nomModeleValide(n).ok && k < 50){ n = 'Copie de '+src.nom+' ('+k+')'; k++; }
+  return creerModeleFiche(n, src.description, src.id);
+}
+async function modifierModeleFiche(id, nom, description){
+  if(!state.isAdmin) return { ok:false, motif:'Réservé aux administrateurs' };
+  var m = modeleFicheDe(id); if(m.verrouille) return { ok:false, motif:'Le modèle « '+m.nom+' » ne se modifie pas.' };
+  var v = nomModeleValide(nom, id); if(!v.ok) return v;
+  var liste = getModelesFiche().map(function(x){ return x.id===id ? Object.assign({}, x, { nom:v.nom, description:String(description||'').trim().slice(0, 300), majLe:new Date().toISOString(), majPar:currentIdentity() }) : x; });
+  return (await enregistrerModelesFiche(liste)) ? { ok:true } : { ok:false, motif:'Enregistrement impossible' };
+}
+async function supprimerModeleFiche(id){
+  if(!state.isAdmin) return { ok:false, motif:'Réservé aux administrateurs' };
+  var m = modeleFicheDe(id); if(m.systeme) return { ok:false, motif:'Le modèle « '+m.nom+' » est fourni : il ne se supprime pas.' };
+  await chargerLiensClients();
+  var u = clientsDuModele(id);
+  if(u.length) return { ok:false, motif:'Suppression impossible : '+u.length+' client(s) utilisent ce modèle ('+u.slice(0, 8).map(function(c){ return c.nom; }).join(', ')+(u.length > 8 ? '…' : '')+'). Affecte-leur un autre modèle d\'abord.' };
+  return (await enregistrerModelesFiche(getModelesFiche().filter(function(x){ return x.id!==id; }))) ? { ok:true } : { ok:false, motif:'Enregistrement impossible' };
+}
+async function renderModelesFiche(){
+  var el = document.getElementById('modelesFicheListe'); if(!el) return;
+  el.innerHTML = '<div class="hint">Chargement…</div>';
+  await chargerLiensClients();
+  var liste = getModelesFiche(), admin = state.isAdmin;
+  el.innerHTML = liste.map(function(m){
+    var u = clientsDuModele(m.id);
+    return '<div class="hist-item mf" data-id="'+escapeHtml(m.id)+'"><div class="hd"><span class="nom">'+escapeHtml(m.nom)+(m.systeme ? ' <span class="code" style="font-size:11px;font-weight:600;background:#eceae2;border-radius:6px;padding:2px 7px;margin-left:6px;color:var(--ink-soft);vertical-align:middle;">Fourni</span>' : '')+(m.verrouille ? ' <span class="code" style="font-size:11px;font-weight:600;background:#eceae2;border-radius:6px;padding:2px 7px;margin-left:6px;color:var(--ink-soft);vertical-align:middle;">Verrouillé</span>' : '')+'</span><span class="date">'+u.length+' client'+(u.length > 1 ? 's' : '')+'</span></div>'+
+      (m.description ? '<div class="sub">'+escapeHtml(m.description)+'</div>' : '')+
+      '<div class="actions"><button class="btn ghost mf-voir">Voir les clients</button>'+
+      (admin ? '<button class="btn ghost mf-dup">Dupliquer</button>'+(m.verrouille ? '' : '<button class="btn ghost mf-modif">Modifier</button>')+(m.systeme ? '' : '<button class="btn ghost mf-suppr" style="color:#c0392b;">Supprimer</button>') : '')+'</div>'+
+      '<div class="mf-clients" style="display:none;margin-top:8px;font-size:14px;">'+(u.length ? u.map(function(c){ return '<div>'+escapeHtml(c.nom)+' <span class="code">'+escapeHtml(c.code||'')+'</span></div>'; }).join('') : '<span class="hint">Aucun client n\'utilise ce modèle.</span>')+'</div>'+
+      '<div class="mf-edit" style="display:none;margin-top:8px;"><div class="field"><label>Nom du modèle *</label><input type="text" class="mf-edit-nom" maxlength="60" value="'+escapeHtml(m.nom)+'"></div><div class="field"><label>Description</label><textarea class="mf-edit-desc" rows="2" maxlength="300" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:15px;">'+escapeHtml(m.description||'')+'</textarea></div><div class="btn-row"><button class="btn primary mf-edit-ok" style="width:auto;">Enregistrer</button><button class="btn ghost mf-edit-annuler" style="width:auto;">Annuler</button></div></div></div>';
+  }).join('');
+  var base = document.getElementById('mfNouveauBase'); if(base) base.innerHTML = liste.map(function(m){ return '<option value="'+escapeHtml(m.id)+'">'+escapeHtml(m.nom)+'</option>'; }).join('');
+  var nouveau = document.getElementById('modelesFicheNouveau'); if(nouveau) nouveau.style.display = admin ? 'block' : 'none';
+}
+document.getElementById('modelesFicheListe').addEventListener('click', async function(ev){
+  var b = ev.target.closest ? ev.target.closest('button') : null, carte = ev.target.closest ? ev.target.closest('.mf') : null; if(!b || !carte) return;
+  var id = carte.getAttribute('data-id'), r;
+  if(b.classList.contains('mf-voir')){ var z = carte.querySelector('.mf-clients'); z.style.display = z.style.display==='none' ? 'block' : 'none'; return; }
+  if(b.classList.contains('mf-modif')){ carte.querySelector('.mf-edit').style.display = 'block'; return; }
+  if(b.classList.contains('mf-edit-annuler')){ carte.querySelector('.mf-edit').style.display = 'none'; return; }
+  if(b.classList.contains('mf-edit-ok')){ r = await modifierModeleFiche(id, carte.querySelector('.mf-edit-nom').value, carte.querySelector('.mf-edit-desc').value); msgModeles(r.ok ? 'Modèle modifié.' : '⚠ '+r.motif, r.ok); if(r.ok) renderModelesFiche(); return; }
+  if(b.classList.contains('mf-dup')){ r = await dupliquerModeleFiche(id); msgModeles(r.ok ? 'Modèle dupliqué.' : '⚠ '+r.motif, r.ok); if(r.ok) renderModelesFiche(); return; }
+  if(b.classList.contains('mf-suppr')){
+    if(!confirm('Supprimer le modèle « '+modeleFicheDe(id).nom+' » ?')) return;
+    r = await supprimerModeleFiche(id); msgModeles(r.ok ? 'Modèle supprimé.' : '⚠ '+r.motif, r.ok); if(r.ok) renderModelesFiche();
+  }
+});
+document.getElementById('btnMfCreer').addEventListener('click', async function(){
+  var r = await creerModeleFiche(document.getElementById('mfNouveauNom').value, document.getElementById('mfNouveauDesc').value, document.getElementById('mfNouveauBase').value);
+  msgModeles(r.ok ? 'Modèle créé.' : '⚠ '+r.motif, r.ok);
+  if(r.ok){ document.getElementById('mfNouveauNom').value = ''; document.getElementById('mfNouveauDesc').value = ''; renderModelesFiche(); }
+});
+// choix du modèle sur la carte d'un client (Liens contremarques)
+function modeleChampHtml(code){
+  var id = modeleIdDuClient(code), m = modeleFicheDe(id);
+  return '<div class="field" style="margin-top:6px;"><label>Modèle de fiche</label>'+
+    (state.isAdmin ? '<select class="lc-modele" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;">'+getModelesFiche().map(function(x){ return '<option value="'+escapeHtml(x.id)+'"'+(x.id===id ? ' selected' : '')+'>'+escapeHtml(x.nom)+'</option>'; }).join('')+'</select>' : '<div style="font-weight:600;">'+escapeHtml(m.nom)+'</div>')+
+    '<div class="hint" style="margin:4px 0 0;">Décide de ce que voit la contremarque dans la fiche. Les modèles se règlent dans Gestion Clients, Modèles de fiche.</div></div>';
+}
+document.getElementById('listLiensClients').addEventListener('change', async function(ev){
+  var sel = ev.target.closest ? ev.target.closest('.lc-modele') : null; if(!sel) return;
+  var c = clientDeCarte(ev); if(!c) return;
+  var ok = await ecrireLienClient(c, { modeleId:sel.value });
+  if(ok) banner('Modèle « '+modeleFicheDe(sel.value).nom+' » affecté à '+c.nom); else sel.value = modeleIdDuClient(c.code);
+});
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -5280,6 +5414,7 @@ async function renderLiensClients(){
     return '<div class="card lc" data-code="'+escapeHtml(c.code)+'"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><h2 style="margin:0;font-size:16px;">'+escapeHtml(c.nom)+' <span class="code">'+escapeHtml(c.code||'')+'</span></h2>'+puce+'</div>'+
       '<div style="margin:10px 0;display:flex;align-items:center;gap:12px;"><div style="width:140px;min-height:56px;border:1px dashed var(--line-strong);border-radius:10px;display:flex;align-items:center;justify-content:center;padding:6px;background:#fff;">'+(l.logo ? '<img src="'+escapeHtml(l.logo)+'" alt="Logo" style="max-width:128px;max-height:56px;">' : '<span class="hint" style="margin:0;">Pas de logo</span>')+'</div>'+
         (state.isAdmin ? '<div><label class="btn ghost" style="width:auto;display:inline-block;padding:8px 12px;cursor:pointer;margin:0;">Choisir le logo<input type="file" class="lc-logo" accept="image/*" style="display:none;"></label>'+(l.logo ? ' <button class="btn ghost lc-logo-retirer" style="width:auto;padding:8px 12px;">Retirer</button>' : '')+'<div class="hint" style="margin:4px 0 0;">PNG ou JPEG ; il est réduit automatiquement.</div></div>' : '')+'</div>'+
+      modeleChampHtml(c.code)+
       (state.isAdmin ? '<div class="btn-row" style="margin-top:0;"><button class="btn '+(actif ? 'ghost' : 'accent')+' lc-toggle" style="width:auto;">'+(actif ? '⏸ Désactiver le lien' : '▶ Activer le lien pour ses contremarques')+'</button></div>' : '<div class="hint">Seul un administrateur peut activer ou désactiver ce lien.</div>')+
       '<div class="field" style="margin-top:10px;"><label>Lien à transmettre aux contremarques de '+escapeHtml(c.nom)+'</label><input type="text" readonly class="lc-lien" value="'+escapeHtml(lien)+'"'+(actif ? '' : ' style="color:var(--ink-soft);background:#f4f3ee;"')+'></div>'+
       (actif ? '<div class="btn-row"><button class="btn accent lc-copier" style="width:auto;">Copier le lien</button><button class="btn ghost lc-partager" style="width:auto;">Partager…</button><button class="btn ghost lc-apercu" style="width:auto;">👁 Aperçu</button></div>'+
@@ -10489,6 +10624,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='journalsuppr'){ renderJournalSuppressions(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
     if(btn.getAttribute('data-key')==='liens'){ renderLiensClients(); }
+    if(btn.getAttribute('data-key')==='modeles'){ renderModelesFiche(); }
   });
 });
 Array.prototype.forEach.call(document.querySelectorAll('.submodule-back'), function(btn){
@@ -10796,7 +10932,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0106';
+var APP_VERSION = '2026.0107';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
