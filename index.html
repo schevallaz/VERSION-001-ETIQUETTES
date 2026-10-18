@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0115">
+<meta name="app-version" content="2026.0116">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -844,6 +844,10 @@
         </div>
         <div class="field"><label for="cli-prixOpt-optEvacuation">Évacuation ancien matériel</label><input type="text" id="cli-prixOpt-optEvacuation" inputmode="decimal"></div>
       </div>
+      <h2 style="margin-top:16px;font-size:15px;">Tarif ad valorem de ce client</h2>
+      <p class="hint" style="margin:0 0 10px;">Pour les modèles réglés sur « Ad valorem » : le prix est un pourcentage de la valeur TTC de la marchandise que le client saisit, selon la zone de livraison. Renseigne les trois taux, ou aucun. Au-delà de 59 km : taux de la zone C plus le prix du km fixé dans Paramètres › Tarif ad valorem. Aucun minimum. Seul un administrateur peut les modifier.</p>
+      <div class="row2"><div class="field"><label for="cli-adv-A">Zone A, 0 à 19 km (%)</label><input type="text" id="cli-adv-A" inputmode="decimal"></div><div class="field"><label for="cli-adv-B">Zone B, 20 à 39 km (%)</label><input type="text" id="cli-adv-B" inputmode="decimal"></div></div>
+      <div class="field"><label for="cli-adv-C">Zone C, 40 à 59 km (%)</label><input type="text" id="cli-adv-C" inputmode="decimal"></div>
       <h2 style="margin-top:16px;font-size:15px;">Grille de tarif du client (client dépôt)</h2>
       <p class="hint" style="margin:0 0 10px;">Importe la feuille « TARIF EN COURS » du fichier Excel du client : l'application la lit, tu contrôles ce qu'elle a compris, puis tu l'enregistres. Elle sert à la fiche en ligne des modèles réglés sur « Grille du client ». L'augmentation annuelle reste dans ton Excel : tu réimportes le fichier mis à jour. Seul un administrateur peut enregistrer ou retirer la grille.</p>
       <div id="cli-grille-etat" class="hint" style="font-weight:600;margin:0 0 8px;"></div>
@@ -1027,6 +1031,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="ordreprelevement" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🧭</div><div style="font-weight:700;color:var(--ink);">Ordre de prélèvement</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="etiquettestatuts" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏷️</div><div style="font-weight:700;color:var(--ink);">Étiquette des statuts</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="marchandises" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📦</div><div style="font-weight:700;color:var(--ink);">Marchandises de la fiche</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="advalorem" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">％</div><div style="font-weight:700;color:var(--ink);">Tarif ad valorem</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="codesuppression" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔐</div><div style="font-weight:700;color:var(--ink);">Mon code de suppression</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="journalsuppr" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🗑</div><div style="font-weight:700;color:var(--ink);">Journal des suppressions</div></button>
       </div>
@@ -1399,6 +1404,15 @@
       <div class="field"><label for="marchandisesListe">Familles de marchandise (une par ligne)</label><textarea id="marchandisesListe" rows="10" style="width:100%;padding:10px;border:1px solid var(--line-strong);border-radius:9px;font-family:inherit;font-size:15px;"></textarea></div>
       <div id="marchandisesMsg" style="margin:6px 0;font-size:13px;font-weight:600;"></div>
       <div class="btn-row"><button class="btn primary" id="btnMarchandisesSave" style="width:auto;">Enregistrer la liste</button><button class="btn ghost" id="btnMarchandisesDefaut" style="width:auto;">Remettre la liste par défaut</button></div>
+    </div>
+    </div>
+    <div class="submodule-content" id="sub-parametres-advalorem" style="display:none;">
+    <div class="card">
+      <h2>％ Tarif ad valorem : réglage de l'agence</h2>
+      <p class="hint" style="margin:0 0 10px;">Pour les modèles réglés sur « Ad valorem » : au-delà de 59 km, le prix est celui de la zone C plus ce prix pour chaque kilomètre au-delà de 59. Les taux de chaque zone se règlent client par client, dans Fiche client détaillée. Sans prix du km, la fiche passe sur devis au-delà de 59 km.</p>
+      <div class="field"><label for="advKm">Prix du km supplémentaire au-delà de 59 km (€ HT)</label><input type="text" id="advKm" inputmode="decimal" placeholder="Exemple : 0,80"></div>
+      <div id="advKmMsg" style="margin:6px 0;font-size:13px;font-weight:600;"></div>
+      <div class="btn-row"><button class="btn primary" id="btnAdvKmSave" style="width:auto;">Enregistrer</button></div>
     </div>
     </div>
     <div class="submodule-content" id="sub-parametres-etiquettestatuts" style="display:none;">
@@ -3184,24 +3198,32 @@ function lireReglagesTarifClient(){
     if(!/^\d+([.,]\d{1,2})?$/.test(v) || nombreFr(v) > 100000) return { ok:false, erreur:'Prix invalide pour « '+o[1]+' » (exemple : 12 ou 12,50).' };
     po[o[0]] = nombreFr(v);
   }
-  return { ok:true, coefficient:coef, prixOptions:po };
+  var av = ['A', 'B', 'C'].map(function(z){ return document.getElementById('cli-adv-'+z).value.trim(); }), adv = null;
+  if(av.some(function(v){ return v !== ''; })){
+    var nums = av.map(nombreFr);
+    if(av.some(function(v){ return !/^\d+([.,]\d{1,3})?$/.test(v); }) || nums.some(function(n){ return !(n > 0 && n <= 100); })) return { ok:false, erreur:'Taux ad valorem : renseigne les trois zones avec un pourcentage entre 0,001 et 100, ou aucune.' };
+    adv = { A:nums[0], B:nums[1], C:nums[2] };
+  }
+  return { ok:true, coefficient:coef, prixOptions:po, adValorem:adv };
 }
 function afficherReglagesTarifClient(c){
   afficherGrilleClient(c);
   var admin = !!state.isAdmin, k = c ? nombreFr(c.coefficientTarif) : NaN, co = document.getElementById('cli-coefficientTarif');
   co.value = (k > 0 && isFinite(k)) ? String(k).replace('.', ',') : ''; co.disabled = !admin;
   OPTIONS_TARIF_CLIENT.forEach(function(o){ var n = c ? nombreFr(c.prixOptions && c.prixOptions[o[0]]) : NaN, e = document.getElementById('cli-prixOpt-'+o[0]); e.value = (n >= 0 && isFinite(n)) ? String(n).replace('.', ',') : ''; e.disabled = !admin; });
+  ['A', 'B', 'C'].forEach(function(z){ var e = document.getElementById('cli-adv-'+z), v = c && c.adValorem ? c.adValorem[z] : null; e.value = (typeof v === 'number' && v > 0) ? String(v).replace('.', ',') : ''; e.disabled = !admin; });
 }
 function reglagesLienHtml(c){
   if(c.code===CODE_LIEN_GENERAL) return '';   // le lien général n'a pas de fiche client : ni coefficient, ni prix, ni jours propres
   var l = liensClients[c.code] || {}, p = [], manque = !l.magasin && !!l.modeleParametres && !!l.modeleParametres.magasinClient;
   if(l.magasin) p.push('enlèvement au magasin : '+l.magasin.adresse1+', '+l.magasin.cp+' '+l.magasin.ville);
   if(l.grille) p.push('tarif : grille du client (importée le '+((l.grille.source && l.grille.source.importeLe) || '—')+')');
-  var sansGrille = !l.grille && !!l.modeleParametres && l.modeleParametres.modeTarif === 'grille';
+  if(l.adValorem) p.push('tarif : ad valorem zone A '+String(l.adValorem.A).replace('.', ',')+' % · B '+String(l.adValorem.B).replace('.', ',')+' % · C '+String(l.adValorem.C).replace('.', ',')+' %');
+  var sansGrille = !l.grille && !!l.modeleParametres && l.modeleParametres.modeTarif === 'grille', sansTaux = !l.adValorem && !!l.modeleParametres && l.modeleParametres.modeTarif === 'adValorem';
   if(l.coefficient) p.push('coefficient ×'+String(l.coefficient).replace('.', ','));
   var np = l.prixOptions ? Object.keys(l.prixOptions).length : 0; if(np) p.push(np+' prix d\'option propre'+(np > 1 ? 's' : ''));
   if(Array.isArray(l.joursOuverture) && l.joursOuverture.length) p.push('jours : '+l.joursOuverture.join(', '));
-  return '<div class="hint" style="margin:2px 0 8px;">Réglages de la fiche : '+(p.length ? '<strong>'+escapeHtml(p.join(' · '))+'</strong>' : 'aucun (grille de Tarifs, tous les jours)')+'. À régler dans Fiche client détaillée.</div>'+(sansGrille ? '<div class="hint" style="margin:0 0 8px;color:var(--danger);font-weight:600;">⚠ Le mode « grille du client » est activé sur ce modèle, mais aucune grille n’est importée sur la fiche de ce client : la fiche reste au tarif du module Tarifs (et les prestations sans ligne passent sur devis).</div>' : '')+(manque ? '<div class="hint" style="margin:0 0 8px;color:var(--danger);font-weight:600;">⚠ L’enlèvement au magasin du client est activé sur ce modèle, mais l’adresse de ce client est incomplète : à compléter dans Fiche client détaillée (adresse, code postal, ville). En attendant, la fiche reste celle d’un enlèvement classique.</div>' : '');
+  return '<div class="hint" style="margin:2px 0 8px;">Réglages de la fiche : '+(p.length ? '<strong>'+escapeHtml(p.join(' · '))+'</strong>' : 'aucun (grille de Tarifs, tous les jours)')+'. À régler dans Fiche client détaillée.</div>'+(sansTaux ? '<div class="hint" style="margin:0 0 8px;color:var(--danger);font-weight:600;">⚠ Le mode « ad valorem » est activé sur ce modèle, mais les trois taux de ce client ne sont pas renseignés dans sa fiche client : la fiche reste au tarif du module Tarifs.</div>' : '')+(sansGrille ? '<div class="hint" style="margin:0 0 8px;color:var(--danger);font-weight:600;">⚠ Le mode « grille du client » est activé sur ce modèle, mais aucune grille n’est importée sur la fiche de ce client : la fiche reste au tarif du module Tarifs (et les prestations sans ligne passent sur devis).</div>' : '')+(manque ? '<div class="hint" style="margin:0 0 8px;color:var(--danger);font-weight:600;">⚠ L’enlèvement au magasin du client est activé sur ce modèle, mais l’adresse de ce client est incomplète : à compléter dans Fiche client détaillée (adresse, code postal, ville). En attendant, la fiche reste celle d’un enlèvement classique.</div>' : '');
 }
 
 
@@ -3212,7 +3234,7 @@ var BLOCS_FICHE = [['acces','Accès à l\'adresse'],['options','Options souhait�
 var OPTIONS_FICHE = [['numeroCommande','Numéro de commande obligatoire'],['mailObligatoire','Mail obligatoire'],['avertissementPose','Avertissement si la date de pose est dans moins de 3 jours'],['marchandise','Section « Marchandise » (famille + « Autre »)'],['seuilDevis','Devis obligatoire au-delà de 120 kg (livraison dans la pièce)'],['magasinClient','Enlèvement dans le magasin du client (adresse prise dans sa fiche client)'],['duplication','Bouton « autre commande » après l’envoi (reprend les coordonnées du client)'],['autreMagasin','Autre magasin : le client saisit le magasin d’enlèvement (vérifié par l’agence)']];
 var PRESTATIONS_FICHE = [['LT','Livraison trottoir (LT)'],['LV','Livraison dans la pièce (LV1 / LV2 / LV3)'],['LP','Livraison avec prestations'],['EM','Emporté dépôt'],['MG','Déposé au magasin']];
 function parametresParDefaut(){ var b = {}, p; BLOCS_FICHE.forEach(function(x){ b[x[0]] = true; }); p = { blocs:b, prestations:{ LT:false, LV:false, LP:false, EM:false, MG:false }, modeTarif:'tarifs' }; OPTIONS_FICHE.forEach(function(x){ p[x[0]] = false; }); return p; }
-function normaliserParametres(p){ var d = parametresParDefaut(), b = (p && p.blocs) || {}; BLOCS_FICHE.forEach(function(x){ d.blocs[x[0]] = b[x[0]] !== false; }); OPTIONS_FICHE.forEach(function(x){ d[x[0]] = !!p && p[x[0]] === true; }); PRESTATIONS_FICHE.forEach(function(x){ d.prestations[x[0]] = !!p && !!p.prestations && p.prestations[x[0]] === true; }); d.modeTarif = (!!p && p.modeTarif === 'grille') ? 'grille' : 'tarifs'; return d; }
+function normaliserParametres(p){ var d = parametresParDefaut(), b = (p && p.blocs) || {}; BLOCS_FICHE.forEach(function(x){ d.blocs[x[0]] = b[x[0]] !== false; }); OPTIONS_FICHE.forEach(function(x){ d[x[0]] = !!p && p[x[0]] === true; }); PRESTATIONS_FICHE.forEach(function(x){ d.prestations[x[0]] = !!p && !!p.prestations && p.prestations[x[0]] === true; }); d.modeTarif = (!!p && p.modeTarif === 'grille') ? 'grille' : ((!!p && p.modeTarif === 'adValorem') ? 'adValorem' : 'tarifs'); return d; }
 function parametresPublicsModele(id){ var m = modeleFicheDe(id); if(!m || m.id==='classique') return null; var n = normaliserParametres(m.parametres); return JSON.stringify(n)===JSON.stringify(parametresParDefaut()) ? null : n; }
 function appliquerParametresModele(doc){
   delete doc.modeleParametres;
@@ -3221,14 +3243,14 @@ function appliquerParametresModele(doc){
 }
 function resumeParametresModele(m){
   var n = normaliserParametres(m.parametres), masques = BLOCS_FICHE.filter(function(x){ return !n.blocs[x[0]]; }).map(function(x){ return x[1]; }), opts = OPTIONS_FICHE.filter(function(x){ return n[x[0]]; }).map(function(x){ return x[1]; }), pr = PRESTATIONS_FICHE.filter(function(x){ return n.prestations[x[0]]; }).map(function(x){ return x[1]; });
-  if(!masques.length && !opts.length && !pr.length && n.modeTarif !== 'grille') return 'Fiche : tous les blocs affichés, aucune option.';
-  return 'Fiche : '+(masques.length ? 'masqué : '+masques.join(', ') : 'tous les blocs affichés')+(n.modeTarif === 'grille' ? ' · tarif : grille du client' : '')+(pr.length ? ' · prestations : '+pr.join(' ou ') : '')+(opts.length ? ' · options : '+opts.join(', ') : '')+'.';
+  if(!masques.length && !opts.length && !pr.length && n.modeTarif === 'tarifs') return 'Fiche : tous les blocs affichés, aucune option.';
+  return 'Fiche : '+(masques.length ? 'masqué : '+masques.join(', ') : 'tous les blocs affichés')+(n.modeTarif === 'grille' ? ' · tarif : grille du client' : (n.modeTarif === 'adValorem' ? ' · tarif : ad valorem' : ''))+(pr.length ? ' · prestations : '+pr.join(' ou ') : '')+(opts.length ? ' · options : '+opts.join(', ') : '')+'.';
 }
 function parametresEditHtml(m){
   var n = normaliserParametres(m.parametres), cb = function(cls, k, lib, coche){ return '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;"><input type="checkbox" class="'+cls+'" data-k="'+k+'"'+(coche ? ' checked' : '')+' style="width:17px;height:17px;">'+escapeHtml(lib)+'</label>'; };
   return '<div class="field"><label>Blocs affichés dans la fiche en ligne</label><div style="display:flex;flex-direction:column;gap:8px;">'+BLOCS_FICHE.map(function(x){ return cb('mf-bloc', x[0], x[1], n.blocs[x[0]]); }).join('')+'</div><div class="hint" style="margin:6px 0 0;">« Marchandise et enlèvements » est toujours affiché : il est indispensable à la prise en charge.</div></div>'+
     '<div class="field"><label>Prestations proposées</label><div style="display:flex;flex-direction:column;gap:8px;">'+PRESTATIONS_FICHE.map(function(x){ return cb('mf-presta', x[0], x[1], n.prestations[x[0]]); }).join('')+'</div><div class="hint" style="margin:6px 0 0;">Aucune cochée : aucune question, comme aujourd’hui. Une seule : elle est choisie d’office. Plusieurs : le client choisit. Le trottoir, l’emporté dépôt et le dépôt au magasin masquent l’accès et les options. Livraison avec prestations, emporté dépôt et déposé au magasin ne sont tarifés qu’avec la grille du client ; sinon : sur devis.</div></div>'+
-    '<div class="field"><label>Mode de tarif</label><select class="mf-modetarif" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="tarifs"'+(n.modeTarif==='tarifs' ? ' selected' : '')+'>Module Tarifs (barème de l’agence)</option><option value="grille"'+(n.modeTarif==='grille' ? ' selected' : '')+'>Grille du client (matrice importée sur sa fiche client)</option></select><div class="hint" style="margin:6px 0 0;">Avec la grille du client, la famille de marchandise devient obligatoire, les cinq options de base sont masquées (la grille n’a pas leur prix) et le coefficient du client ne s’applique pas.</div></div>'+
+    '<div class="field"><label>Mode de tarif</label><select class="mf-modetarif" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="tarifs"'+(n.modeTarif==='tarifs' ? ' selected' : '')+'>Module Tarifs (barème de l’agence)</option><option value="grille"'+(n.modeTarif==='grille' ? ' selected' : '')+'>Grille du client (matrice importée sur sa fiche client)</option><option value="adValorem"'+(n.modeTarif==='adValorem' ? ' selected' : '')+'>Ad valorem (pourcentage de la valeur TTC de la marchandise, taux du client)</option></select><div class="hint" style="margin:6px 0 0;">Avec la grille du client, la famille de marchandise devient obligatoire. Avec l’ad valorem, le client saisit la valeur TTC de sa marchandise. Dans les deux cas, les cinq options de base sont masquées (pas de prix) et le coefficient du client ne s’applique pas.</div></div>'+
     '<div class="field"><label>Options</label><div style="display:flex;flex-direction:column;gap:8px;">'+OPTIONS_FICHE.map(function(x){ return cb('mf-opt', x[0], x[1], n[x[0]]); }).join('')+'</div></div>';
 }
 function lireParametresEdit(carte){
@@ -3535,6 +3557,30 @@ function appliquerGrillePublique(doc, client){
     doc.grille = Object.assign({}, client.grilleTarif.grille, { source:{ fichier:String(client.grilleTarif.fichier||'').slice(0, 80), importeLe:client.grilleTarif.importeLe } });
   }
 }
+
+
+// ================= Tarif ad valorem (étape E8) =================
+// Taux par zone propres à chaque client (fiche client), prix du km au-delà de 59 km propre à l'agence (document public de l'agence) ;
+// les taux ne sont publiés sur le lien du client que si son modèle est réglé sur « Ad valorem ».
+function adValoremValideClient(c){ var a = c && c.adValorem; return !!a && ['A', 'B', 'C'].every(function(k){ return typeof a[k] === 'number' && a[k] > 0 && a[k] <= 100; }); }
+function appliquerAdValoremPublic(doc, client){
+  delete doc.adValorem;
+  if(doc.modeleParametres && doc.modeleParametres.modeTarif === 'adValorem' && adValoremValideClient(client)) doc.adValorem = { A:client.adValorem.A, B:client.adValorem.B, C:client.adValorem.C };
+}
+function msgAdvKm(t, ok){ var e = document.getElementById('advKmMsg'); e.textContent = t || ''; e.style.color = ok ? '#1e8e3e' : 'var(--danger)'; }
+async function renderAdValoremAgence(){
+  var champ = document.getElementById('advKm'), admin = !!state.isAdmin; msgAdvKm('');
+  champ.disabled = !admin; document.getElementById('btnAdvKmSave').style.display = admin ? '' : 'none'; champ.value = '';
+  try{ var sn = await db.collection('stls_fiches_public').doc(state.currentAgencyCode).get(); if(sn.exists && typeof sn.data().adValoremKmSupp === 'number') champ.value = String(sn.data().adValoremKmSupp).replace('.', ','); }catch(e){ console.error('prix du km', e); }
+}
+document.getElementById('btnAdvKmSave').addEventListener('click', async function(){
+  if(!state.isAdmin){ msgAdvKm('⚠ Réservé aux administrateurs'); return; }
+  var t = document.getElementById('advKm').value.trim(), v = null;
+  if(t !== ''){ if(!/^\d+([.,]\d{1,3})?$/.test(t) || nombreFr(t) > 100){ msgAdvKm('⚠ Prix du km invalide : un montant en euros (exemple : 0,80).'); return; } v = nombreFr(t); }
+  try{ await db.collection('stls_fiches_public').doc(state.currentAgencyCode).set({ adValoremKmSupp:v }, { merge:true }); }
+  catch(e){ console.error('prix du km', e); msgAdvKm('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return; }
+  msgAdvKm(v == null ? 'Prix du km retiré : au-delà de 59 km, la fiche passe sur devis.' : 'Prix du km enregistré : '+String(v).replace('.', ',')+' € HT.', true);
+});
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -4396,7 +4442,7 @@ document.getElementById('btnSaveClientFiche').addEventListener('click', async fu
   if(state.isAdmin){ rg = lireReglagesTarifClient(); if(!rg.ok){ msg.textContent = '⚠ '+rg.erreur; msg.style.color='var(--danger)'; return; } }   // validé avant de toucher à la fiche
   var profile = collectProfileFields('cli');
   Object.assign(c, profile);
-  if(rg){ if(rg.coefficient==='') delete c.coefficientTarif; else c.coefficientTarif = rg.coefficient; if(Object.keys(rg.prixOptions).length) c.prixOptions = rg.prixOptions; else delete c.prixOptions; }
+  if(rg){ if(rg.coefficient==='') delete c.coefficientTarif; else c.coefficientTarif = rg.coefficient; if(Object.keys(rg.prixOptions).length) c.prixOptions = rg.prixOptions; else delete c.prixOptions; if(rg.adValorem) c.adValorem = rg.adValorem; else delete c.adValorem; }
   c.email = profile.mail || c.email; // conserve l'adresse mail principale déjà utilisée pour l'envoi des documents
   c.nomEntreprise = document.getElementById('cli-nomEntreprise').value.trim();
   c.siret = document.getElementById('cli-siret').value.trim();
@@ -5619,7 +5665,7 @@ function resumeFicheHtml(f){
   var oui = function(ks){ return ks.filter(function(k){ return f[k]; }).map(function(k){ return FICHE_LIBELLES[k]; }).join(', ') || '—'; };
   var ln = function(l, v){ return v ? '<div class="sub"><strong>'+escapeHtml(l)+' :</strong> '+escapeHtml(v)+'</div>' : ''; };
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+ln('Pays', f.pays)+ln('Livraison', /^2[AB]$/i.test(f.departement||'') ? 'Corse : uniquement sur devis' : '')+
-    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Précisions', f.accesPrecisions)+
+    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Valeur déclarée de la marchandise', f.valeurTTC ? String(f.valeurTTC).replace('.', ',')+' € TTC' : '')+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose ? dateCourte(f.datePose)+(f.posePar ? ' · pose par '+(f.posePar==='magasin' ? 'le magasin' : 'l\'artisan') : '') : '')+
     ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
@@ -5843,7 +5889,8 @@ async function ecrireLienClient(client, patch){
   appliquerReglagesPublics(doc, client);
   appliquerParametresModele(doc);   // réglages du modèle du client (blocs masqués, options) lus par la fiche en ligne
   appliquerMagasinPublic(doc, client);   // adresse du magasin du client (enlèvement au magasin)
-  appliquerGrillePublique(doc, client);   // grille de tarif du client (mode « grille du client »)   // coefficient, prix des options et jours d'ouverture du client (lus par la fiche en ligne)
+  appliquerGrillePublique(doc, client);   // grille de tarif du client (mode « grille du client »)
+  appliquerAdValoremPublic(doc, client);   // taux ad valorem du client (mode « ad valorem »)   // coefficient, prix des options et jours d'ouverture du client (lus par la fiche en ligne)
   try{ await db.collection('stls_fiches_clients').doc(clientLienId(client.code)).set(doc); liensClients[client.code] = doc; return true; }
   catch(e){ console.error('lien client', e); banner('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return false; }
 }
@@ -11067,6 +11114,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='ordreprelevement'){ renderOrdrePrelevement(); }
     if(btn.getAttribute('data-key')==='etiquettestatuts'){ renderEtiquetteStatutsApercu(); }
     if(btn.getAttribute('data-key')==='marchandises'){ renderMarchandisesFiche(); }
+    if(btn.getAttribute('data-key')==='advalorem'){ renderAdValoremAgence(); }
     if(btn.getAttribute('data-key')==='codesuppression'){ renderCodeSuppression(); }
     if(btn.getAttribute('data-key')==='journalsuppr'){ renderJournalSuppressions(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
@@ -11379,7 +11427,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0115';
+var APP_VERSION = '2026.0116';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
