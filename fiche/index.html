@@ -280,11 +280,11 @@ function lireDeclarations(){
   return { prestation:prestationChoisie(), adresse1:valeur('adresse1'), cp:valeur('cp'), ville:valeur('ville'), etage:etage, ascenseur:(prestationConfiguree() && estTrottoir() ? false : coche('ascenseur')),
     poidsTotal:nombre('poidsTotalKg'), colisLourd:nombre('colisLourdPoidsKg'), colisLong:nombre('colisLongLongueurCm'), options:options };
 }
-function declarationsCompletes(d){ if(comportement==='generique' && (estCorse() || estOutreMer() || estEtranger())) return false; return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
+function declarationsCompletes(d){ if(autreMagasinActif() && !(valeur('mag-adresse1') && /^\d{5}$/.test(valeur('mag-cp')) && valeur('mag-ville'))) return false; if(comportement==='generique' && (estCorse() || estOutreMer() || estEtranger())) return false; return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
 async function calculerTarif(d){
   if(paramModele().seuilDevis && d.prestation==='LV' && d.colisLourd > SEUIL_DEVIS_KG) return { statut:'devis', raison:'Colis le plus lourd supérieur à '+SEUIL_DEVIS_KG+' kg : devis obligatoire.' };
   if(!tarifDoc) return { statut:'indisponible', raison:'Le barème de STLS n\'est pas disponible pour le moment : STLS vous confirmera le tarif.' };
-  var dist = magasinClientActif() ? await estimerDistanceMagasin(d.adresse1, d.cp, d.ville) : await estimerDistance(d.adresse1, d.cp, d.ville);
+  var dist = enlevementMagasinActif() ? await estimerDistanceMagasin(d.adresse1, d.cp, d.ville) : await estimerDistance(d.adresse1, d.cp, d.ville);
   if(dist.km==null) return { statut:'a_confirmer', raison:dist.raison };
   var zr = zoneDistance(dist.km, tarifDoc.params, tarifDoc.zones); if(!zr) return { statut:'a_confirmer', raison:'Zone non définie : STLS vous confirmera le tarif.' };
   var lt = prestationConfiguree() && d.prestation==='LT';
@@ -347,7 +347,7 @@ function blocEnlevement(i){
     zone(p+'horaires','Horaires d\'ouverture et contraintes éventuelles',200)+
   '</div>';
 }
-function modeChoisi(){ if(magasinClientActif()) return 'enlevement'; var r = document.querySelector('input[name="modeReception"]:checked'); return r ? r.value : ''; }
+function modeChoisi(){ if(enlevementMagasinActif()) return 'enlevement'; var r = document.querySelector('input[name="modeReception"]:checked'); return r ? r.value : ''; }
 // autant de blocs que de points d'enlèvement déclarés ; les saisies déjà faites sont conservées
 function majEnlevements(){
   var n = parseInt(valeur('nbPointsEnlevement'), 10); if(!(n >= 1)) n = 0; if(n > MAX_ENL) n = MAX_ENL;
@@ -406,7 +406,7 @@ function afficherFormulaire(){
     (blocVisible('jours') ? (titreSection('Jours de livraison possibles')+'<div class="card"><div class="cases">'+cb('joursTous','Tous')+joursProposes().map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">Seuls les jours d’ouverture sont proposés.</div>' : '')+'</div>') : '')+
     (blocVisible('infos') ? (titreSection('Informations complémentaires / contraintes')+'<div class="card">'+zone('contraintes','',1500)+'</div>') : '')+
     titreSection('Marchandise &amp; enlèvements')+'<div class="card">'+
-      (magasinClientActif() ? sectionEnlevementMagasin() : (
+      (enlevementMagasinActif() ? sectionEnlevementMagasin() : (
       champ('nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+
       '<div class="field" id="f-modeReception"><label class="l">Mode de réception de la marchandise *</label><div class="cases" style="flex-direction:column;gap:10px;">'+MODES.map(function(m){ return radioMode(m[0], m[1]); }).join('')+'</div><div class="msgerr" id="e-modeReception"></div></div>'+
       '<div id="blocEnlevements" style="display:none;">'+
@@ -469,6 +469,7 @@ function validerSaisie(){
   }
   if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide'); else if(!valeur('mail') && mailObligatoire()) ko('mail','Champ obligatoire');
   if(numeroCommandeActif() && !valeur('numCommande')) ko('numCommande','Champ obligatoire');
+  if(autreMagasinActif()){ if(!valeur('mag-nom')) ko('mag-nom','Champ obligatoire'); if(!valeur('mag-adresse1')) ko('mag-adresse1','Champ obligatoire'); if(!valeur('mag-cp')) ko('mag-cp','Champ obligatoire'); else if(!/^\d{5}$/.test(valeur('mag-cp'))) ko('mag-cp','Code postal invalide (5 chiffres)'); if(!valeur('mag-ville')) ko('mag-ville','Champ obligatoire'); }
   if(paramModele().marchandise){ if(!valeur('famille')) ko('famille','Merci de choisir la famille de marchandise'); else if(valeur('famille')==='__autre' && !valeur('familleAutre')) ko('familleAutre','Merci de préciser la marchandise'); }
   if(!(prestationConfiguree() && estTrottoir()) && valeur('etage') && !/^\d{1,3}$/.test(valeur('etage'))) ko('etage','Nombre invalide');
   if(valeur('datePose') && !/^\d{4}-\d{2}-\d{2}$/.test(valeur('datePose'))) ko('datePose','Date invalide');
@@ -533,6 +534,7 @@ async function envoyer(){
     joursTous:coche('joursTous'), certifie:true, certifieMarchandise:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
   if(comportement==='generique'){ if(coche('magasin')) doc.magasin = true; if(valeur('datePose') && posePar()) doc.posePar = posePar(); }   // champs nouveaux, envoyés seulement s’ils sont utilisés (règles de sécurité version 9)
   if(numeroCommandeActif()) doc.ref = valeur('numCommande');
+  if(autreMagasinActif()) doc.autreMagasin = true;   // le magasin est saisi par le client : l’agence le vérifie (règles de sécurité version 12)
   if(paramModele().marchandise){ doc.famille = valeur('famille')==='__autre' ? 'Autre' : valeur('famille'); if(valeur('famille')==='__autre') doc.familleAutre = valeur('familleAutre'); }   // champs nouveaux, uniquement si la section Marchandise est activée (règles de sécurité version 10)
   if(estEtranger()) doc.pays = valeur('paysLibre');   // seul champ nouveau, uniquement hors de France (règles de sécurité version 8)
   var arrondi = function(x){ return Math.round(x*100)/100; };
@@ -609,7 +611,7 @@ function afficherConfirmation(numero, d, tarif){
       (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — commande '+e.numeroCommande+' — disponible le '+e.dateDisponibilite.split('-').reverse().join('/')+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
       ln('Colis le plus long', d.colisLongLongueurCm+' cm'+(d.colisLongLargeurCm?' × '+d.colisLongLargeurCm+' cm':'')+(d.colisLongHauteurCm?' × '+d.colisLongHauteurCm+' cm':'')+(d.colisLongDescription?' — '+d.colisLongDescription:''))+
       ln('Colis le plus lourd', d.colisLourdPoidsKg+' kg'+(d.colisLourdDescription?' — '+d.colisLourdDescription:''))+
-      ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : ''))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
+      ln('Magasin d’enlèvement', d.autreMagasin && d.enlevements && d.enlevements[0] ? d.enlevements[0].fournisseur+' — vérifié par STLS avant l’enlèvement' : '')+ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : ''))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
       (d.tarifTTC!=null ? '<h3>Tarif estimatif</h3>'+ln('Montant', fmtE(d.tarifHT)+' HT — '+fmtE(d.tarifTTC)+' TTC')+(d.tarifPersonnes!=null ? ln('Équipe', d.tarifPersonnes+' personne(s)') : '')+ln('Zone', d.tarifZone+' (~'+d.tarifDistanceKm+' km)')+ln('Options', d.tarifComplements) : '')+
       '<h3>Confirmation</h3>'+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
   }
@@ -792,13 +794,13 @@ function paramModele(){
   ['numeroCommande','mailObligatoire','avertissementPose','marchandise'].forEach(function(k){ r[k] = p[k] === true; });
   r.prestations = ['LT','LV'].filter(function(k){ return !!p.prestations && p.prestations[k] === true; });   // [] = aucune question, comme aujourd’hui
   r.seuilDevis = p.seuilDevis === true;
-  r.magasinClient = p.magasinClient === true; r.duplication = p.duplication === true;
+  r.magasinClient = p.magasinClient === true; r.duplication = p.duplication === true; r.autreMagasin = p.autreMagasin === true;
   if(r.prestations.length===1 && r.prestations[0]==='LT'){ r.blocs.acces = false; r.blocs.options = false; }   // trottoir seul : ni accès ni options
   return r;
 }
 function blocVisible(k){ return paramModele().blocs[k]; }
 function mailObligatoire(){ return paramModele().mailObligatoire; }
-function numeroCommandeActif(){ return paramModele().numeroCommande || magasinClientActif(); }
+function numeroCommandeActif(){ return paramModele().numeroCommande || enlevementMagasinActif(); }
 function champNumeroCommande(){ return numeroCommandeActif() ? champ('numCommande','Numéro de commande',{req:1,max:60,aide:'Le numéro de la commande à livrer : il permet à STLS de la retrouver au chargement.'}) : ''; }
 function avertPoseHtml(){ return paramModele().avertissementPose ? '<div class="aide info" id="avertPose" style="display:none;margin-top:6px;"></div>' : ''; }
 function blocDatePose(){ return comportement==='generique' ? champDatePoseGenerique() : champ('datePose','Date de la pose',{type:'date'})+avertPoseHtml(); }
@@ -818,7 +820,7 @@ function majAvertissementPose(){
   else { z.textContent = ''; z.style.display = 'none'; }
 }
 function brancherOptionsModele(){
-  if(magasinClientActif()){ el('fiche').addEventListener('input', syncEnlevementMagasin); el('fiche').addEventListener('change', syncEnlevementMagasin); syncEnlevementMagasin(); }
+  if(enlevementMagasinActif()){ el('fiche').addEventListener('input', syncEnlevementMagasin); el('fiche').addEventListener('change', syncEnlevementMagasin); syncEnlevementMagasin(); }
   if(el('prest-LT')){ document.querySelectorAll('input[name="prestation"]').forEach(function(r){ r.addEventListener('change', majPrestation); }); if(el('colisLourdPoidsKg')) el('colisLourdPoidsKg').addEventListener('input', majPrestation); majPrestation(); }
   if(el('numCommande') && refCommande) el('numCommande').value = refCommande;
   if(el('famille')) el('famille').addEventListener('change', function(){ el('f-familleAutre').style.display = el('famille').value==='__autre' ? 'block' : 'none'; });
@@ -874,7 +876,15 @@ function majPrestation(){
 // Magasin du client : l’enlèvement se fait dans le magasin dont l’adresse est celle de la fiche client (publiée sur le lien : magasin).
 // Un enlèvement par fiche ; le numéro de commande suffit. Distance : magasin → client ; cumul agence → magasin → client seulement si le magasin
 // et le client sont chacun à plus de 10 km de l’agence (sans le retour), arrondie au km supérieur.
-var SEUIL_CUMUL_KM = 10, distanceCacheM = {}, memoClient = null;
+var CODE_LIEN_GENERAL = 'LIEN-GENERAL', SEUIL_CUMUL_KM = 10, distanceCacheM = {}, memoClient = null;
+
+// ================= Autre magasin et lien général (étape E6) =================
+// « Autre magasin » : le client saisit le magasin où retirer sa commande ; numéro de commande obligatoire, autorisation d’enlèvement PDF,
+// distance magasin → client (même règle qu’au magasin du client). L’agence vérifie le magasin, puis le crée dans la base clients.
+// Si le magasin du client est connu et valide, c’est lui qui s’applique.
+function autreMagasinActif(){ return paramModele().autreMagasin && !magasinClientActif(); }
+function enlevementMagasinActif(){ return magasinClientActif() || autreMagasinActif(); }
+function magasinEnlevement(){ return magasinClientActif() ? clientConf.magasin : { nom:valeur('mag-nom'), adresse1:valeur('mag-adresse1'), cp:valeur('mag-cp'), ville:valeur('mag-ville') }; }
 function magasinValide(){
   var m = clientConf && clientConf.magasin;
   return !!(m && typeof m.nom==='string' && m.nom.trim() && typeof m.adresse1==='string' && m.adresse1.trim() && /^\d{5}$/.test(String(m.cp||'')) && typeof m.ville==='string' && m.ville.trim());
@@ -882,13 +892,22 @@ function magasinValide(){
 function magasinClientActif(){ return paramModele().magasinClient && magasinValide(); }
 function adresseMagasin(){ var m = clientConf.magasin; return ([m.adresse1, m.adresse2].filter(Boolean).join(', ')+', '+m.cp+' '+m.ville).slice(0, 200); }
 function sectionEnlevementMagasin(){
-  var m = clientConf.magasin, h = function(id, v){ return '<input type="hidden" id="'+id+'" value="'+esc(v)+'">'; };
+  var h = function(id, v){ return '<input type="hidden" id="'+id+'" value="'+esc(v)+'">'; };
+  if(autreMagasinActif()){
+    return '<div class="note" style="margin-top:0;"><strong>Magasin où retirer votre marchandise</strong><br>Indiquez le magasin où votre commande a été passée. STLS vérifie ce magasin avant l’enlèvement : votre numéro de commande (section 1) et l’autorisation d’enlèvement (PDF, à la fin) permettent le retrait.</div>'+
+      champ('mag-nom','Nom / enseigne du magasin',{req:1,max:80})+champ('mag-adresse1','Adresse du magasin',{req:1,max:140})+
+      '<div class="row2">'+champ('mag-cp','Code postal',{req:1,max:5,inputmode:'numeric'})+champ('mag-ville','Ville',{req:1,max:60})+'</div>'+
+      h('nbFournisseurs', '1')+h('nbPointsEnlevement', '1')+h('enl0-fournisseur', '')+h('enl0-adresse', '')+h('enl0-numeroCommande', '')+h('enl0-colis', '1')+h('enl0-poids', '')+h('enl0-horaires', '')+
+      champ('enl0-dispo','Date de disponibilité de la marchandise',{req:1,type:'date',attrs:'min="'+aujourdhuiISO()+'" value="'+aujourdhuiISO()+'"',aide:'À partir de quand la marchandise peut être retirée au magasin (aujourd’hui ou une date à venir). Choisissez la date dans le calendrier.'});
+  }
+  var m = clientConf.magasin;
   return '<div class="note" style="margin-top:0;"><strong>Enlèvement dans votre magasin</strong><br>'+esc(m.nom)+'<br>'+esc(adresseMagasin())+'<br>STLS retire votre marchandise dans ce magasin : votre numéro de commande (section 1) autorise l’enlèvement.</div>'+
     h('nbFournisseurs', '1')+h('nbPointsEnlevement', '1')+h('enl0-fournisseur', String(m.nom).trim().slice(0, 80))+h('enl0-adresse', adresseMagasin())+h('enl0-numeroCommande', '')+h('enl0-colis', '1')+h('enl0-poids', '')+h('enl0-horaires', '')+
     champ('enl0-dispo','Date de disponibilité de la marchandise',{req:1,type:'date',attrs:'min="'+aujourdhuiISO()+'" value="'+aujourdhuiISO()+'"',aide:'À partir de quand la marchandise peut être retirée au magasin (aujourd’hui ou une date à venir). Choisissez la date dans le calendrier.'});
 }
 function syncEnlevementMagasin(){   // les informations de l’enlèvement viennent de la commande : aucune ressaisie
-  if(!magasinClientActif() || !el('enl0-numeroCommande')) return;
+  if(!enlevementMagasinActif() || !el('enl0-numeroCommande')) return;
+  if(autreMagasinActif()){ el('enl0-fournisseur').value = valeur('mag-nom').slice(0, 80); el('enl0-adresse').value = [valeur('mag-adresse1'), (valeur('mag-cp')+' '+valeur('mag-ville')).trim()].filter(Boolean).join(', ').slice(0, 200); }
   el('enl0-numeroCommande').value = valeur('numCommande'); el('enl0-poids').value = valeur('poidsTotalKg');
   var nc = parseInt(valeur('nbColisTotal'), 10); el('enl0-colis').value = nc >= 1 ? String(nc) : '1';
 }
@@ -900,12 +919,12 @@ async function routeKm(a, b){
   }catch(e){ return { km:volOiseauKm(a, b)*1.3, route:false }; }
 }
 async function estimerDistanceMagasin(adresse1, cp, ville){
-  var cle = [adresse1, cp, ville].join('|').toLowerCase(); if(distanceCacheM[cle]) return distanceCacheM[cle];
+  var m = magasinEnlevement(), cle = [adresse1, cp, ville, m.adresse1, m.cp, m.ville].join('|').toLowerCase(); if(distanceCacheM[cle]) return distanceCacheM[cle];
   var res;
   try{
     var dest = await geocoder([adresse1, cp, ville].filter(Boolean).join(' '), cp);
     if(!dest) return { km:null, raison:'Adresse non reconnue : STLS vous confirmera le tarif.' };
-    var m = clientConf.magasin, mag = await geocoder([m.adresse1, m.cp, m.ville].filter(Boolean).join(' '), m.cp), dep = await coordsDepot();
+    var mag = await geocoder([m.adresse1, m.cp, m.ville].filter(Boolean).join(' '), m.cp), dep = await coordsDepot();
     if(!mag) return { km:null, raison:'Magasin non localisé : STLS vous confirmera le tarif.' };
     if(!dep) return { km:null, raison:'Dépôt non localisé : STLS vous confirmera le tarif.' };
     var t = await Promise.all([routeKm(mag, dest), routeKm(dep, mag), routeKm(dep, dest)]), mc = t[0], am = t[1], ac = t[2];
@@ -954,6 +973,10 @@ async function demarrer(){
   }catch(e){ msgPage('Service indisponible', 'Réessayez dans quelques instants.'); return; }
   // lien personnalisé d'un client de STLS : logo du client + tarif estimatif (le lien ne marche que si le client l'a activé)
   clientCode = qs('c').slice(0, 40);
+  var lienGeneral = false;
+  if(!clientCode){   // lien général de l’agence : un réglage propre existe seulement si l’agence a activé le client virtuel « Lien général STLS »
+    try{ var sg = await db.collection('stls_fiches_clients').doc(agence+'_'+CODE_LIEN_GENERAL).get(); if(sg.exists && sg.data().actif === true){ clientCode = CODE_LIEN_GENERAL; lienGeneral = true; } }catch(e){ console.error('lien général', e); }
+  }
   if(clientCode){
     try{
       var sc = await db.collection('stls_fiches_clients').doc(agence+'_'+clientCode).get();
@@ -966,7 +989,7 @@ async function demarrer(){
       if(st.exists && st.data().params && st.data().zones && st.data().zones.length) tarifDoc = st.data();
     }catch(e){ console.error('barème', e); }
     personnaliserEntete();
-    if(!enseigne) enseigne = String(clientConf.clientNom||'').slice(0, 60);
+    if(!enseigne && !lienGeneral) enseigne = String(clientConf.clientNom||'').slice(0, 60);
   }
   afficherFormulaire();
 }
