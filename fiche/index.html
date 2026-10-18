@@ -277,10 +277,10 @@ function lireDeclarations(){
   var options = {}; OPTION_COMPLEMENT.forEach(function(o){ options[o[0]] = coche(o[0]); });
   var etage = parseInt(valeur('etage'), 10); if(!(etage>=0)) etage = 0;
   if(prestationConfiguree() && estTrottoir()){ options = {}; etage = 0; }   // trottoir : ni étage ni options
-  return { valeur:parseValeur(valeur('valeurTTC')), famille:valeur('famille'), pieces:nombre('nbColisTotal'), gros:nombre('grosAppareils'), installation:coche('installation'), reprise:coche('repriseUnPourUn'), nacelle:coche('nacelle'), debarras:coche('debarras'), prestation:prestationChoisie(), adresse1:valeur('adresse1'), cp:valeur('cp'), ville:valeur('ville'), etage:etage, ascenseur:(prestationConfiguree() && estTrottoir() ? false : coche('ascenseur')),
+  return { enlevements:lirePointsTarif(), valeur:parseValeur(valeur('valeurTTC')), famille:valeur('famille'), pieces:nombre('nbColisTotal'), gros:nombre('grosAppareils'), installation:coche('installation'), reprise:coche('repriseUnPourUn'), nacelle:coche('nacelle'), debarras:coche('debarras'), prestation:prestationChoisie(), adresse1:valeur('adresse1'), cp:valeur('cp'), ville:valeur('ville'), etage:etage, ascenseur:(prestationConfiguree() && estTrottoir() ? false : coche('ascenseur')),
     poidsTotal:nombre('poidsTotalKg'), colisLourd:nombre('colisLourdPoidsKg'), colisLong:nombre('colisLongLongueurCm'), options:options };
 }
-function declarationsCompletes(d){ if(grilleActive() && (!d.famille || d.famille==='__autre')) return false; if(adValoremActif() && !(d.valeur > 0)) return false; if(autreMagasinActif() && !(valeur('mag-adresse1') && /^\d{5}$/.test(valeur('mag-cp')) && valeur('mag-ville'))) return false; if(comportement==='generique' && (estCorse() || estOutreMer() || estEtranger())) return false; return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
+function declarationsCompletes(d){ if(grilleActive() && (d.enlevements||[]).some(function(e){ return String(e.adresse).length < 5 || !(e.poids > 0); })) return false; if(grilleActive() && (!d.famille || d.famille==='__autre')) return false; if(adValoremActif() && !(d.valeur > 0)) return false; if(autreMagasinActif() && !(valeur('mag-adresse1') && /^\d{5}$/.test(valeur('mag-cp')) && valeur('mag-ville'))) return false; if(comportement==='generique' && (estCorse() || estOutreMer() || estEtranger())) return false; return !!(d.adresse1 && /^\d{5}$/.test(d.cp) && d.ville && d.poidsTotal>0 && d.colisLourd>0 && d.colisLong>0); }
 async function calculerTarifGrille(d){
   var g = clientConf.grille, fam = (d.famille && d.famille !== '__autre') ? grilleFamille(d.famille) : null, pr = d.prestation, km = null, methode = '', mode;
   var besoinKm = (pr === 'LV' || pr === 'LP') ? (!!fam && fam !== 'sav') : (pr === 'MG' ? !!fam : false);
@@ -291,8 +291,16 @@ async function calculerTarifGrille(d){
   }
   var r = calculerGrille(g, { famille:fam, prestation:pr, poids:d.poidsTotal, km:km, etage:d.etage, pieces:d.pieces, grosAppareils:d.gros, installation:d.installation, reprise:d.reprise, nacelle:d.nacelle, debarras:d.debarras });
   if(r.statut === 'devis') return r;
-  var t = r.totalHT;
-  return { statut:'ok', grille:true, lignes:r.lignes, km:km, mode:mode, methode:methode, zone:(r.zone || '—'), equipe:null, prestation:pr, baseHT:t, surchargeEtage:0, complements:r.lignes.map(function(l){ return { nom:l.libelle, prixHT:l.montant }; }), totalComplements:0, montantHT:t, tva:t*0.2, ttc:t*1.2, alertes:[], versionTarif:'grille '+((g.source && g.source.importeLe) ? g.source.importeLe : ''), calculeLe:new Date().toISOString() };
+  var lignesTous = [], t = 0;
+  var pts = d.enlevements || [];
+  for(var pi = 0; pi < pts.length; pi++){   // un prix par enlèvement chez un fournisseur (poids du fournisseur, distance fournisseur → dépôt)
+    var dst = await estimerDistanceFournisseur(pts[pi].adresse); if(dst.km == null) return { statut:'a_confirmer', raison:dst.raison };
+    var re = calculerEnlevementGrille(g, { poids:pts[pi].poids, km:dst.km }); if(re.statut === 'devis') return re;
+    var nomF = pts[pi].fournisseur || ('fournisseur '+(pi + 1));
+    re.lignes.forEach(function(l, k){ lignesTous.push({ libelle:'Enlèvement chez '+nomF+' : '+l.libelle.replace(/^Enlèvement /, '')+(k === 0 ? ' ('+dst.km+' km)' : ''), montant:l.montant }); t += l.montant; });
+  }
+  r.lignes.forEach(function(l){ lignesTous.push(l); t += l.montant; });
+  return { statut:'ok', grille:true, lignes:lignesTous, km:km, mode:mode, methode:methode, zone:(r.zone || '—'), equipe:null, prestation:pr, baseHT:t, surchargeEtage:0, complements:lignesTous.map(function(l){ return { nom:l.libelle, prixHT:l.montant }; }), totalComplements:0, montantHT:t, tva:t*0.2, ttc:t*1.2, alertes:[], versionTarif:'grille '+((g.source && g.source.importeLe) ? g.source.importeLe : ''), calculeLe:new Date().toISOString() };
 }
 async function calculerTarif(d){
   if(grilleActive()) return calculerTarifGrille(d);
@@ -398,7 +406,7 @@ function afficherFormulaire(){
     '<form id="fiche" novalidate autocomplete="on">'+
     (comportement==='generique' ? section1Generique() : (
     titreSection('Informations de la contremarque')+'<div class="card">'+
-      champNumeroCommande()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+      champNumeroCommande()+champRefDossier()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
       '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel'})+'</div>'+
       '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
       '<div class="row2">'+champ('departement','Département',{req:1,max:3,inputmode:'numeric'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code'})+'</div>'+
@@ -561,6 +569,7 @@ async function envoyer(){
     joursTous:coche('joursTous'), certifie:true, certifieMarchandise:true, statut:'nouvelle', source:'formulaire-en-ligne', createdAt:new Date().toISOString() };
   if(comportement==='generique'){ if(coche('magasin')) doc.magasin = true; if(valeur('datePose') && posePar()) doc.posePar = posePar(); }   // champs nouveaux, envoyés seulement s’ils sont utilisés (règles de sécurité version 9)
   if(numeroCommandeActif()) doc.ref = valeur('numCommande');
+  if(paramModele().refDossier && valeur('refDossier')) doc.refDossier = valeur('refDossier');   // référence propre au client : regroupe plusieurs commandes sur une livraison (règles de sécurité version 15)
   if(autreMagasinActif()) doc.autreMagasin = true;   // le magasin est saisi par le client : l’agence le vérifie (règles de sécurité version 12)
   if(marchandiseActive()){ doc.famille = valeur('famille')==='__autre' ? 'Autre' : valeur('famille'); if(valeur('famille')==='__autre') doc.familleAutre = valeur('familleAutre'); }   // champs nouveaux, uniquement si la section Marchandise est activée (règles de sécurité version 10)
   if(estEtranger()) doc.pays = valeur('paysLibre');   // seul champ nouveau, uniquement hors de France (règles de sécurité version 8)
@@ -640,7 +649,7 @@ function afficherConfirmation(numero, d, tarif){
       (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — commande '+e.numeroCommande+' — disponible le '+e.dateDisponibilite.split('-').reverse().join('/')+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
       ln('Colis le plus long', d.colisLongLongueurCm+' cm'+(d.colisLongLargeurCm?' × '+d.colisLongLargeurCm+' cm':'')+(d.colisLongHauteurCm?' × '+d.colisLongHauteurCm+' cm':'')+(d.colisLongDescription?' — '+d.colisLongDescription:''))+
       ln('Colis le plus lourd', d.colisLourdPoidsKg+' kg'+(d.colisLourdDescription?' — '+d.colisLourdDescription:''))+
-      ln('Magasin d’enlèvement', d.autreMagasin && d.enlevements && d.enlevements[0] ? d.enlevements[0].fournisseur+' — vérifié par STLS avant l’enlèvement' : '')+ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[d.prestation] || '')))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
+      ln('Référence de dossier', d.refDossier)+ln('Magasin d’enlèvement', d.autreMagasin && d.enlevements && d.enlevements[0] ? d.enlevements[0].fournisseur+' — vérifié par STLS avant l’enlèvement' : '')+ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[d.prestation] || '')))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
       (d.tarifTTC!=null ? '<h3>Tarif estimatif</h3>'+ln('Montant', fmtE(d.tarifHT)+' HT — '+fmtE(d.tarifTTC)+' TTC')+(d.tarifPersonnes!=null ? ln('Équipe', d.tarifPersonnes+' personne(s)') : '')+ln('Zone', d.tarifZone+' (~'+d.tarifDistanceKm+' km)')+ln('Options', d.tarifComplements) : '')+
       '<h3>Confirmation</h3>'+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
   }
@@ -668,7 +677,7 @@ function estCorse(){ return comportement==='generique' && !estEtranger() && /^2[
 function estOutreMer(){ return comportement==='generique' && !estEtranger() && /^9[78]/.test(depCourant()); }
 function section1Generique(){
   return titreSection(esc(LIB_SECTION1_GENERIQUE))+'<div class="card">'+
-    champNumeroCommande()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
+    champNumeroCommande()+champRefDossier()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
     '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel',attrs:'placeholder="06 12 34 56 78"'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel',attrs:'placeholder="06 12 34 56 78"'})+'</div>'+
     '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
     '<div class="field" id="f-pays"><label class="l" for="pays">Pays *</label><select id="pays" autocomplete="country"><option value="FR" selected>FR - France</option><option value="AUTRE">Autre pays</option></select></div>'+
@@ -823,7 +832,7 @@ function paramModele(){
   ['numeroCommande','mailObligatoire','avertissementPose','marchandise'].forEach(function(k){ r[k] = p[k] === true; });
   r.prestations = ['LT','LV','LP','EM','MG'].filter(function(k){ return !!p.prestations && p.prestations[k] === true; });   // [] = aucune question, comme aujourd’hui
   r.seuilDevis = p.seuilDevis === true; r.modeTarif = p.modeTarif === 'grille' ? 'grille' : (p.modeTarif === 'adValorem' ? 'adValorem' : 'tarifs');
-  r.magasinClient = p.magasinClient === true; r.duplication = p.duplication === true; r.autreMagasin = p.autreMagasin === true;
+  r.magasinClient = p.magasinClient === true; r.duplication = p.duplication === true; r.autreMagasin = p.autreMagasin === true; r.refDossier = p.refDossier === true;
   if(r.prestations.length===1 && ['LT','EM','MG'].indexOf(r.prestations[0]) >= 0){ r.blocs.acces = false; r.blocs.options = false; }   // trottoir, emporté ou dépôt au magasin seuls : ni accès ni options
   if((r.modeTarif==='grille' && grilleValide()) || (r.modeTarif==='adValorem' && adValoremValide())) r.blocs.options = false;   // la grille et l'ad valorem n'ont pas de prix pour les cinq options de base
   return r;
@@ -980,7 +989,7 @@ function boutonDuplication(d){
   return (d && paramModele().duplication) ? '<div class="card noprint"><button type="button" class="btn ghost" id="btnDupliquer">Une autre commande ? Dupliquer cette fiche</button><div class="aide" style="margin-top:6px;">Vos coordonnées sont reprises : il ne reste qu’à saisir la nouvelle commande (une fiche par point d’enlèvement).</div></div>' : '';
 }
 async function restaurerCoordonnees(m){
-  ['nom','prenom','mail','adresse1','adresse2','demandeur'].forEach(function(k){ if(m[k] && el(k)) el(k).value = m[k]; });
+  ['nom','prenom','mail','adresse1','adresse2','demandeur','refDossier'].forEach(function(k){ if(m[k] && el(k)) el(k).value = m[k]; });
   var gen = comportement==='generique', etr = gen && !!m.pays;
   ['tel1','tel2'].forEach(function(k){ if(m[k] && el(k)) el(k).value = (gen && !etr) ? formaterTelFR(m[k]) : m[k]; });
   if(gen){
@@ -990,7 +999,7 @@ async function restaurerCoordonnees(m){
   if(clientConf) planifierTarif();
 }
 async function dupliquerFiche(d){
-  memoClient = { nom:d.nom, prenom:d.prenom, tel1:d.tel1, tel2:d.tel2||'', mail:d.mail||'', adresse1:d.adresse1, adresse2:d.adresse2||'', departement:d.departement, cp:d.cp, ville:d.ville, pays:d.pays||'', demandeur:d.demandeur };
+  memoClient = { nom:d.nom, prenom:d.prenom, tel1:d.tel1, tel2:d.tel2||'', mail:d.mail||'', adresse1:d.adresse1, adresse2:d.adresse2||'', departement:d.departement, cp:d.cp, ville:d.ville, pays:d.pays||'', demandeur:d.demandeur, refDossier:d.refDossier||'' };
   envoye = false; refCommande = ''; afficherFormulaire(); window.scrollTo(0, 0); await restaurerCoordonnees(memoClient);
 }
 // ----- calcul -----
@@ -1060,6 +1069,34 @@ function calculerGrille(g, e){
 // ================= Grille du client dépôt (étape E7) =================
 // Mode de tarif « grille du client » : le prix vient de la matrice propre au client (feuille « TARIF EN COURS » importée par l'agence et publiée sur son lien),
 // avec cumul des tranches de poids. Le tarif reste estimatif et confirmé par STLS ; coefficient et prix d'options du module Tarifs ne s'appliquent pas.
+// enlèvement chez un fournisseur (ramené au dépôt) : zone A jusqu'à maxKm, tranches de poids (cumul au-delà de la dernière), puis prix du km au-delà
+function calculerEnlevementGrille(g, e){   // e : { poids (kg), km (distance fournisseur → dépôt) }
+  var E = g.enlevement, devis = function(r){ return { statut:'devis', raison:r }; };
+  if(!E) return devis('La grille importée ne contient pas le tarif des enlèvements : réimportez le fichier Excel.');
+  var poids = Number(e.poids), km = Math.ceil(Number(e.km)), lignes = [], total = 0;
+  if(!(poids > 0)) return devis('Poids de l\'enlèvement non renseigné.'); if(!(km >= 0)) return devis('Distance de l\'enlèvement non calculée.');
+  grilleCumul(E.tranches, E.prix, poids).forEach(function(l){ lignes.push({ libelle:'Enlèvement '+l.tranche, montant:l.prix }); total += l.prix; });
+  var sup = Math.max(0, km - E.maxKm); if(sup > 0){ var m = Math.ceil(sup * E.kmSupp - 1e-9); lignes.push({ libelle:'Au-delà de '+E.maxKm+' km : '+sup+' km × '+String(E.kmSupp).replace('.', ',')+' €', montant:m }); total += m; }
+  return { statut:'ok', lignes:lignes, totalHT:total, km:km };
+}
+
+function champRefDossier(){ return paramModele().refDossier ? champ('refDossier','Votre référence de dossier',{max:60,aide:'Votre propre référence (numéro de dossier, de chantier…) : elle permet à STLS de regrouper plusieurs commandes sur une même livraison.'}) : ''; }
+// ----- enlèvements chez les fournisseurs (client dépôt) : distance fournisseur → dépôt -----
+var distanceCacheF = {};
+function lirePointsTarif(){   // enlèvements saisis dans la fiche (le magasin du client ou un autre magasin ont leur propre règle)
+  if(enlevementMagasinActif() || ['enlevement', 'mixte'].indexOf(modeChoisi()) < 0) return [];
+  var n = parseInt(valeur('nbPointsEnlevement'), 10) || 0, out = [];
+  for(var i = 0; i < n; i++){ var p = 'enl'+i+'-'; out.push({ fournisseur:valeur(p+'fournisseur'), adresse:valeur(p+'adresse'), poids:nombre(p+'poids') }); }
+  return out;
+}
+async function estimerDistanceFournisseur(adr){
+  var cle = String(adr).toLowerCase(); if(distanceCacheF[cle]) return distanceCacheF[cle];
+  try{
+    var mcp = /\b(\d{5})\b/.exec(adr), pt = await geocoder(adr, mcp ? mcp[1] : ''); if(!pt) return { km:null, raison:'Adresse d’enlèvement non reconnue : STLS vous confirmera le tarif.' };
+    var dep = await coordsDepot(); if(!dep) return { km:null, raison:'Dépôt non localisé : STLS vous confirmera le tarif.' };
+    var r = await routeKm(dep, pt), res = { km:Math.ceil(r.km), route:r.route }; distanceCacheF[cle] = res; return res;
+  }catch(e){ return { km:null, raison:'Calcul de la distance indisponible : STLS vous confirmera le tarif.' }; }
+}
 function grilleValide(){
   var g = clientConf && clientConf.grille;
   return !!(g && g.zones && g.zones.length === 3 && g.sav && g.sav.tranches && g.sav.tranches.length && typeof g.kmSupp === 'number' && g.familles && g.familles.cuisine && g.familles.salle_de_bain && g.familles.dressing && g.familles.electromenager);

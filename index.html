@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0116">
+<meta name="app-version" content="2026.0117">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -857,7 +857,7 @@
       <div id="cli-grille-msg" style="margin:6px 0;font-size:13px;font-weight:600;"></div>
       <div id="cli-grille-simul" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
         <label style="font-weight:700;">Tester un calcul</label>
-        <div class="row2"><div class="field"><label for="sim-famille">Famille</label><select id="sim-famille"></select></div><div class="field"><label for="sim-presta">Prestation</label><select id="sim-presta"><option value="LV">Livraison dans la pièce</option><option value="LP">Livraison avec prestations</option><option value="EM">Emporté dépôt</option><option value="MG">Déposé au magasin</option></select></div></div>
+        <div class="row2"><div class="field"><label for="sim-famille">Famille</label><select id="sim-famille"></select></div><div class="field"><label for="sim-presta">Prestation</label><select id="sim-presta"><option value="LV">Livraison dans la pièce</option><option value="LP">Livraison avec prestations</option><option value="EM">Emporté dépôt</option><option value="MG">Déposé au magasin</option><option value="ENL">Enlèvement chez un fournisseur</option></select></div></div>
         <div class="row2"><div class="field"><label for="sim-poids">Poids total (kg)</label><input type="text" id="sim-poids" inputmode="decimal"></div><div class="field"><label for="sim-km">Distance (km)</label><input type="text" id="sim-km" inputmode="numeric"></div></div>
         <div class="row2"><div class="field"><label for="sim-etage">Étages</label><input type="text" id="sim-etage" inputmode="numeric"></div><div class="field"><label for="sim-pieces">Pièces (électroménager)</label><input type="text" id="sim-pieces" inputmode="numeric"></div></div>
         <div class="btn-row"><button type="button" class="btn ghost" id="btnSimuler" style="width:auto;">Calculer</button></div>
@@ -3231,7 +3231,7 @@ function reglagesLienHtml(c){
 // Blocs masquables et options de la fiche en ligne, réglés par modèle (Gestion Clients › Modèles de fiche), publiés sur le lien de chaque client
 // qui utilise le modèle (modeleParametres). « Marchandise et enlèvements » n'est jamais masqué. Sans réglage : la fiche d'aujourd'hui.
 var BLOCS_FICHE = [['acces','Accès à l\'adresse'],['options','Options souhaitées'],['datePose','Date de la pose'],['jours','Jours de livraison possibles'],['infos','Informations complémentaires'],['tarif','Tarif estimatif']];
-var OPTIONS_FICHE = [['numeroCommande','Numéro de commande obligatoire'],['mailObligatoire','Mail obligatoire'],['avertissementPose','Avertissement si la date de pose est dans moins de 3 jours'],['marchandise','Section « Marchandise » (famille + « Autre »)'],['seuilDevis','Devis obligatoire au-delà de 120 kg (livraison dans la pièce)'],['magasinClient','Enlèvement dans le magasin du client (adresse prise dans sa fiche client)'],['duplication','Bouton « autre commande » après l’envoi (reprend les coordonnées du client)'],['autreMagasin','Autre magasin : le client saisit le magasin d’enlèvement (vérifié par l’agence)']];
+var OPTIONS_FICHE = [['numeroCommande','Numéro de commande obligatoire'],['mailObligatoire','Mail obligatoire'],['avertissementPose','Avertissement si la date de pose est dans moins de 3 jours'],['marchandise','Section « Marchandise » (famille + « Autre »)'],['seuilDevis','Devis obligatoire au-delà de 120 kg (livraison dans la pièce)'],['magasinClient','Enlèvement dans le magasin du client (adresse prise dans sa fiche client)'],['duplication','Bouton « autre commande » après l’envoi (reprend les coordonnées du client)'],['autreMagasin','Autre magasin : le client saisit le magasin d’enlèvement (vérifié par l’agence)'],['refDossier','Référence de dossier du client (regroupe plusieurs commandes sur une livraison)']];
 var PRESTATIONS_FICHE = [['LT','Livraison trottoir (LT)'],['LV','Livraison dans la pièce (LV1 / LV2 / LV3)'],['LP','Livraison avec prestations'],['EM','Emporté dépôt'],['MG','Déposé au magasin']];
 function parametresParDefaut(){ var b = {}, p; BLOCS_FICHE.forEach(function(x){ b[x[0]] = true; }); p = { blocs:b, prestations:{ LT:false, LV:false, LP:false, EM:false, MG:false }, modeTarif:'tarifs' }; OPTIONS_FICHE.forEach(function(x){ p[x[0]] = false; }); return p; }
 function normaliserParametres(p){ var d = parametresParDefaut(), b = (p && p.blocs) || {}; BLOCS_FICHE.forEach(function(x){ d.blocs[x[0]] = b[x[0]] !== false; }); OPTIONS_FICHE.forEach(function(x){ d[x[0]] = !!p && p[x[0]] === true; }); PRESTATIONS_FICHE.forEach(function(x){ d.prestations[x[0]] = !!p && !!p.prestations && p.prestations[x[0]] === true; }); d.modeTarif = (!!p && p.modeTarif === 'grille') ? 'grille' : ((!!p && p.modeTarif === 'adValorem') ? 'adValorem' : 'tarifs'); return d; }
@@ -3413,6 +3413,11 @@ function lireGrilleExcel(XLSX, wb){
     if(de == null || a == null || dep == null || mag == null){ err.push('Table SAV / expo, ligne '+r+' : tranche ou montant illisible.'); continue; }
     g.sav.tranches.push({ de:de, a:a, depot:dep, magasin:mag, stockage:(st == null ? 0 : st) });
   }
+  // enlèvement chez un fournisseur, ramené au dépôt : bloc « Enlèvement de matériel à grouper à une commande réceptionnée »
+  var mk = /de\s*0\s*[àa]\s*(\d+)\s*km/i.exec(grilleTxt(ws, 'EU6')), t1 = /(\d+)\s*[àa]\s*(\d+)/.exec(grilleTxt(ws, 'FD4')), t2 = /(\d+)\s*[àa]\s*(\d+)/.exec(grilleTxt(ws, 'FK4'));
+  if(!mk) err.push('Enlèvement : distance de la zone A illisible (cellule EU6).'); if(!t1 || !t2) err.push('Enlèvement : tranches de poids illisibles (cellules FD4 et FK4).');
+  g.enlevement = { maxKm:(mk ? parseInt(mk[1], 10) : 0), tranches:[{ code:'P1', de:(t1 ? +t1[1] : 0), a:(t1 ? +t1[2] : 0) }, { code:'P2', de:(t2 ? +t2[1] : 0), a:(t2 ? +t2[2] : 0) }], prix:[need('FD6', 'Enlèvement tranche P1'), need('FK6', 'Enlèvement tranche P2')], kmSupp:need('FF13', 'Enlèvement : prix du km supplémentaire'), stockage:[need('FE19', 'Enlèvement : stockage P1'), need('FO19', 'Enlèvement : stockage P2')], attenteQuart:need('FT26', 'Enlèvement : attente par quart d\'heure') };
+  if(Math.abs(g.enlevement.kmSupp - g.kmSupp) > 1e-9) avert.push('Enlèvement : le prix du km supplémentaire ('+g.enlevement.kmSupp+') diffère de celui des livraisons ('+g.kmSupp+').');
   // contrôles de cohérence
   Object.keys(g.familles).forEach(function(k){ var f = g.familles[k]; if(!f.livraison) return; ['A', 'B', 'C'].forEach(function(z){ var p = f.livraison[z]; for(var i = 1; i < p.length; i++) if(p[i] < p[i-1]) avert.push(f.nom+' zone '+z+' : le prix de la tranche P'+(i+1)+' est inférieur à celui de la tranche précédente.'); }); ['A', 'B'].forEach(function(z, i){ var s = ['B', 'C'][i]; f.livraison[z].forEach(function(v, j){ if(f.livraison[s][j] < v) avert.push(f.nom+' tranche P'+(j+1)+' : la zone '+s+' est moins chère que la zone '+z+'.'); }); }); });
   for(var j = 1; j < g.sav.tranches.length; j++) if(g.sav.tranches[j].de !== g.sav.tranches[j-1].a + 1 && g.sav.tranches[j].de !== g.sav.tranches[j-1].a) avert.push('Table SAV / expo : les tranches '+g.sav.tranches[j-1].a+' kg et '+g.sav.tranches[j].de+' kg ne se suivent pas.');
@@ -3483,6 +3488,17 @@ function calculerGrille(g, e){
   return { statut:'ok', lignes:lignes, totalHT:total, prestation:e.prestation, famille:fam, zone:z.code, kmSupp:z.kmSupp };
 }
 
+// enlèvement chez un fournisseur (ramené au dépôt) : zone A jusqu'à maxKm, tranches de poids (cumul au-delà de la dernière), puis prix du km au-delà
+function calculerEnlevementGrille(g, e){   // e : { poids (kg), km (distance fournisseur → dépôt) }
+  var E = g.enlevement, devis = function(r){ return { statut:'devis', raison:r }; };
+  if(!E) return devis('La grille importée ne contient pas le tarif des enlèvements : réimportez le fichier Excel.');
+  var poids = Number(e.poids), km = Math.ceil(Number(e.km)), lignes = [], total = 0;
+  if(!(poids > 0)) return devis('Poids de l\'enlèvement non renseigné.'); if(!(km >= 0)) return devis('Distance de l\'enlèvement non calculée.');
+  grilleCumul(E.tranches, E.prix, poids).forEach(function(l){ lignes.push({ libelle:'Enlèvement '+l.tranche, montant:l.prix }); total += l.prix; });
+  var sup = Math.max(0, km - E.maxKm); if(sup > 0){ var m = Math.ceil(sup * E.kmSupp - 1e-9); lignes.push({ libelle:'Au-delà de '+E.maxKm+' km : '+sup+' km × '+String(E.kmSupp).replace('.', ',')+' €', montant:m }); total += m; }
+  return { statut:'ok', lignes:lignes, totalHT:total, km:km };
+}
+
 function devisPoids(f){ return f.prestation === 'LV' && Number(f.colisLourdPoidsKg) > 120; }
 function texteDevis(f){ return devisPoids(f) ? 'Obligatoire : colis de plus de 120 kg en livraison dans la pièce, aucun tarif calculé' : 'Obligatoire : aucun tarif calculé (prestation ou marchandise sans ligne dans la grille, ou option sur devis)'; }
 // ----- fiche client : import, contrôle et enregistrement de la grille -----
@@ -3500,6 +3516,11 @@ function tableauxGrilleHtml(g){
   h += t('Électroménager — livraison (€ HT)', ['Sans installation : 1ère pièce', 'pièce suppl.', 'frigo / piano', 'Avec installation : 1ère pièce', 'pièce suppl.', 'frigo / piano'], ['A', 'B', 'C'].map(function(z){ var a = e.sansInstallation[z], b = e.avecInstallation[z]; return ['Zone '+z, a.premiere, a.supp, a.gros, b.premiere, b.supp, b.gros]; }));
   h += '<div class="hint" style="margin:2px 0;">Emporté : 1ère pièce '+e.emporte.premiere+' €, pièce supplémentaire '+e.emporte.supp+' € · étage : '+e.etage+' € par étage · reprise « 1 pour 1 » : '+e.reprise+' € · nacelle : '+e.nacelle+' €</div>';
   h += t('Table SAV / expo — '+g.sav.tranches.length+' tranches (€ HT, arrondies à l\'euro supérieur au calcul)', ['Dépôt', 'Magasin'], g.sav.tranches.filter(function(x, i){ return i < 3 || i === g.sav.tranches.length - 1; }).map(function(x){ return [x.de+'–'+x.a+' kg', fmtG(x.depot), fmtG(x.magasin)]; }));
+  if(g.enlevement){
+    var E = g.enlevement;
+    h += t('Enlèvement chez un fournisseur, ramené au dépôt (€ HT)', E.tranches.map(function(x){ return x.code+' ('+x.de+'–'+x.a+' kg)'; }), [['Zone A (0 à '+E.maxKm+' km)'].concat(E.prix)]);
+    h += '<div class="hint" style="margin:2px 0;">Au-delà de '+E.maxKm+' km : zone A + '+String(E.kmSupp).replace('.', ',')+' € par km · cumul des tranches au-delà de '+E.tranches[E.tranches.length - 1].a+' kg · attente : '+E.attenteQuart+' € par quart d\'heure indivisible (non comptée dans l\'estimation)</div>';
+  } else h += '<div class="warnbox" style="margin-top:8px;"><strong>Cette grille ne contient pas le tarif des enlèvements chez les fournisseurs.</strong> Réimporte le fichier Excel pour l\'ajouter : sans cela, une fiche avec enlèvement passe sur devis.</div>';
   return h;
 }
 function afficherGrilleClient(c){
@@ -3548,7 +3569,7 @@ document.getElementById('btnGrilleRetirer').addEventListener('click', async func
 document.getElementById('btnSimuler').addEventListener('click', function(){
   var c = clientFicheCourant(), z = document.getElementById('sim-resultat'); if(!c || !c.grilleTarif){ z.textContent = ''; return; }
   var v = function(id){ return document.getElementById(id).value.trim().replace(',', '.'); };
-  var r = calculerGrille(c.grilleTarif.grille, { famille:document.getElementById('sim-famille').value, prestation:document.getElementById('sim-presta').value, poids:Number(v('sim-poids')), km:Number(v('sim-km')), etage:Number(v('sim-etage')) || 0, pieces:Number(v('sim-pieces')) || 1 });
+  var pr = document.getElementById('sim-presta').value, r = pr === 'ENL' ? calculerEnlevementGrille(c.grilleTarif.grille, { poids:Number(v('sim-poids')), km:Number(v('sim-km')) }) : calculerGrille(c.grilleTarif.grille, { famille:document.getElementById('sim-famille').value, prestation:pr, poids:Number(v('sim-poids')), km:Number(v('sim-km')), etage:Number(v('sim-etage')) || 0, pieces:Number(v('sim-pieces')) || 1 });
   z.innerHTML = r.statut === 'ok' ? r.lignes.map(function(l){ return '<div style="display:flex;justify-content:space-between;gap:8px;"><span>'+escapeHtml(l.libelle)+'</span><strong>'+fmtG(l.montant)+' €</strong></div>'; }).join('')+'<div style="display:flex;justify-content:space-between;margin-top:4px;border-top:1px solid var(--line);padding-top:4px;"><strong>Total HT</strong><strong>'+fmtG(r.totalHT)+' €</strong></div>' : '<div class="warnbox"><strong>Sur devis.</strong> '+escapeHtml(r.raison)+'</div>';
 });
 function appliquerGrillePublique(doc, client){
@@ -3581,6 +3602,23 @@ document.getElementById('btnAdvKmSave').addEventListener('click', async function
   catch(e){ console.error('prix du km', e); msgAdvKm('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return; }
   msgAdvKm(v == null ? 'Prix du km retiré : au-delà de 59 km, la fiche passe sur devis.' : 'Prix du km enregistré : '+String(v).replace('.', ',')+' € HT.', true);
 });
+
+
+// ================= Client dépôt : référence de dossier (étape E9) =================
+// Le client saisit sa propre référence : plusieurs fiches (plusieurs commandes, plusieurs fournisseurs) du même dossier sont regroupées sur une livraison.
+// L'agence voit les fiches du même dossier et le rattachement à la contremarque existante est proposé ; elle le valide en cliquant sur « Appliquer ».
+function refNorm(r){ return normNom(String(r || '')); }
+function autresFichesDuDossier(f){ var r = refNorm(f.refDossier); return !r ? 0 : fichesRecues.filter(function(x){ return x.numero !== f.numero && refNorm(x.refDossier) === r; }).length; }
+function contremarqueDuDossier(f){
+  var r = refNorm(f.refDossier); if(!r) return -1; var cms = state.base.contremarques || [];
+  for(var i = 0; i < cms.length; i++) if(refNorm(cms[i].refDossier) === r) return i;
+  return -1;
+}
+function blocDossierHtml(f, cm){
+  if(!f.refDossier) return '';
+  return cm ? '<div class="hint" style="margin:8px 0;padding:8px 10px;background:#f0faf6;border:1px solid #b9e2d3;border-radius:8px;">📁 Même référence de dossier (<strong>'+escapeHtml(f.refDossier)+'</strong>) que la contremarque « '+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+' » : rattachement proposé ci-dessous, à valider avec « Appliquer ».</div>'
+    : '<div class="hint" style="margin:8px 0;">📁 Dossier <strong>'+escapeHtml(f.refDossier)+'</strong> : aucune contremarque existante avec cette référence.</div>';
+}
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -3896,7 +3934,7 @@ var PROFILE_FIELD_IDS = ['nom','prenom','adresse1','adresse2','departement','cp'
 var PROFILE_CHECK_IDS = ['ascenseur','villa','immeuble','bureau','horairesAM','horairesPM','joursTous','lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
 var PROFILE_TIME_IDS = ['amDe','amA','pmDe','pmA','journeeDe','journeeA'];
 // compléments propres à la fiche CONTREMARQUE (d'après la fiche de livraison STLS) : accès, options souhaitées, contraintes
-var PROFILE_EXTRA_FIELD_IDS = ['accesPrecisions','datePose','contraintes','posePar'];
+var PROFILE_EXTRA_FIELD_IDS = ['accesPrecisions','datePose','contraintes','posePar','refDossier'];
 var PROFILE_EXTRA_CHECK_IDS = ['escalier','accesDifficile','accesAutre','magasin','optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation'];
 
 function collectProfileFields(p){
@@ -5640,7 +5678,7 @@ function meilleureContremarque(f){
   if(idx<0) idx = cms.findIndex(function(c){ return normNom(c.nom)===n; });
   return idx;
 }
-var FICHE_LIBELLES = { magasin:'Magasin', posePar:'Pose par', pays:'Pays', nom:'Nom', prenom:'Prénom', tel1:'Téléphone 1', tel2:'Téléphone 2', adresse1:'Adresse 1', adresse2:'Adresse 2', departement:'Département', cp:'Code postal', ville:'Ville', mail:'Mail', etage:'Étages',
+var FICHE_LIBELLES = { refDossier:'Référence de dossier', magasin:'Magasin', posePar:'Pose par', pays:'Pays', nom:'Nom', prenom:'Prénom', tel1:'Téléphone 1', tel2:'Téléphone 2', adresse1:'Adresse 1', adresse2:'Adresse 2', departement:'Département', cp:'Code postal', ville:'Ville', mail:'Mail', etage:'Étages',
   accesPrecisions:'Précisions d\'accès', datePose:'Date de pose', contraintes:'Contraintes', ascenseur:'Ascenseur', villa:'Villa', immeuble:'Immeuble', bureau:'Bureau', escalier:'Escalier', accesDifficile:'Accès difficile', accesAutre:'Accès : autre',
   optDeballage:'Déballage', optRepriseEmballages:'Reprise des emballages', optMontageSimple:'Montage simple', optMiseEnPlace:'Mise en place', optEvacuation:'Évacuation ancien matériel',
   joursTous:'Tous les jours', lundi:'Lundi', mardi:'Mardi', mercredi:'Mercredi', jeudi:'Jeudi', vendredi:'Vendredi', samedi:'Samedi', dimanche:'Dimanche' };
@@ -5665,7 +5703,7 @@ function resumeFicheHtml(f){
   var oui = function(ks){ return ks.filter(function(k){ return f[k]; }).map(function(k){ return FICHE_LIBELLES[k]; }).join(', ') || '—'; };
   var ln = function(l, v){ return v ? '<div class="sub"><strong>'+escapeHtml(l)+' :</strong> '+escapeHtml(v)+'</div>' : ''; };
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+ln('Pays', f.pays)+ln('Livraison', /^2[AB]$/i.test(f.departement||'') ? 'Corse : uniquement sur devis' : '')+
-    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Valeur déclarée de la marchandise', f.valeurTTC ? String(f.valeurTTC).replace('.', ',')+' € TTC' : '')+ln('Précisions', f.accesPrecisions)+
+    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Valeur déclarée de la marchandise', f.valeurTTC ? String(f.valeurTTC).replace('.', ',')+' € TTC' : '')+ln('Référence de dossier', f.refDossier)+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose ? dateCourte(f.datePose)+(f.posePar ? ' · pose par '+(f.posePar==='magasin' ? 'le magasin' : 'l\'artisan') : '') : '')+
     ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
@@ -5678,7 +5716,7 @@ async function renderFichesRecues(){
     return '<div class="hist-item" data-num="'+escapeHtml(f.numero)+'">'+
       '<div class="hd"><span class="nom">'+escapeHtml(f.nom+' '+f.prenom)+'</span><span class="date">'+escapeHtml(dateHeureCourte(f.createdAt))+'</span></div>'+
       '<div class="sub">'+escapeHtml(f.numero)+' · '+escapeHtml(f.cp+' '+f.ville)+(f.pays?' · '+escapeHtml(f.pays):'')+(f.ref?' · réf. '+escapeHtml(f.ref):'')+(f.enseigne?' · '+escapeHtml(f.enseigne):'')+'</div>'+
-      (/^2[AB]$/i.test(f.departement||'') ? '<div class="sub" style="color:#9a6700;font-weight:700;">Corse : uniquement sur devis</div>' : '')+(f.devisObligatoire ? '<div class="sub" style="color:#9a6700;font-weight:700;">'+(devisPoids(f) ? 'Devis obligatoire (colis de plus de 120 kg)' : 'Devis obligatoire')+'</div>' : '')+(f.autreMagasin && !f.magasinVerifie ? '<div class="sub fr-badge-mag" style="color:#9a6700;font-weight:700;">🏬 Magasin à vérifier</div>' : '')+
+      (/^2[AB]$/i.test(f.departement||'') ? '<div class="sub" style="color:#9a6700;font-weight:700;">Corse : uniquement sur devis</div>' : '')+(f.devisObligatoire ? '<div class="sub" style="color:#9a6700;font-weight:700;">'+(devisPoids(f) ? 'Devis obligatoire (colis de plus de 120 kg)' : 'Devis obligatoire')+'</div>' : '')+(f.autreMagasin && !f.magasinVerifie ? '<div class="sub fr-badge-mag" style="color:#9a6700;font-weight:700;">🏬 Magasin à vérifier</div>' : '')+(f.refDossier ? '<div class="sub" style="font-weight:600;">📁 Dossier '+escapeHtml(f.refDossier)+(autresFichesDuDossier(f) ? ' · '+autresFichesDuDossier(f)+' autre'+(autresFichesDuDossier(f) > 1 ? 's' : '')+' fiche'+(autresFichesDuDossier(f) > 1 ? 's' : '')+' du même dossier en attente' : '')+'</div>' : '')+
       (f.clientNom ? '<div class="sub" style="color:var(--accent);">🔗 Reçue via le lien de <strong>'+escapeHtml(f.clientNom)+'</strong>'+(f.tarifHT!=null ? ' · tarif annoncé '+escapeHtml(fmtE(f.tarifHT))+' HT' : '')+'</div>' : '')+
       '<div class="actions"><button class="btn accent fr-ouvrir">Traiter…</button></div>'+
       '<div class="fr-panel" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);"></div></div>';
@@ -6072,9 +6110,9 @@ function ouvrirTraitementFiche(item){
   var f = fichesRecues.find(function(x){ return x.numero===item.getAttribute('data-num'); }); if(!f) return;
   var panel = item.querySelector('.fr-panel');
   if(panel.style.display==='block'){ panel.style.display = 'none'; return; }
-  var cms = state.base.contremarques || [], pre = meilleureContremarque(f);
+  var cms = state.base.contremarques || [], pre = contremarqueDuDossier(f), dossier = pre >= 0; if(!dossier) pre = meilleureContremarque(f);
   panel.style.display = 'block';
-  panel.innerHTML = resumeFicheHtml(f)+blocMagasinHtml(f)+
+  panel.innerHTML = resumeFicheHtml(f)+blocMagasinHtml(f)+blocDossierHtml(f, dossier ? cms[pre] : null)+
     '<div class="field" style="margin-top:10px;"><label>Appliquer à</label><select class="fr-cible"><option value="">➕ Nouvelle fiche contremarque</option>'+
       cms.map(function(c, i){ return '<option value="'+i+'"'+(i===pre?' selected':'')+'>'+escapeHtml((c.nom||'')+' '+(c.prenom||''))+(c.cp?' — '+escapeHtml(c.cp+' '+(c.ville||'')):'')+'</option>'; }).join('')+'</select></div>'+
     '<div class="fr-diff"></div>'+creationFicheHtml(f)+
@@ -11427,7 +11465,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0116';
+var APP_VERSION = '2026.0117';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
