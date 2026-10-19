@@ -409,7 +409,7 @@ function afficherFormulaire(){
     ((refCommande||enseigne) ? '<div class="ref">'+(enseigne?'<div><strong>'+esc(enseigne)+'</strong></div>':'')+(refCommande?'<div>Référence de commande : <strong>'+esc(refCommande)+'</strong></div>':'')+'</div>' : '')+
     '<form id="fiche" novalidate autocomplete="on">'+
     (comportement==='generique' ? section1Generique() : (
-    titreSection('Informations de la contremarque')+'<div class="card">'+
+    titreSection(lib('sInfos', 'Informations de la contremarque'))+'<div class="card">'+
       champNumeroCommande()+champRefDossier()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
       '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel'})+'</div>'+
       '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
@@ -421,28 +421,24 @@ function afficherFormulaire(){
     ((grilleActive() && paramModele().prestations.indexOf('LP') >= 0) ? sectionLP() : '')+
     (blocVisible('acces') ? (ouvrirGroupe('grpAcces')+(
     (comportement==='generique' ? section2Generique() : (
-    titreSection('Accès à l\'adresse')+'<div class="card">'+
-      '<div class="cases">'+ACCES.map(function(a){ return cb(a[0], a[1]); }).join('')+'</div>'+
-      zone('accesPrecisions','Précisions utiles (interphone, stationnement, ascenseur…)',600)+
+    titreSection(lib('sAcces', 'Accès à l\'adresse'))+'<div class="card">'+
+      '<div class="cases">'+ACCES.filter(function(a){ return itemActif('acces', a[0]); }).map(function(a){ return cb(a[0], libItem('acces', a[0], a[1])); }).join('')+'</div>'+
+      zone('accesPrecisions', lib('precisions', 'Précisions utiles (interphone, stationnement, ascenseur…)', 120), 600)+
       champ('etage','Nombre d\'étages',{max:3,inputmode:'numeric'})+
     '</div>'
     ))
     )+fermerGroupe()) : '')+
     (marchandiseActive() ? sectionMarchandise() : '')+
-    ((blocVisible('options') || blocVisible('datePose')) ? (ouvrirGroupe('grpOptions')+titreSection(blocVisible('options') ? 'Options souhaitées' : 'Date de la pose', questionPrestation() ? 'h2Options' : null)+'<div class="card">'+
+    ((blocVisible('options') || blocVisible('datePose')) ? (ouvrirGroupe('grpOptions')+titreSection(blocVisible('options') ? lib('sOptions', 'Options souhaitées') : lib('sDatePose', 'Date de la pose'), questionPrestation() ? 'h2Options' : null)+'<div class="card">'+
       (blocVisible('options') ? (ouvrirGroupe('grpOptionsCases')+
-      '<div class="cases">'+OPTIONS.map(function(o){ return cb(o[0], o[1]); }).join('')+'</div>'+
-      '<div class="note"><strong>* Informations importantes concernant les options :</strong><br>'+
-        '<strong>Montage simple :</strong> durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.<br>'+
-        '<strong>Mise en place :</strong> positionnement du mobilier ou de l\'équipement <strong>sans aucune fixation</strong>.<br>'+
-        '<strong>Évacuation ancien matériel :</strong> uniquement si le matériel est <strong>transportable et préalablement emballé</strong>.<br>'+
-        'Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires.</div>'+fermerGroupe()
+      '<div class="cases">'+OPTIONS.filter(function(o){ return itemActif('options', o[0]); }).map(function(o){ return cb(o[0], libItem('options', o[0], o[1])); }).join('')+'</div>'+
+      noteOptionsHtml()+fermerGroupe()
       ) : '')+
       (blocVisible('datePose') ? blocDatePose() : '')+
     '</div>'+fermerGroupe()) : '')+
-    (blocVisible('jours') ? (titreSection('Jours de livraison possibles')+'<div class="card"><div class="cases">'+cb('joursTous','Tous')+joursProposes().map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">Seuls les jours d’ouverture sont proposés.</div>' : '')+'</div>') : '')+
-    (blocVisible('infos') ? (titreSection('Informations complémentaires / contraintes')+'<div class="card">'+zone('contraintes','',1500)+'</div>') : '')+
-    titreSection('Marchandise &amp; enlèvements')+'<div class="card">'+
+    (blocVisible('jours') ? (titreSection(lib('sJours', 'Jours de livraison possibles'))+'<div class="card"><div class="cases">'+cb('joursTous','Tous')+joursProposes().map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">Seuls les jours d’ouverture sont proposés.</div>' : '')+'</div>') : '')+
+    (blocVisible('infos') ? (titreSection(lib('sCompl', 'Informations complémentaires / contraintes'))+'<div class="card">'+zone('contraintes','',1500)+'</div>') : '')+
+    titreSection(lib('sEnl', 'Marchandise &amp; enlèvements'))+'<div class="card">'+
       (enlevementMagasinActif() ? sectionEnlevementMagasin() : (
       champ('nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+
       '<div class="field" id="f-modeReception"><label class="l">Mode de réception de la marchandise *</label><div class="cases" style="flex-direction:column;gap:10px;">'+MODES.map(function(m){ return radioMode(m[0], m[1]); }).join('')+'</div><div class="msgerr" id="e-modeReception"></div></div>'+
@@ -458,11 +454,11 @@ function afficherFormulaire(){
       '<div class="row2">'+champ('colisLourdPoidsKg','Poids (kg)',{req:1,max:8,inputmode:'decimal'})+champ('colisLourdDescription','Description ou référence',{max:200})+'</div>'+
       (clientConf ? (catalogueActif() ? sectionProduits() : '<label class="l" style="margin-top:6px;">Ensemble de la commande</label><div class="row2">'+champ('poidsTotalKg','Poids total estimé (kg)',{req:1,max:8,inputmode:'decimal',aide:'Poids de l\'ensemble de la marchandise à livrer (une estimation suffit). Il sert au calcul de votre tarif.'})+champ('nbColisTotal','Nombre total de colis',{type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>')+(adValoremActif() ? champ('valeurTTC','Valeur de la marchandise (€ TTC)',{req:1,max:14,inputmode:'decimal',aide:'Valeur d\'achat TTC de l\'ensemble de la marchandise transportée : votre tarif en est un pourcentage, selon la zone.'}) : '') : '')+
     '</div>'+
-    ((clientConf && blocVisible('tarif')) ? titreSection('Votre tarif estimatif')+'<div class="card" id="cardTarif"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations : adresse, étage et ascenseur, marchandise et options choisies. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>' : '')+
-    titreSection('Confirmation')+'<div class="card">'+
-      '<div class="certif">Je certifie que les informations communiquées sont exactes et permettent d\'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu\'une nouvelle facturation.</div>'+
-      '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> J\'ai vérifié les informations de livraison</label><div class="msgerr" id="e-certifie"></div></div>'+
-      '<div class="field" id="f-certifieMarchandise"><label class="case"><input type="checkbox" id="certifieMarchandise"> J\'ai vérifié les informations de marchandise et d\'enlèvements</label><div class="msgerr" id="e-certifieMarchandise"></div></div>'+
+    ((clientConf && blocVisible('tarif')) ? titreSection(lib('sTarif', 'Votre tarif estimatif'))+'<div class="card" id="cardTarif"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations : adresse, étage et ascenseur, marchandise et options choisies. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>' : '')+
+    titreSection(lib('sConfirm', 'Confirmation'))+'<div class="card">'+
+      '<div class="certif">'+libBloc('declaration', 'Je certifie que les informations communiquées sont exactes et permettent d\'organiser la livraison dans de bonnes conditions. Toute information incomplète ou erronée pouvant entraîner une difficulté de livraison pourra nécessiter une nouvelle organisation du rendez-vous, ainsi qu\'une nouvelle facturation.')+'</div>'+
+      '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> '+lib('verifLivraison', 'J\'ai vérifié les informations de livraison', 120)+'</label><div class="msgerr" id="e-certifie"></div></div>'+
+      '<div class="field" id="f-certifieMarchandise"><label class="case"><input type="checkbox" id="certifieMarchandise"> '+lib('verifMarchandise', 'J\'ai vérifié les informations de marchandise et d\'enlèvements', 120)+'</label><div class="msgerr" id="e-certifieMarchandise"></div></div>'+
       champ('demandeur','Nom du demandeur',{req:1,max:80})+
       '<div class="field"><label class="l">Date</label><div>'+aujourdhui.split('-').reverse().join('/')+'</div></div>'+
     '</div>'+
@@ -682,11 +678,11 @@ function depCourant(){ return valeur('departement').toUpperCase(); }
 function estCorse(){ return comportement==='generique' && !estEtranger() && /^2[AB]$/.test(depCourant()); }
 function estOutreMer(){ return comportement==='generique' && !estEtranger() && /^9[78]/.test(depCourant()); }
 function section1Generique(){
-  return titreSection(esc(LIB_SECTION1_GENERIQUE))+'<div class="card">'+
+  return titreSection(lib('sInfos', esc(LIB_SECTION1_GENERIQUE)))+'<div class="card">'+
     champNumeroCommande()+champRefDossier()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
     '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel',attrs:'placeholder="06 12 34 56 78"'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel',attrs:'placeholder="06 12 34 56 78"'})+'</div>'+
     '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
-    '<div class="field" id="f-pays"><label class="l" for="pays">Pays *</label><select id="pays" autocomplete="country"><option value="FR" selected>FR - France</option><option value="AUTRE">Autre pays</option></select></div>'+
+    '<div class="field" id="f-pays"><label class="l" for="pays">Pays *</label><select id="pays" autocomplete="country">'+paysOptionsHtml()+'</select></div>'+
     '<div class="field" id="f-paysLibre" style="display:none;"><label class="l" for="paysLibre">Nom du pays *</label><input type="text" id="paysLibre" maxlength="40" autocomplete="country-name"><div class="msgerr" id="e-paysLibre"></div></div>'+
     '<div class="row2">'+champ('departement','Département',{req:1,max:3,ac:'off',attrs:'placeholder="83"'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code',attrs:'list="listeCp"'})+'</div>'+
     '<datalist id="listeCp"></datalist><div class="aide" id="msgDepartement"></div>'+
@@ -772,6 +768,7 @@ function brancherCoordonneesGenerique(){
   el('pays').addEventListener('change', majPays);
   el('departement').addEventListener('input', majDepartement);
   el('cp').addEventListener('input', majCodePostal);
+  if(paysDefautAutre()) majPays();
 }
 function validerAdresseGenerique(ko){
   if(estEtranger()){
@@ -795,13 +792,13 @@ function validerAdresseGenerique(ko){
 // ----- accès à l’adresse et pose (étape E1b) -----
 function posePar(){ var r = document.querySelector('input[name="posePar"]:checked'); return r ? r.value : ''; }
 function section2Generique(){
-  return titreSection('Accès à l’adresse')+'<div class="card">'+
+  return titreSection(lib('sAcces', 'Accès à l’adresse'))+'<div class="card">'+
     '<div class="field"><label class="l">Type de site</label><div class="cases">'+
-      [['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['magasin','Magasin'],['accesAutre','Autre']].map(function(t){ return '<label class="case"><input type="radio" name="typeSite" id="'+t[0]+'"> '+t[1]+'</label>'; }).join('')+
+      [['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['magasin','Magasin'],['accesAutre','Autre']].filter(function(t){ return itemActif('acces', t[0]); }).map(function(t){ return '<label class="case"><input type="radio" name="typeSite" id="'+t[0]+'"> '+libItem('acces', t[0], t[1])+'</label>'; }).join('')+
     '</div></div>'+
     champ('etage','Nombre d’étages',{max:3,inputmode:'numeric'})+
-    '<div class="field"><label class="l">Contraintes d’accès</label><div class="cases"><span id="blocAscEsc" style="display:none;gap:10px 18px;flex-wrap:wrap;">'+cb('ascenseur','Ascenseur')+cb('escalier','Escalier')+'</span>'+cb('accesDifficile','Accès difficile')+'</div></div>'+
-    zone('accesPrecisions','Précisions utiles (accès difficile, hauteur limitée, chemin étroit…)',600)+
+    '<div class="field"><label class="l">Contraintes d’accès</label><div class="cases"><span id="blocAscEsc" style="display:none;gap:10px 18px;flex-wrap:wrap;">'+(itemActif('acces', 'ascenseur') ? cb('ascenseur', libItem('acces', 'ascenseur', 'Ascenseur')) : '')+(itemActif('acces', 'escalier') ? cb('escalier', libItem('acces', 'escalier', 'Escalier')) : '')+'</span>'+(itemActif('acces', 'accesDifficile') ? cb('accesDifficile', libItem('acces', 'accesDifficile', 'Accès difficile')) : '')+'</div></div>'+
+    zone('accesPrecisions', lib('precisions', 'Précisions utiles (accès difficile, hauteur limitée, chemin étroit…)', 120), 600)+
   '</div>';
 }
 function champDatePoseGenerique(){
@@ -813,7 +810,7 @@ function champDatePoseGenerique(){
 function majEtage(){
   var n = parseInt(valeur('etage'), 10), voir = n >= 1, bloc = el('blocAscEsc'); if(!bloc) return;
   bloc.style.display = voir ? 'inline-flex' : 'none';
-  if(!voir){ el('ascenseur').checked = false; el('escalier').checked = false; }
+  if(!voir){ if(el('ascenseur')) el('ascenseur').checked = false; if(el('escalier')) el('escalier').checked = false; }
 }
 function majPose(){
   if(!el('f-posePar')) return;
@@ -853,7 +850,7 @@ var MARCHANDISES_PAR_DEFAUT = ['Cuisine','Salle de bain','Dressing','Électromé
 var marchandisesAgence = null;   // liste générale de l’agence (stls_fiches_public)
 function listeMarchandises(){ var l = Array.isArray(marchandisesAgence) ? marchandisesAgence.filter(function(x){ return typeof x==='string' && x.trim(); }).slice(0, 40) : []; return l.length ? l : MARCHANDISES_PAR_DEFAUT; }
 function sectionMarchandise(){
-  return titreSection('Marchandise')+'<div class="card">'+
+  return titreSection(lib('sMarch', 'Marchandise'))+'<div class="card">'+
     '<div class="field" id="f-famille"><label class="l" for="famille">Famille de marchandise *</label><select id="famille"><option value="">— Choisir —</option>'+listeMarchandises().map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join('')+'<option value="__autre">Autre</option></select><div class="msgerr" id="e-famille"></div></div>'+
     '<div class="field" id="f-familleAutre" style="display:none;"><label class="l" for="familleAutre">Précisez la marchandise *</label><input type="text" id="familleAutre" maxlength="100"><div class="msgerr" id="e-familleAutre"></div></div>'+
   '</div>';
@@ -899,10 +896,10 @@ function sectionPrestation(){
     LP:['Livraison avec prestations', 'Livraison dans la pièce avec prestations complémentaires (réfrigérateur américain ou piano de cuisson, installation et reprise « 1 pour 1 » pour l’électroménager, nacelle). Le débarras est sur devis.'],
     EM:['Emporté dépôt', 'STLS réceptionne votre marchandise : vous (ou votre poseur) venez la retirer au dépôt.'],
     MG:['Déposé au magasin', 'STLS dépose votre marchandise au magasin.'] }, p = paramModele().prestations;
-  return titreSection('Prestation souhaitée')+'<div class="card">'+p.map(function(k, i){ return '<div class="lvcard"><label class="case"><input type="radio" name="prestation" id="prest-'+k+'" value="'+k+'"'+(i===0 ? ' checked' : '')+'> <strong>'+D[k][0]+'</strong></label><div class="aide">'+D[k][1]+'</div>'+(k==='LV' ? '<div class="lvtag" id="lvtag" style="display:none;"></div><div class="warnbox" id="warn120" style="display:none;"><strong>Colis le plus lourd supérieur à 120 kg : devis obligatoire.</strong> Votre fiche sera transmise à STLS pour chiffrage.</div>' : '')+'</div>'; }).join('')+'</div>';
+  return titreSection(lib('sPrest', 'Prestation souhaitée'))+'<div class="card">'+p.map(function(k, i){ return '<div class="lvcard"><label class="case"><input type="radio" name="prestation" id="prest-'+k+'" value="'+k+'"'+(i===0 ? ' checked' : '')+'> <strong>'+D[k][0]+'</strong></label><div class="aide">'+D[k][1]+'</div>'+(k==='LV' ? '<div class="lvtag" id="lvtag" style="display:none;"></div><div class="warnbox" id="warn120" style="display:none;"><strong>Colis le plus lourd supérieur à 120 kg : devis obligatoire.</strong> Votre fiche sera transmise à STLS pour chiffrage.</div>' : '')+'</div>'; }).join('')+'</div>';
 }
 function sectionPrestationLegacy(){
-  return titreSection('Prestation souhaitée')+'<div class="card">'+
+  return titreSection(lib('sPrest', 'Prestation souhaitée'))+'<div class="card">'+
     '<div class="lvcard"><label class="case"><input type="radio" name="prestation" id="prest-LT" value="LT" checked> <strong>Livraison trottoir (LT)</strong></label><div class="aide">Transport de votre marchandise à votre adresse : vous vous chargez de la manutention à partir du camion (déchargement au bord du trottoir). Aucune autre information n’est nécessaire : ni étage, ni option.</div></div>'+
     '<div class="lvcard"><label class="case"><input type="radio" name="prestation" id="prest-LV" value="LV"> <strong>Livraison dans la pièce de votre choix — LV1 / LV2 / LV3</strong></label><div class="aide">STLS assure la manutention. Le nombre de livreurs est déterminé par le poids du colis le plus lourd : LV1 = 1 personne (maxi 30 kg) · LV2 = 2 personnes (maxi 80 kg) · LV3 = 3 personnes (maxi 120 kg).'+(paramModele().seuilDevis ? ' Au-delà de 120 kg : devis obligatoire.' : '')+'</div>'+
       '<div class="lvtag" id="lvtag" style="display:none;"></div><div class="warnbox" id="warn120" style="display:none;"><strong>Colis le plus lourd supérieur à 120 kg : devis obligatoire.</strong> Votre fiche sera transmise à STLS pour chiffrage.</div></div>'+
@@ -920,9 +917,9 @@ function majPrestation(){
   if(el('grpAcces')) el('grpAcces').style.display = lt ? 'none' : '';
   if(el('grpOptions')){
     var cases = el('grpOptionsCases'), h = el('h2Options'), date = blocVisible('datePose');
-    if(lt && date){ el('grpOptions').style.display = ''; if(cases) cases.style.display = 'none'; if(h) h.textContent = h.textContent.replace(/\.\s.*$/, '. Date de la pose'); }
+    if(lt && date){ el('grpOptions').style.display = ''; if(cases) cases.style.display = 'none'; if(h) h.textContent = h.textContent.replace(/\.\s.*$/, '. '+libPlain('sDatePose', 'Date de la pose')); }
     else if(lt){ el('grpOptions').style.display = 'none'; }
-    else { el('grpOptions').style.display = ''; if(cases) cases.style.display = ''; if(h) h.textContent = h.textContent.replace(/\.\s.*$/, '. Options souhaitées'); }
+    else { el('grpOptions').style.display = ''; if(cases) cases.style.display = ''; if(h) h.textContent = h.textContent.replace(/\.\s.*$/, '. '+libPlain('sOptions', 'Options souhaitées')); }
   }
   var kg = nombre('colisLourdPoidsKg'), tag = el('lvtag'), w = el('warn120');
   if(tag && w){
@@ -1138,7 +1135,7 @@ async function calculerTarifAdValorem(d){
 }
 function sectionLP(){
   var h = function(id, lib){ return '<label class="case"><input type="checkbox" id="'+id+'"> '+lib+'</label>'; };
-  return '<div id="grpLP" style="display:none;">'+titreSection('Prestations complémentaires')+'<div class="card">'+
+  return '<div id="grpLP" style="display:none;">'+titreSection(lib('sComplPrest', 'Prestations complémentaires'))+'<div class="card">'+
     champ('grosAppareils','Réfrigérateur américain ou piano de cuisson : nombre d’articles',{type:'number',attrs:'min="0" max="20" step="1"',inputmode:'numeric'})+
     '<div class="field"><div class="cases">'+h('installation', 'Installation de l’électroménager (hors appareils intégrables)')+h('repriseUnPourUn', 'Reprise « 1 pour 1 »')+h('nacelle', 'Livraison par nacelle (3 étages maximum, prévisite STLS obligatoire)')+h('debarras', 'Débarras de l’ancien meuble (sur devis)')+'</div></div></div></div>';
 }
@@ -1175,6 +1172,26 @@ function majTotauxProduits(){
   if(cl && lourd && !cl.dataset.manuel){ cl.value = String(lourd.poids); var cd = el('colisLourdDescription'); if(cd && !cd.dataset.manuel) cd.value = lourd.nom.slice(0, 200); }
 }
 function textProduits(){ return lireProduits().map(function(x){ return x.q+' × '+x.p.nom; }).join(' ; ').slice(0, 600); }
+
+// ================= Textes et listes réglés par modèle (étape E11) =================
+// Le modèle du client publie ses textes sur son lien (modeleParametres.libelles) : titres de section, libellés et affichage des types de site / accès et des options,
+// note des options, libellé « Précisions utiles », textes de la déclaration, pays proposé par défaut. Tout texte est affiché échappé. Sans réglage : textes d'aujourd'hui.
+// Les identifiants des cases (villa, optDeballage…) ne changent jamais : seuls les textes affichés et la présence d'une ligne sont réglables.
+function libs(){ var l = clientConf && clientConf.modeleParametres && clientConf.modeleParametres.libelles; return (l && typeof l === 'object') ? l : {}; }
+function libTxt(v, max){ return typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : ''; }
+function lib(cle, defaut, max){ var t = libTxt(libs()[cle], max || 80); return t ? esc(t) : defaut; }            // défaut : texte déjà prêt pour l'affichage
+function libPlain(cle, defaut){ var t = libTxt(libs()[cle], 80); return t || defaut; }                              // pour textContent
+function libTexteLong(cle){ var v = libs()[cle]; return typeof v === 'string' ? v.trim().slice(0, 600) : ''; }
+function libBloc(cle, defaut){ var t = libTexteLong(cle); return t ? esc(t).replace(/\n/g, '<br>') : defaut; }
+function libItem(groupe, id, defaut){ var g = libs()[groupe], it = g && typeof g === 'object' ? g[id] : null, t = (it && typeof it === 'object') ? libTxt(it.libelle, 80) : ''; return t ? esc(t) : defaut; }
+function itemActif(groupe, id){ var g = libs()[groupe], it = g && typeof g === 'object' ? g[id] : null; return !(it && typeof it === 'object' && it.actif === false); }
+function paysDefautAutre(){ return libs().paysDefaut === 'AUTRE'; }
+function paysOptionsHtml(){ return paysDefautAutre() ? '<option value="FR">FR - France</option><option value="AUTRE" selected>Autre pays</option>' : '<option value="FR" selected>FR - France</option><option value="AUTRE">Autre pays</option>'; }
+function noteOptionsHtml(){ var t = libTexteLong('noteOptions'); return t ? '<div class="note">'+esc(t).replace(/\n/g, '<br>')+'</div>' : '<div class="note"><strong>* Informations importantes concernant les options :</strong><br>'+
+        '<strong>Montage simple :</strong> durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.<br>'+
+        '<strong>Mise en place :</strong> positionnement du mobilier ou de l\'équipement <strong>sans aucune fixation</strong>.<br>'+
+        '<strong>Évacuation ancien matériel :</strong> uniquement si le matériel est <strong>transportable et préalablement emballé</strong>.<br>'+
+        'Les options cochées doivent être communiquées et validées lors de la préparation de la livraison afin de permettre à STLS de prévoir les moyens humains et matériels nécessaires.</div>' ; }
 function tarifSpecialHtml(){
   if(comportement!=='generique') return '';
   if(estOutreMer()) return '<div class="note"><strong>Livraison non assurée dans ce département.</strong></div>';
