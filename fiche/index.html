@@ -188,9 +188,9 @@ var JOURS = [['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi
 var ACCES = [['ascenseur','Ascenseur'],['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['escalier','Escalier'],['accesDifficile','Accès difficile'],['accesAutre','Autre']];
 var OPTIONS = [['optDeballage','Déballage *'],['optRepriseEmballages','Reprise des emballages *'],['optMontageSimple','Montage simple *'],['optMiseEnPlace','Mise en place *'],['optEvacuation','Évacuation ancien matériel *']];
 function cb(id, lib){ return '<label class="case"><input type="checkbox" id="'+id+'"> '+lib+'</label>'; }
-function champ(id, lib, o){ o = o||{}; return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+(o.attrs?' '+o.attrs:'')+'>'+(o.aide?'<div class="aide">'+o.aide+'</div>':'')+'<div class="msgerr" id="e-'+id+'"></div></div>'; }
+function champ(id, lib, o){ o = o||{}; lib = libChamp(id, lib); return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+(o.req?' *':'')+'</label><input type="'+(o.type||'text')+'" id="'+id+'"'+(o.max?' maxlength="'+o.max+'"':'')+(o.inputmode?' inputmode="'+o.inputmode+'"':'')+(o.ac?' autocomplete="'+o.ac+'"':'')+(o.attrs?' '+o.attrs:'')+'>'+(o.aide?'<div class="aide">'+o.aide+'</div>':'')+'<div class="msgerr" id="e-'+id+'"></div></div>'; }
 function aujourdhuiISO(){ var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
-function zone(id, lib, max){ return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+'</label><textarea id="'+id+'" maxlength="'+max+'"></textarea></div>'; }
+function zone(id, lib, max){ lib = libChamp(id, lib); return '<div class="field" id="f-'+id+'"><label class="l" for="'+id+'">'+lib+'</label><textarea id="'+id+'" maxlength="'+max+'"></textarea></div>'; }
 
 
 
@@ -442,23 +442,23 @@ function afficherFormulaire(){
       ) : '')+
       (blocVisible('datePose') ? blocDatePose() : '')+
     '</div>'+fermerGroupe()) : '')+
-    (blocVisible('jours') ? (titreSection(lib('sJours', 'Jours de livraison possibles'))+'<div class="card"><div class="cases">'+cb('joursTous','Tous')+joursProposes().map(function(j){ return cb(j[0], j[1]); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">Seuls les jours d’ouverture sont proposés.</div>' : '')+'</div>') : '')+
+    (blocVisible('jours') ? (titreSection(lib('sJours', 'Jours de livraison possibles'))+'<div class="card"><div class="cases">'+cb('joursTous', libItem('jours', 'joursTous', 'Tous'))+joursProposes().map(function(j){ return cb(j[0], libItem('jours', j[0], j[1])); }).join('')+'</div>'+(joursLimites() ? '<div class="aide">'+lib('aideJours', 'Seuls les jours d’ouverture sont proposés.', 160)+'</div>' : '')+'</div>') : '')+
     (blocVisible('infos') ? (titreSection(lib('sCompl', 'Informations complémentaires / contraintes'))+'<div class="card">'+zone('contraintes','',1500)+'</div>') : '')+
     titreSection(lib('sEnl', 'Marchandise &amp; enlèvements'))+'<div class="card">'+
       (enlevementMagasinActif() ? sectionEnlevementMagasin() : (
       champ('nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale',{req:1,type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+
-      '<div class="field" id="f-modeReception"><label class="l">Mode de réception de la marchandise *</label><div class="cases" style="flex-direction:column;gap:10px;">'+MODES.map(function(m){ return radioMode(m[0], m[1]); }).join('')+'</div><div class="msgerr" id="e-modeReception"></div></div>'+
+      '<div class="field" id="f-modeReception"><label class="l">'+libChamp('modeReception', 'Mode de réception de la marchandise')+' *</label><div class="cases" style="flex-direction:column;gap:10px;">'+MODES.map(function(m){ return radioMode(m[0], m[1]); }).join('')+'</div><div class="msgerr" id="e-modeReception"></div></div>'+
       '<div id="blocEnlevements" style="display:none;">'+
         champ('nbPointsEnlevement','Nombre de points d\'enlèvement distincts',{req:1,type:'number',attrs:'min="1" max="'+MAX_ENL+'" step="1"',inputmode:'numeric'})+
         '<div id="listeEnlevements"></div>'+
       '</div>'
       ))+
-      '<label class="l" style="margin-top:6px;">Colis le plus long</label>'+
+      '<label class="l" style="margin-top:6px;">'+libChamp('colisLong', 'Colis le plus long')+'</label>'+
       '<div class="row2">'+champ('colisLongLongueurCm','Longueur (cm)',{req:1,max:8,inputmode:'decimal'})+champ('colisLongLargeurCm','Largeur (cm)',{max:8,inputmode:'decimal'})+'</div>'+
       '<div class="row2">'+champ('colisLongHauteurCm','Hauteur (cm)',{max:8,inputmode:'decimal'})+champ('colisLongDescription','Description ou référence',{max:200})+'</div>'+
-      '<label class="l" style="margin-top:6px;">Colis le plus lourd</label>'+
+      '<label class="l" style="margin-top:6px;">'+libChamp('colisLourd', 'Colis le plus lourd')+'</label>'+
       '<div class="row2">'+champ('colisLourdPoidsKg','Poids (kg)',{req:1,max:8,inputmode:'decimal'})+champ('colisLourdDescription','Description ou référence',{max:200})+'</div>'+
-      (clientConf ? (catalogueActif() ? sectionProduits() : '<label class="l" style="margin-top:6px;">Ensemble de la commande</label><div class="row2">'+champ('poidsTotalKg','Poids total estimé (kg)',{req:1,max:8,inputmode:'decimal',aide:'Poids de l\'ensemble de la marchandise à livrer (une estimation suffit). Il sert au calcul de votre tarif.'})+champ('nbColisTotal','Nombre total de colis',{type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>')+(adValoremActif() ? champ('valeurTTC','Valeur de la marchandise (€ TTC)',{req:1,max:14,inputmode:'decimal',aide:'Valeur d\'achat TTC de l\'ensemble de la marchandise transportée : votre tarif en est un pourcentage, selon la zone.'}) : '') : '')+
+      (clientConf ? (catalogueActif() ? sectionProduits() : '<label class="l" style="margin-top:6px;">'+libChamp('ensembleCommande', 'Ensemble de la commande')+'</label><div class="row2">'+champ('poidsTotalKg','Poids total estimé (kg)',{req:1,max:8,inputmode:'decimal',aide:'Poids de l\'ensemble de la marchandise à livrer (une estimation suffit). Il sert au calcul de votre tarif.'})+champ('nbColisTotal','Nombre total de colis',{type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>')+(adValoremActif() ? champ('valeurTTC','Valeur de la marchandise (€ TTC)',{req:1,max:14,inputmode:'decimal',aide:'Valeur d\'achat TTC de l\'ensemble de la marchandise transportée : votre tarif en est un pourcentage, selon la zone.'}) : '') : '')+
     '</div>'+
     ((clientConf && blocVisible('tarif')) ? titreSection(lib('sTarif', 'Votre tarif estimatif'))+'<div class="card" id="cardTarif"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations : adresse, étage et ascenseur, marchandise et options choisies. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>' : '')+
     titreSection(lib('sConfirm', 'Confirmation'))+'<div class="card">'+
@@ -466,7 +466,7 @@ function afficherFormulaire(){
       '<div class="field" id="f-certifie"><label class="case"><input type="checkbox" id="certifie"> '+lib('verifLivraison', 'J\'ai vérifié les informations de livraison', 120)+'</label><div class="msgerr" id="e-certifie"></div></div>'+
       '<div class="field" id="f-certifieMarchandise"><label class="case"><input type="checkbox" id="certifieMarchandise"> '+lib('verifMarchandise', 'J\'ai vérifié les informations de marchandise et d\'enlèvements', 120)+'</label><div class="msgerr" id="e-certifieMarchandise"></div></div>'+
       champ('demandeur','Nom du demandeur',{req:1,max:80})+
-      '<div class="field"><label class="l">Date</label><div>'+aujourdhui.split('-').reverse().join('/')+'</div></div>'+
+      '<div class="field"><label class="l">'+libChamp('dateConfirmation', 'Date')+'</label><div>'+aujourdhui.split('-').reverse().join('/')+'</div></div>'+
     '</div>'+
     '<div class="piege" aria-hidden="true"><label>Ne pas remplir <input type="text" id="siteweb" tabindex="-1" autocomplete="off"></label></div>'+
     '<div class="alerte" id="alerte"></div>'+
@@ -689,7 +689,7 @@ function section1Generique(){
     champNumeroCommande()+champRefDossier()+'<div class="row2">'+champ('nom','Nom',{req:1,max:80,ac:'family-name'})+champ('prenom','Prénom',{req:1,max:80,ac:'given-name'})+'</div>'+
     '<div class="row2">'+champ('tel1','Téléphone 1',{req:1,type:'tel',max:30,inputmode:'tel',ac:'tel',attrs:'placeholder="06 12 34 56 78"'})+champ('tel2','Téléphone 2',{type:'tel',max:30,inputmode:'tel',attrs:'placeholder="06 12 34 56 78"'})+'</div>'+
     '<div class="row2">'+champ('adresse1','Adresse 1',{req:1,max:160,ac:'address-line1'})+champ('adresse2','Adresse 2',{max:160,ac:'address-line2'})+'</div>'+
-    '<div class="field" id="f-pays"><label class="l" for="pays">Pays *</label><select id="pays" autocomplete="country">'+paysOptionsHtml()+'</select></div>'+
+    '<div class="field" id="f-pays"><label class="l" for="pays">'+libChamp('pays', 'Pays')+' *</label><select id="pays" autocomplete="country">'+paysOptionsHtml()+'</select></div>'+
     '<div class="field" id="f-paysLibre" style="display:none;"><label class="l" for="paysLibre">Nom du pays *</label><input type="text" id="paysLibre" maxlength="40" autocomplete="country-name"><div class="msgerr" id="e-paysLibre"></div></div>'+
     '<div class="row2">'+champ('departement','Département',{req:1,max:3,ac:'off',attrs:'placeholder="83"'})+champ('cp','Code postal',{req:1,max:5,inputmode:'numeric',ac:'postal-code',attrs:'list="listeCp"'})+'</div>'+
     '<datalist id="listeCp"></datalist><div class="aide" id="msgDepartement"></div>'+
@@ -800,17 +800,17 @@ function validerAdresseGenerique(ko){
 function posePar(){ var r = document.querySelector('input[name="posePar"]:checked'); return r ? r.value : ''; }
 function section2Generique(){
   return titreSection(lib('sAcces', 'Accès à l’adresse'))+'<div class="card">'+
-    '<div class="field"><label class="l">Type de site</label><div class="cases">'+
+    '<div class="field"><label class="l">'+libChamp('typeSite', 'Type de site')+'</label><div class="cases">'+
       [['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['magasin','Magasin'],['accesAutre','Autre']].filter(function(t){ return itemActif('acces', t[0]); }).map(function(t){ return '<label class="case"><input type="radio" name="typeSite" id="'+t[0]+'"> '+libItem('acces', t[0], t[1])+'</label>'; }).join('')+
     '</div></div>'+
     champ('etage','Nombre d’étages',{max:3,inputmode:'numeric'})+
-    '<div class="field"><label class="l">Contraintes d’accès</label><div class="cases"><span id="blocAscEsc" style="display:none;gap:10px 18px;flex-wrap:wrap;">'+(itemActif('acces', 'ascenseur') ? cb('ascenseur', libItem('acces', 'ascenseur', 'Ascenseur')) : '')+(itemActif('acces', 'escalier') ? cb('escalier', libItem('acces', 'escalier', 'Escalier')) : '')+'</span>'+(itemActif('acces', 'accesDifficile') ? cb('accesDifficile', libItem('acces', 'accesDifficile', 'Accès difficile')) : '')+'</div></div>'+
+    '<div class="field"><label class="l">'+libChamp('contraintesAcces', 'Contraintes d’accès')+'</label><div class="cases"><span id="blocAscEsc" style="display:none;gap:10px 18px;flex-wrap:wrap;">'+(itemActif('acces', 'ascenseur') ? cb('ascenseur', libItem('acces', 'ascenseur', 'Ascenseur')) : '')+(itemActif('acces', 'escalier') ? cb('escalier', libItem('acces', 'escalier', 'Escalier')) : '')+'</span>'+(itemActif('acces', 'accesDifficile') ? cb('accesDifficile', libItem('acces', 'accesDifficile', 'Accès difficile')) : '')+'</div></div>'+
     zone('accesPrecisions', lib('precisions', 'Précisions utiles (accès difficile, hauteur limitée, chemin étroit…)', 120), 600)+
   '</div>';
 }
 function champDatePoseGenerique(){
   return champ('datePose','Date de la pose',{type:'date'})+avertPoseHtml()+
-    '<div class="field" id="f-posePar" style="display:none;"><label class="l">Pose réalisée par *</label><div class="cases">'+
+    '<div class="field" id="f-posePar" style="display:none;"><label class="l">'+libChamp('posePar', 'Pose réalisée par')+' *</label><div class="cases">'+
       '<label class="case"><input type="radio" name="posePar" id="poseMagasin" value="magasin"> Magasin</label><label class="case"><input type="radio" name="posePar" id="poseArtisan" value="artisan"> Artisan</label></div>'+
       (nomAgence ? '<div class="aide">Agence : '+esc(nomAgence)+'</div>' : '')+'<div class="msgerr" id="e-posePar"></div></div>';
 }
@@ -858,7 +858,7 @@ var marchandisesAgence = null;   // liste générale de l’agence (stls_fiches_
 function listeMarchandises(){ var l = Array.isArray(marchandisesAgence) ? marchandisesAgence.filter(function(x){ return typeof x==='string' && x.trim(); }).slice(0, 40) : []; return l.length ? l : MARCHANDISES_PAR_DEFAUT; }
 function sectionMarchandise(){
   return titreSection(lib('sMarch', 'Marchandise'))+'<div class="card">'+
-    '<div class="field" id="f-famille"><label class="l" for="famille">Famille de marchandise *</label><select id="famille"><option value="">— Choisir —</option>'+listeMarchandises().map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join('')+'<option value="__autre">Autre</option></select><div class="msgerr" id="e-famille"></div></div>'+
+    '<div class="field" id="f-famille"><label class="l" for="famille">'+libChamp('famille', 'Famille de marchandise')+' *</label><select id="famille"><option value="">— Choisir —</option>'+listeMarchandises().map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join('')+'<option value="__autre">Autre</option></select><div class="msgerr" id="e-famille"></div></div>'+
     '<div class="field" id="f-familleAutre" style="display:none;"><label class="l" for="familleAutre">Précisez la marchandise *</label><input type="text" id="familleAutre" maxlength="100"><div class="msgerr" id="e-familleAutre"></div></div>'+
   '</div>';
 }
@@ -1160,7 +1160,7 @@ function produitsPlats(){ var out = []; catalogueGroupes().forEach(function(g){ 
 function catalogueActif(){ return produitsPlats().length > 0; }
 function sectionProduits(){
   var i = 0, h = function(id){ return '<input type="hidden" id="'+id+'" value="">'; };
-  return '<div class="field" id="f-produits" style="margin-top:6px;"><label class="l" for="prodChoix">Produits commandés *</label>'+
+  return '<div class="field" id="f-produits" style="margin-top:6px;"><label class="l" for="prodChoix">'+libChamp('produits', 'Produits commandés')+' *</label>'+
     '<div class="prodAjout"><select id="prodChoix" aria-label="Choisir un produit"><option value="">Choisir un produit…</option>'+
     catalogueGroupes().map(function(g){ return '<optgroup label="'+esc(g.nom)+'">'+g.produits.map(function(p){ return '<option value="'+(i++)+'">'+esc(p.nom)+' — '+fmtKg(p.poids)+' kg</option>'; }).join('')+'</optgroup>'; }).join('')+
     '</select><input type="number" id="prodQteNew" class="prodQteNew" min="1" max="99" step="1" placeholder="Qté" inputmode="numeric" aria-label="Quantité"><button type="button" class="btnProdAjouter" id="btnProdAjouter">Ajouter</button></div>'+
@@ -1216,6 +1216,7 @@ function libTexteLong(cle){ var v = libs()[cle]; return typeof v === 'string' ? 
 function libBloc(cle, defaut){ var t = libTexteLong(cle); return t ? esc(t).replace(/\n/g, '<br>') : defaut; }
 function libItem(groupe, id, defaut){ var g = libs()[groupe], it = g && typeof g === 'object' ? g[id] : null, t = (it && typeof it === 'object') ? libTxt(it.libelle, 80) : ''; return t ? esc(t) : defaut; }
 function itemActif(groupe, id){ var g = libs()[groupe], it = g && typeof g === 'object' ? g[id] : null; return !(it && typeof it === 'object' && it.actif === false); }
+function libChamp(id, defaut){ var g = libs().champs, t = (g && typeof g === 'object') ? libTxt(g[id], 100) : ''; return t ? esc(t) : defaut; }   // libellé d'un champ (la mention « * » reste ajoutée par la fiche)
 function paysDefautAutre(){ return libs().paysDefaut === 'AUTRE'; }
 function paysOptionsHtml(){ return paysDefautAutre() ? '<option value="FR">FR - France</option><option value="AUTRE" selected>Autre pays</option>' : '<option value="FR" selected>FR - France</option><option value="AUTRE">Autre pays</option>'; }
 function noteOptionsHtml(){ var t = libTexteLong('noteOptions'); return t ? '<div class="note">'+esc(t).replace(/\n/g, '<br>')+'</div>' : '<div class="note"><strong>* Informations importantes concernant les options :</strong><br>'+

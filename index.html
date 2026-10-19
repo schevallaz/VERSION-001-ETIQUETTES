@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0120">
+<meta name="app-version" content="2026.0121">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -3811,18 +3811,21 @@ document.getElementById('cli-catalogue').addEventListener('click', function(ev){
 var LIB_SECTIONS = [['sInfos','Section 1 : identité du client','Informations de la contremarque (« Coordonnées du client » avec le modèle Générique)'],['sAcces','Accès à l\'adresse','Accès à l’adresse'],['sMarch','Marchandise (famille de produit)','Marchandise'],['sOptions','Options souhaitées','Options souhaitées'],['sDatePose','Date de la pose','Date de la pose'],['sJours','Jours de livraison','Jours de livraison possibles'],['sCompl','Informations complémentaires','Informations complémentaires / contraintes'],['sEnl','Marchandise et enlèvements','Marchandise & enlèvements'],['sTarif','Tarif estimatif','Votre tarif estimatif'],['sConfirm','Confirmation','Confirmation'],['sPrest','Prestation souhaitée','Prestation souhaitée'],['sComplPrest','Prestations complémentaires','Prestations complémentaires']];
 var LIB_ACCES = [['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['magasin','Magasin (type de site, modèle Générique)'],['accesAutre','Autre'],['ascenseur','Ascenseur'],['escalier','Escalier'],['accesDifficile','Accès difficile']];
 var LIB_OPTIONS = [['optDeballage','Déballage'],['optRepriseEmballages','Reprise des emballages'],['optMontageSimple','Montage simple'],['optMiseEnPlace','Mise en place'],['optEvacuation','Évacuation ancien matériel']];
-var LIB_TEXTES = [['precisions','Libellé « Précisions utiles » (accès)',120,'Précisions utiles (interphone, stationnement, ascenseur…)'],['verifLivraison','Case « informations de livraison vérifiées »',120,'J’ai vérifié les informations de livraison'],['verifMarchandise','Case « informations de marchandise vérifiées »',120,'J’ai vérifié les informations de marchandise et d’enlèvements']];
+var LIB_JOURS = [['joursTous','Tous'],['lundi','Lundi'],['mardi','Mardi'],['mercredi','Mercredi'],['jeudi','Jeudi'],['vendredi','Vendredi'],['samedi','Samedi'],['dimanche','Dimanche']];
+var LIB_CHAMPS = [['nom','Nom'],['prenom','Prénom'],['tel1','Téléphone 1'],['tel2','Téléphone 2'],['pays','Pays'],['adresse1','Adresse 1'],['adresse2','Adresse 2'],['departement','Département'],['cp','Code postal'],['ville','Ville'],['mail','Mail'],['numCommande','Numéro de commande'],['refDossier','Votre référence de dossier'],['typeSite','Type de site (titre du groupe)'],['contraintesAcces','Contraintes d\'accès (titre du groupe)'],['etage','Nombre d\'étages'],['datePose','Date de la pose'],['posePar','Pose réalisée par'],['famille','Famille de marchandise'],['produits','Produits commandés'],['nbFournisseurs','Nombre de fournisseurs différents qui alimentent la livraison finale'],['modeReception','Mode de réception de la marchandise'],['nbPointsEnlevement','Nombre de points d\'enlèvement distincts'],['colisLong','Colis le plus long (titre)'],['colisLongLongueurCm','Colis le plus long : longueur (cm)'],['colisLongLargeurCm','Colis le plus long : largeur (cm)'],['colisLongHauteurCm','Colis le plus long : hauteur (cm)'],['colisLongDescription','Colis le plus long : description ou référence'],['colisLourd','Colis le plus lourd (titre)'],['colisLourdPoidsKg','Colis le plus lourd : poids (kg)'],['colisLourdDescription','Colis le plus lourd : description ou référence'],['ensembleCommande','Ensemble de la commande (titre)'],['poidsTotalKg','Poids total estimé (kg)'],['nbColisTotal','Nombre total de colis'],['valeurTTC','Valeur de la marchandise (€ TTC)'],['demandeur','Nom du demandeur'],['dateConfirmation','Date (section Confirmation)']];
+var LIB_TEXTES = [['precisions','Libellé « Précisions utiles » (accès)',120,'Précisions utiles (interphone, stationnement, ascenseur…)'],['verifLivraison','Case « informations de livraison vérifiées »',120,'J’ai vérifié les informations de livraison'],['verifMarchandise','Case « informations de marchandise vérifiées »',120,'J’ai vérifié les informations de marchandise et d’enlèvements'],['aideJours','Texte sous les jours de livraison',160,'Seuls les jours d’ouverture sont proposés.']];
 function libNettoye(v, max){ return typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : ''; }
 function normaliserLibelles(l){
   var out = {}; if(!l || typeof l !== 'object') return out;
   LIB_SECTIONS.forEach(function(x){ var t = libNettoye(l[x[0]], 80); if(t) out[x[0]] = t; });
   LIB_TEXTES.forEach(function(x){ var t = libNettoye(l[x[0]], x[2]); if(t) out[x[0]] = t; });
   ['noteOptions', 'declaration'].forEach(function(k){ var t = typeof l[k] === 'string' ? l[k].trim().slice(0, 600) : ''; if(t) out[k] = t; });
-  [['acces', LIB_ACCES], ['options', LIB_OPTIONS]].forEach(function(g){
+  [['acces', LIB_ACCES], ['options', LIB_OPTIONS], ['jours', LIB_JOURS]].forEach(function(g){
     var src = l[g[0]]; if(!src || typeof src !== 'object') return; var o = {};
     g[1].forEach(function(x){ var it = src[x[0]]; if(!it || typeof it !== 'object') return; var e = {}, t = libNettoye(it.libelle, 80); if(t) e.libelle = t; if(it.actif === false) e.actif = false; if(Object.keys(e).length) o[x[0]] = e; });
     if(Object.keys(o).length) out[g[0]] = o;
   });
+  var ch = l.champs; if(ch && typeof ch === 'object'){ var oc = {}; LIB_CHAMPS.forEach(function(x){ var t = libNettoye(ch[x[0]], 100); if(t) oc[x[0]] = t; }); if(Object.keys(oc).length) out.champs = oc; }
   if(l.paysDefaut === 'AUTRE') out.paysDefaut = 'AUTRE';
   return out;
 }
@@ -3839,10 +3842,13 @@ function libellesEditHtml(n){
     zone('noteOptions', 'Note sous les options (une ligne par retour à la ligne)', 'Laisse vide pour la note d\'aujourd\'hui (montage simple : 15 minutes, mise en place sans fixation, évacuation…)', l.noteOptions)+
     LIB_TEXTES.map(function(x){ return champ('mf-lib', x[0], x[1], x[3], l[x[0]], x[2]); }).join('')+
     zone('declaration', 'Texte de la déclaration (section Confirmation)', 'Laisse vide pour le texte d\'aujourd\'hui (« Je certifie que les informations communiquées sont exactes… »)', l.declaration)+
+    '<div style="font-weight:700;margin:12px 0 2px;">Libellés des champs</div><p class="hint" style="margin:0 0 6px;">La mention « * » des champs obligatoires reste ajoutée par la fiche.</p>'+LIB_CHAMPS.map(function(x){ return champ('mf-champ-lib', x[0], x[1], x[1], (l.champs || {})[x[0]], 100); }).join('')+
+    '<div style="font-weight:700;margin:12px 0 2px;">Jours de livraison</div>'+LIB_JOURS.map(function(x){ var it = (l.jours || {})[x[0]] || {}; return '<div class="field"><label>'+escapeHtml(x[1])+'</label><input type="text" class="mf-item-lib" data-g="jours" data-id="'+x[0]+'" maxlength="80" placeholder="'+escapeHtml(x[1])+'" value="'+escapeHtml(it.libelle || '')+'"></div>'; }).join('')+
     '<div class="field"><label>Pays proposé par défaut (modèle Générique)</label><select class="mf-pays" style="width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:9px;font-size:15px;background:#fff;"><option value="FR"'+(l.paysDefaut === 'AUTRE' ? '' : ' selected')+'>FR - France</option><option value="AUTRE"'+(l.paysDefaut === 'AUTRE' ? ' selected' : '')+'>Autre pays</option></select></div></details>';
 }
 function lireLibellesEdit(carte){
-  var l = { acces:{}, options:{} };
+  var l = { acces:{}, options:{}, jours:{}, champs:{} };
+  carte.querySelectorAll('.mf-champ-lib').forEach(function(e){ l.champs[e.getAttribute('data-k')] = e.value; });
   carte.querySelectorAll('.mf-lib').forEach(function(e){ l[e.getAttribute('data-k')] = e.value; });
   carte.querySelectorAll('.mf-lib-long').forEach(function(e){ l[e.getAttribute('data-k')] = e.value; });
   carte.querySelectorAll('.mf-item-lib').forEach(function(e){ var g = e.getAttribute('data-g'), id = e.getAttribute('data-id'); (l[g][id] = l[g][id] || {}).libelle = e.value; });
@@ -11701,7 +11707,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0120';
+var APP_VERSION = '2026.0121';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
