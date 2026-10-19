@@ -29,6 +29,12 @@
   .prodLigne{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px; }
   .prodLigne .prodQte{ width:76px !important; text-align:center; padding:8px; flex:none; }
   .totauxProduits{ margin-top:10px; font-weight:700; color:var(--accent); }
+  .prodAjout{ display:flex; gap:8px; align-items:center; margin:6px 0 4px; }
+  .prodAjout select{ flex:1; min-width:0; width:auto !important; }
+  .prodAjout .prodQteNew{ width:76px !important; flex:none; text-align:center; padding:11px 8px; }
+  .btnProdAjouter{ flex:none; background:var(--accent); color:#fff; border:0; border-radius:9px; padding:11px 14px; font-size:14px; font-weight:700; cursor:pointer; }
+  .prodLigne .prodSuppr{ flex:none; background:none; border:1px solid var(--line-strong); border-radius:8px; width:34px; height:34px; font-size:15px; cursor:pointer; color:#c0392b; }
+  #listeProduits .prodLigne span:first-child{ flex:1; min-width:0; }
   .lvcard{ border:1px solid var(--line); border-radius:12px; padding:12px; margin:8px 0; background:#fff; }
   .lvtag{ display:inline-block; background:#e1f5ee; border:1px solid #b9e2d3; border-radius:999px; padding:4px 10px; font-size:13px; font-weight:700; color:var(--accent); margin-top:8px; }
   .warnbox{ background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:10px; padding:10px 12px; margin:10px 0; font-size:14px; }
@@ -488,6 +494,7 @@ function coche(id){ var e = el(id); return !!(e && e.checked); }
 function erreur(id, texte){ var f = el('f-'+id); if(!f) return; f.classList.add('err'); var m = el('e-'+id); if(m) m.textContent = texte; }
 function validerSaisie(){
   syncEnlevementMagasin();
+  if(catalogueActif()) tenterAjoutProduit();   // un produit choisi avec sa quantité mais pas encore validé est pris en compte
   document.querySelectorAll('.field.err').forEach(function(f){ f.classList.remove('err'); });
   var n = 0, premier = '';
   function ko(id, t){ erreur(id, t); n++; if(!premier) premier = id; }
@@ -863,7 +870,7 @@ function majAvertissementPose(){
 }
 function brancherOptionsModele(){
   if(catalogueActif()){
-    document.querySelectorAll('.prodQte').forEach(function(e){ e.addEventListener('input', majTotauxProduits); });
+    brancherSelecteurProduits();
     ['colisLourdPoidsKg', 'colisLourdDescription'].forEach(function(id){ if(el(id)) el(id).addEventListener('input', function(ev){ if(ev.isTrusted) el(id).dataset.manuel = '1'; }); });   // une saisie à la main n'est plus écrasée
     majTotauxProduits();
   }
@@ -1153,14 +1160,38 @@ function produitsPlats(){ var out = []; catalogueGroupes().forEach(function(g){ 
 function catalogueActif(){ return produitsPlats().length > 0; }
 function sectionProduits(){
   var i = 0, h = function(id){ return '<input type="hidden" id="'+id+'" value="">'; };
-  return '<div class="field" id="f-produits" style="margin-top:6px;"><label class="l">Produits commandés *</label>'+
-    catalogueGroupes().map(function(g){ return '<div class="groupeProduits">'+esc(g.nom)+'</div>'+g.produits.map(function(p){ var k = i++; return '<div class="prodLigne"><span>'+esc(p.nom)+' <span class="aide">'+fmtKg(p.poids)+' kg</span></span><input type="number" class="prodQte" data-i="'+k+'" min="0" max="99" step="1" value="0" inputmode="numeric" aria-label="Quantité : '+esc(p.nom)+'"></div>'; }).join(''); }).join('')+
-    '<div class="msgerr" id="e-produits"></div><div class="totauxProduits" id="totauxProduits">Aucun produit choisi</div>'+h('poidsTotalKg')+h('nbColisTotal')+'</div>';
+  return '<div class="field" id="f-produits" style="margin-top:6px;"><label class="l" for="prodChoix">Produits commandés *</label>'+
+    '<div class="prodAjout"><select id="prodChoix" aria-label="Choisir un produit"><option value="">Choisir un produit…</option>'+
+    catalogueGroupes().map(function(g){ return '<optgroup label="'+esc(g.nom)+'">'+g.produits.map(function(p){ return '<option value="'+(i++)+'">'+esc(p.nom)+' — '+fmtKg(p.poids)+' kg</option>'; }).join('')+'</optgroup>'; }).join('')+
+    '</select><input type="number" id="prodQteNew" class="prodQteNew" min="1" max="99" step="1" placeholder="Qté" inputmode="numeric" aria-label="Quantité"><button type="button" class="btnProdAjouter" id="btnProdAjouter">Ajouter</button></div>'+
+    '<div id="listeProduits"></div><div class="msgerr" id="e-produits"></div><div class="totauxProduits" id="totauxProduits">Aucun produit choisi</div>'+h('poidsTotalKg')+h('nbColisTotal')+'</div>';
 }
-function lireProduits(){
+function ligneProduitHtml(k, q){
+  var p = produitsPlats()[k];
+  return '<div class="prodLigne" data-i="'+k+'"><span>'+esc(p.nom)+' <span class="aide">'+fmtKg(p.poids)+' kg</span></span><input type="number" class="prodQte" data-i="'+k+'" min="1" max="99" step="1" value="'+q+'" inputmode="numeric" aria-label="Quantité : '+esc(p.nom)+'"><button type="button" class="prodSuppr" data-i="'+k+'" aria-label="Retirer '+esc(p.nom)+'">✕</button></div>';
+}
+function lireProduits(){   // seules les lignes affichées (quantité saisie) comptent
   var pl = produitsPlats(), out = [];
-  document.querySelectorAll('.prodQte').forEach(function(e){ var q = parseInt(e.value, 10); if(q > 0) out.push({ p:pl[parseInt(e.getAttribute('data-i'), 10)], q:Math.min(99, q) }); });
+  document.querySelectorAll('#listeProduits .prodQte').forEach(function(e){ var q = parseInt(e.value, 10); if(q > 0) out.push({ p:pl[parseInt(e.getAttribute('data-i'), 10)], q:Math.min(99, q) }); });
   return out;
+}
+function signalerProduits(){ majTotauxProduits(); var h = el('poidsTotalKg'); if(h) h.dispatchEvent(new Event('input', { bubbles:true })); }   // relance le calcul du tarif
+function tenterAjoutProduit(){   // produit choisi dans la liste + quantité saisie : la ligne apparaît (ou sa quantité augmente)
+  var sel = el('prodChoix'), qe = el('prodQteNew'); if(!sel || !qe || sel.value === '') return false;
+  var q = parseInt(qe.value, 10); if(!(q >= 1)) return false; q = Math.min(99, q);
+  var liste = el('listeProduits'), ex = liste.querySelector('.prodQte[data-i="'+sel.value+'"]');
+  if(ex) ex.value = Math.min(99, (parseInt(ex.value, 10) || 0) + q); else liste.insertAdjacentHTML('beforeend', ligneProduitHtml(parseInt(sel.value, 10), q));
+  sel.value = ''; qe.value = ''; signalerProduits(); return true;
+}
+function brancherSelecteurProduits(){
+  var sel = el('prodChoix'), qe = el('prodQteNew'), liste = el('listeProduits');
+  qe.addEventListener('change', function(){ setTimeout(tenterAjoutProduit, 300); });   // après l'éventuel clic : une ligne qui apparaît ne doit pas déplacer le bouton sous le doigt
+  qe.addEventListener('keydown', function(ev){ if(ev.key === 'Enter'){ ev.preventDefault(); tenterAjoutProduit(); } });
+  sel.addEventListener('change', function(){ if(!tenterAjoutProduit() && sel.value !== '') qe.focus(); });
+  el('btnProdAjouter').addEventListener('click', tenterAjoutProduit);
+  liste.addEventListener('input', function(ev){ if(ev.target.classList.contains('prodQte')) majTotauxProduits(); });
+  liste.addEventListener('change', function(ev){ if(ev.target.classList.contains('prodQte') && !(parseInt(ev.target.value, 10) >= 1)){ ev.target.closest('.prodLigne').remove(); signalerProduits(); } });
+  liste.addEventListener('click', function(ev){ var b = ev.target.closest ? ev.target.closest('.prodSuppr') : null; if(b){ b.closest('.prodLigne').remove(); signalerProduits(); } });
 }
 function majTotauxProduits(){
   var l = lireProduits(), colis = 0, poids = 0, lourd = null;
