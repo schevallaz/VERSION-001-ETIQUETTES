@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0117">
+<meta name="app-version" content="2026.0118">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -848,6 +848,9 @@
       <p class="hint" style="margin:0 0 10px;">Pour les modèles réglés sur « Ad valorem » : le prix est un pourcentage de la valeur TTC de la marchandise que le client saisit, selon la zone de livraison. Renseigne les trois taux, ou aucun. Au-delà de 59 km : taux de la zone C plus le prix du km fixé dans Paramètres › Tarif ad valorem. Aucun minimum. Seul un administrateur peut les modifier.</p>
       <div class="row2"><div class="field"><label for="cli-adv-A">Zone A, 0 à 19 km (%)</label><input type="text" id="cli-adv-A" inputmode="decimal"></div><div class="field"><label for="cli-adv-B">Zone B, 20 à 39 km (%)</label><input type="text" id="cli-adv-B" inputmode="decimal"></div></div>
       <div class="field"><label for="cli-adv-C">Zone C, 40 à 59 km (%)</label><input type="text" id="cli-adv-C" inputmode="decimal"></div>
+      <h2 style="margin-top:16px;font-size:15px;">Produits proposés à ce client dans la fiche</h2>
+      <p class="hint" style="margin:0 0 10px;">Affecte une ou plusieurs familles du catalogue (Paramètres › Familles et produits). Dans sa fiche en ligne, le client choisit ses produits avec une quantité : le nombre de colis, le poids total et le colis le plus lourd sont alors calculés. Sans famille affectée, il saisit le poids et les colis à la main. Pour ce client, tu peux désactiver un produit, changer son poids ou ajouter des produits propres. Seul un administrateur peut modifier.</p>
+      <div id="cli-catalogue"></div>
       <h2 style="margin-top:16px;font-size:15px;">Grille de tarif du client (client dépôt)</h2>
       <p class="hint" style="margin:0 0 10px;">Importe la feuille « TARIF EN COURS » du fichier Excel du client : l'application la lit, tu contrôles ce qu'elle a compris, puis tu l'enregistres. Elle sert à la fiche en ligne des modèles réglés sur « Grille du client ». L'augmentation annuelle reste dans ton Excel : tu réimportes le fichier mis à jour. Seul un administrateur peut enregistrer ou retirer la grille.</p>
       <div id="cli-grille-etat" class="hint" style="font-weight:600;margin:0 0 8px;"></div>
@@ -1032,6 +1035,7 @@
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="etiquettestatuts" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🏷️</div><div style="font-weight:700;color:var(--ink);">Étiquette des statuts</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="marchandises" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">📦</div><div style="font-weight:700;color:var(--ink);">Marchandises de la fiche</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="advalorem" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">％</div><div style="font-weight:700;color:var(--ink);">Tarif ad valorem</div></button>
+        <button type="button" class="submodule-tile" data-prefix="parametres" data-key="familles" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🛏️</div><div style="font-weight:700;color:var(--ink);">Familles et produits</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="codesuppression" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🔐</div><div style="font-weight:700;color:var(--ink);">Mon code de suppression</div></button>
         <button type="button" class="submodule-tile" data-prefix="parametres" data-key="journalsuppr" style="border:1px solid var(--line-strong);border-radius:12px;padding:16px;text-align:center;background:#fff;cursor:pointer;font-family:inherit;"><div style="font-size:28px;margin-bottom:6px;">🗑</div><div style="font-weight:700;color:var(--ink);">Journal des suppressions</div></button>
       </div>
@@ -1415,6 +1419,21 @@
       <div class="btn-row"><button class="btn primary" id="btnAdvKmSave" style="width:auto;">Enregistrer</button></div>
     </div>
     </div>
+    <div class="submodule-content" id="sub-parametres-familles" style="display:none;">
+    <div class="card">
+      <h2>🛏️ Familles et produits</h2>
+      <p class="hint" style="margin:0 0 10px;">Catalogue de l'agence : des familles de marchandise contenant des produits (libellé et poids). Chaque client reçoit les familles que tu lui affectes dans Fiche client détaillée, et choisit ses produits avec une quantité dans sa fiche en ligne. La famille « Literie » est fournie ; tu peux modifier ses produits à tout moment.</p>
+      <div class="field"><label for="famPoidsDefaut">Poids par défaut d'un produit (kg)</label><input type="text" id="famPoidsDefaut" inputmode="decimal" placeholder="1"><div class="hint" style="margin:4px 0 0;">Appliqué à tout produit sans poids propre. Laisse vide pour 1 kg.</div></div>
+      <div class="btn-row"><button class="btn ghost" id="btnFamPoidsSave" style="width:auto;">Enregistrer le poids par défaut</button></div>
+      <div id="famMsg" style="margin:8px 0;font-size:13px;font-weight:600;"></div>
+    </div>
+    <div id="famListe"></div>
+    <div class="card">
+      <h2>➕ Nouvelle famille</h2>
+      <div class="field"><label for="famNouveauNom">Nom de la famille *</label><input type="text" id="famNouveauNom" maxlength="60" placeholder="Exemple : Canapés"></div>
+      <div class="btn-row"><button class="btn primary" id="btnFamCreer" style="width:auto;">Créer la famille</button></div>
+    </div>
+    </div>
     <div class="submodule-content" id="sub-parametres-etiquettestatuts" style="display:none;">
     <div class="card">
       <h2>🏷️ Étiquette des statuts</h2>
@@ -1576,6 +1595,7 @@ var state = {
   motifsService: null,
   zonesSortie: null,
   modelesFiche: null, // modèles de fiche de livraison de l'agence (null = modèles fournis uniquement)
+  famillesProduits: null, poidsProduitDefaut: null, // catalogue de familles de marchandise et de produits de l'agence ; poids par défaut d'un produit
   tournees: []
 };
 
@@ -1860,7 +1880,7 @@ async function loadBase(){
           emailTemplateReception: d0.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
           receivedAtMigrated: !!d0.receivedAtMigrated
         };
-        state.modelesFiche = d0.modelesFiche || null;
+        state.modelesFiche = d0.modelesFiche || null; state.famillesProduits = d0.famillesProduits || null; state.poidsProduitDefaut = (typeof d0.poidsProduitDefaut === 'number') ? d0.poidsProduitDefaut : null;
         lsSet('base-data', JSON.stringify(state.base));
         watchBase();
         return;
@@ -1918,7 +1938,7 @@ function watchBase(){
       emailTemplateReception: d.emailTemplateReception || DEFAULT_EMAIL_RECEPTION,
       receivedAtMigrated: !!d.receivedAtMigrated
     };
-    state.modelesFiche = d.modelesFiche || null;
+    state.modelesFiche = d.modelesFiche || null; state.famillesProduits = d.famillesProduits || null; state.poidsProduitDefaut = (typeof d.poidsProduitDefaut === 'number') ? d.poidsProduitDefaut : null;
     lsSet('base-data', JSON.stringify(state.base));
     refreshDatalists();
     renderEmplacementsList();
@@ -3208,6 +3228,7 @@ function lireReglagesTarifClient(){
 }
 function afficherReglagesTarifClient(c){
   afficherGrilleClient(c);
+  afficherCatalogueClient(c);
   var admin = !!state.isAdmin, k = c ? nombreFr(c.coefficientTarif) : NaN, co = document.getElementById('cli-coefficientTarif');
   co.value = (k > 0 && isFinite(k)) ? String(k).replace('.', ',') : ''; co.disabled = !admin;
   OPTIONS_TARIF_CLIENT.forEach(function(o){ var n = c ? nombreFr(c.prixOptions && c.prixOptions[o[0]]) : NaN, e = document.getElementById('cli-prixOpt-'+o[0]); e.value = (n >= 0 && isFinite(n)) ? String(n).replace('.', ',') : ''; e.disabled = !admin; });
@@ -3218,6 +3239,7 @@ function reglagesLienHtml(c){
   var l = liensClients[c.code] || {}, p = [], manque = !l.magasin && !!l.modeleParametres && !!l.modeleParametres.magasinClient;
   if(l.magasin) p.push('enlèvement au magasin : '+l.magasin.adresse1+', '+l.magasin.cp+' '+l.magasin.ville);
   if(l.grille) p.push('tarif : grille du client (importée le '+((l.grille.source && l.grille.source.importeLe) || '—')+')');
+  if(Array.isArray(l.catalogue) && l.catalogue.length) p.push('produits : '+l.catalogue.reduce(function(n, g){ return n + (g.produits||[]).length; }, 0)+' proposés ('+l.catalogue.map(function(g){ return g.nom; }).join(', ')+')');
   if(l.adValorem) p.push('tarif : ad valorem zone A '+String(l.adValorem.A).replace('.', ',')+' % · B '+String(l.adValorem.B).replace('.', ',')+' % · C '+String(l.adValorem.C).replace('.', ',')+' %');
   var sansGrille = !l.grille && !!l.modeleParametres && l.modeleParametres.modeTarif === 'grille', sansTaux = !l.adValorem && !!l.modeleParametres && l.modeleParametres.modeTarif === 'adValorem';
   if(l.coefficient) p.push('coefficient ×'+String(l.coefficient).replace('.', ','));
@@ -3619,6 +3641,166 @@ function blocDossierHtml(f, cm){
   return cm ? '<div class="hint" style="margin:8px 0;padding:8px 10px;background:#f0faf6;border:1px solid #b9e2d3;border-radius:8px;">📁 Même référence de dossier (<strong>'+escapeHtml(f.refDossier)+'</strong>) que la contremarque « '+escapeHtml((cm.nom||'')+' '+(cm.prenom||''))+' » : rattachement proposé ci-dessous, à valider avec « Appliquer ».</div>'
     : '<div class="hint" style="margin:8px 0;">📁 Dossier <strong>'+escapeHtml(f.refDossier)+'</strong> : aucune contremarque existante avec cette référence.</div>';
 }
+
+
+// ================= Familles de marchandise et produits (étape E10) =================
+// Catalogue de l'agence (familles contenant des produits : libellé, poids), affecté client par client. Le client choisit ses produits avec une quantité dans sa fiche en ligne :
+// colis, poids total et colis le plus lourd sont calculés. Le catalogue effectif du client (produits actifs, poids personnalisés, produits propres) est publié sur son lien.
+var POIDS_PRODUIT_REPLI = 1, MAX_PRODUITS_CLIENT = 300;
+var LITERIE_PRODUITS = ['Matelas 90x190', 'Matelas 140x190', 'Matelas 160x200', 'Matelas 180x200', 'Matelas 200x200', 'Sommier 70x190', 'Sommier 80x190', 'Sommier 80x200', 'Sommier 90x190', 'Sommier 140x190', 'Sommier 160x200', 'Sommier 180x200', 'Sommier 200x200'];
+function poidsDefautProduit(){ var v = state.poidsProduitDefaut; return (typeof v === 'number' && v > 0) ? v : POIDS_PRODUIT_REPLI; }
+function famillesParDefaut(){ return [{ id:'literie', nom:'Literie', systeme:true, produits:LITERIE_PRODUITS.map(function(n, i){ return { id:'literie_'+(i < 9 ? '0' : '')+(i + 1), nom:n, poidsKg:null }; }) }]; }
+function getFamillesProduits(){
+  var liste = JSON.parse(JSON.stringify(Array.isArray(state.famillesProduits) ? state.famillesProduits : []));
+  if(!liste.some(function(f){ return f.id === 'literie'; })) liste = famillesParDefaut().concat(liste);
+  liste.forEach(function(f){ if(f.id === 'literie') f.systeme = true; });
+  return liste;
+}
+function poidsProduit(p, surcharge){ return (surcharge > 0) ? surcharge : ((p.poidsKg > 0) ? p.poidsKg : poidsDefautProduit()); }
+function lirePoids(t){ var v = String(t == null ? '' : t).trim().replace(',', '.'); if(v === '') return { ok:true, v:null }; if(!/^\d+(\.\d{1,3})?$/.test(v) || Number(v) <= 0 || Number(v) > 5000) return { ok:false }; return { ok:true, v:Number(v) }; }
+function fmtPoids(n){ return String(n).replace('.', ','); }
+function nomValide(nom, max, deja){ nom = String(nom||'').trim().replace(/\s+/g, ' '); if(nom.length < 2) return { ok:false, motif:'Donne un nom d\'au moins 2 caractères.' }; if(nom.length > max) return { ok:false, motif:'Le nom ne doit pas dépasser '+max+' caractères.' }; var d = deja.filter(function(x){ return x.toLowerCase() === nom.toLowerCase(); })[0]; if(d) return { ok:false, motif:'« '+d+' » existe déjà.' }; return { ok:true, nom:nom }; }
+function msgFam(t, ok){ var e = document.getElementById('famMsg'); if(e){ e.textContent = t || ''; e.style.color = ok ? '#1e8e3e' : 'var(--danger)'; } }
+async function enregistrerChampsAgence(champs){
+  if(!state.isAdmin){ msgFam('⚠ Réservé aux administrateurs'); return false; }
+  if(!fsReady() || !configDocRef){ msgFam('⚠ Connexion indisponible'); return false; }
+  try{ await configDocRef.set(champs, { merge:true }); return true; } catch(e){ console.error('catalogue', e); msgFam('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return false; }
+}
+async function enregistrerFamilles(liste){ var l = JSON.parse(JSON.stringify(liste)); if(!(await enregistrerChampsAgence({ famillesProduits:l }))) return false; state.famillesProduits = l; return true; }
+function clientsAvecFamille(id){ return (state.base.clients||[]).filter(function(c){ return c.catalogue && (c.catalogue.familles||[]).indexOf(id) >= 0; }); }
+async function republierCatalogues(pred){
+  await chargerLiensClients(); var n = 0, cl = (state.base.clients||[]).filter(function(c){ return c.catalogue && pred(c) && liensClients[c.code]; });
+  for(var i = 0; i < cl.length; i++){ if(await ecrireLienClient(cl[i], {})) n++; } return n;
+}
+async function creerFamille(nom){
+  var liste = getFamillesProduits(), v = nomValide(nom, 60, liste.map(function(f){ return f.nom; })); if(!v.ok) return v;
+  liste.push({ id:'f_'+Date.now().toString(36)+Math.random().toString(36).slice(2, 5), nom:v.nom, produits:[] }); return (await enregistrerFamilles(liste)) ? { ok:true } : { ok:false, motif:'Enregistrement impossible' };
+}
+async function renommerFamille(id, nom){
+  var liste = getFamillesProduits(), f = liste.find(function(x){ return x.id === id; }); if(!f) return { ok:false, motif:'Famille introuvable' };
+  var v = nomValide(nom, 60, liste.filter(function(x){ return x.id !== id; }).map(function(x){ return x.nom; })); if(!v.ok) return v;
+  f.nom = v.nom; if(!(await enregistrerFamilles(liste))) return { ok:false, motif:'Enregistrement impossible' }; return { ok:true, liens:(await republierCatalogues(function(c){ return (c.catalogue.familles||[]).indexOf(id) >= 0; })) };
+}
+async function supprimerFamille(id){
+  var liste = getFamillesProduits(), f = liste.find(function(x){ return x.id === id; }); if(!f) return { ok:false, motif:'Famille introuvable' };
+  if(f.systeme) return { ok:false, motif:'La famille « '+f.nom+' » est fournie : elle ne se supprime pas.' };
+  var u = clientsAvecFamille(id); if(u.length) return { ok:false, motif:'Suppression impossible : '+u.length+' client(s) utilisent cette famille ('+u.slice(0, 8).map(function(c){ return c.nom; }).join(', ')+(u.length > 8 ? '…' : '')+'). Retire-la d\'abord de leur fiche client.' };
+  return (await enregistrerFamilles(liste.filter(function(x){ return x.id !== id; }))) ? { ok:true } : { ok:false, motif:'Enregistrement impossible' };
+}
+async function ajouterProduit(fid, nom, poidsTxt){
+  var liste = getFamillesProduits(), f = liste.find(function(x){ return x.id === fid; }); if(!f) return { ok:false, motif:'Famille introuvable' };
+  var v = nomValide(nom, 80, f.produits.map(function(p){ return p.nom; })), w = lirePoids(poidsTxt); if(!v.ok) return v; if(!w.ok) return { ok:false, motif:'Poids invalide : un nombre de kg entre 0,001 et 5000 (ou vide pour le poids par défaut).' };
+  if(f.produits.length >= 300) return { ok:false, motif:'Une famille ne peut pas contenir plus de 300 produits.' };
+  f.produits.push({ id:'p_'+Date.now().toString(36)+Math.random().toString(36).slice(2, 5), nom:v.nom, poidsKg:w.v }); if(!(await enregistrerFamilles(liste))) return { ok:false, motif:'Enregistrement impossible' };
+  return { ok:true, liens:(await republierCatalogues(function(c){ return (c.catalogue.familles||[]).indexOf(fid) >= 0; })) };
+}
+async function modifierProduit(fid, pid, nom, poidsTxt){
+  var liste = getFamillesProduits(), f = liste.find(function(x){ return x.id === fid; }), p = f && f.produits.find(function(x){ return x.id === pid; }); if(!p) return { ok:false, motif:'Produit introuvable' };
+  var v = nomValide(nom, 80, f.produits.filter(function(x){ return x.id !== pid; }).map(function(x){ return x.nom; })), w = lirePoids(poidsTxt); if(!v.ok) return v; if(!w.ok) return { ok:false, motif:'Poids invalide : un nombre de kg entre 0,001 et 5000 (ou vide pour le poids par défaut).' };
+  p.nom = v.nom; p.poidsKg = w.v; if(!(await enregistrerFamilles(liste))) return { ok:false, motif:'Enregistrement impossible' };
+  return { ok:true, liens:(await republierCatalogues(function(c){ return (c.catalogue.familles||[]).indexOf(fid) >= 0; })) };
+}
+async function supprimerProduit(fid, pid){
+  var liste = getFamillesProduits(), f = liste.find(function(x){ return x.id === fid; }); if(!f) return { ok:false, motif:'Famille introuvable' };
+  f.produits = f.produits.filter(function(x){ return x.id !== pid; }); if(!(await enregistrerFamilles(liste))) return { ok:false, motif:'Enregistrement impossible' };
+  return { ok:true, liens:(await republierCatalogues(function(c){ return (c.catalogue.familles||[]).indexOf(fid) >= 0; })) };
+}
+async function enregistrerPoidsDefaut(txt){
+  var w = lirePoids(txt); if(!w.ok) return { ok:false, motif:'Poids invalide : un nombre de kg entre 0,001 et 5000 (ou vide pour 1 kg).' };
+  if(!(await enregistrerChampsAgence({ poidsProduitDefaut:w.v }))) return { ok:false, motif:'Enregistrement impossible' }; state.poidsProduitDefaut = w.v;
+  return { ok:true, liens:(await republierCatalogues(function(){ return true; })) };
+}
+// ----- écran d'administration de la bibliothèque -----
+var famOuvertes = {}, famRenommer = {};
+function produitsFamilleHtml(f){
+  var ph = fmtPoids(poidsDefautProduit()), st = 'style="padding:6px 10px;width:auto;"';
+  return '<div style="margin-top:8px;">'+f.produits.map(function(p){ return '<div class="fp-ligne" data-prod="'+escapeHtml(p.id)+'" style="display:flex;gap:6px;align-items:center;margin:5px 0;"><input type="text" class="fp-nom" value="'+escapeHtml(p.nom)+'" maxlength="80" style="flex:1;min-width:0;"><input type="text" class="fp-poids" inputmode="decimal" value="'+(p.poidsKg > 0 ? fmtPoids(p.poidsKg) : '')+'" placeholder="'+ph+'" style="width:70px;flex:none;"><span class="hint" style="margin:0;flex:none;">kg</span><button type="button" class="btn ghost fp-enreg" '+st+'>OK</button><button type="button" class="btn ghost fp-suppr" '+st+' title="Supprimer ce produit">🗑</button></div>'; }).join('')+
+    '<div class="fp-ajout" style="display:flex;gap:6px;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);"><input type="text" class="fp-new-nom" maxlength="80" placeholder="Nouveau produit" style="flex:1;min-width:0;"><input type="text" class="fp-new-poids" inputmode="decimal" placeholder="'+ph+'" style="width:70px;flex:none;"><span class="hint" style="margin:0;flex:none;">kg</span><button type="button" class="btn primary fp-ajouter" '+st+'>Ajouter</button></div></div>';
+}
+function renderFamillesProduits(){
+  var zone = document.getElementById('famListe'); if(!zone) return;
+  document.getElementById('famPoidsDefaut').value = (typeof state.poidsProduitDefaut === 'number' && state.poidsProduitDefaut > 0) ? fmtPoids(state.poidsProduitDefaut) : '';
+  zone.innerHTML = getFamillesProduits().map(function(f){
+    var ouvert = !!famOuvertes[f.id], u = clientsAvecFamille(f.id).length;
+    return '<div class="hist-item fam" data-fam="'+escapeHtml(f.id)+'"><div class="hd"><span class="nom">'+escapeHtml(f.nom)+(f.systeme ? ' <span class="code" style="font-size:11px;font-weight:600;background:#eceae2;border-radius:6px;padding:2px 7px;margin-left:6px;">Fournie</span>' : '')+'</span><span class="date">'+f.produits.length+' produit'+(f.produits.length > 1 ? 's' : '')+'</span></div>'+
+      '<div class="sub">'+(u ? u+' client'+(u > 1 ? 's' : '')+' l\'utilise'+(u > 1 ? 'nt' : '') : 'Aucun client ne l\'utilise')+'</div>'+
+      '<div class="actions"><button type="button" class="btn ghost fam-ouvrir">'+(ouvert ? 'Masquer les produits' : 'Voir les produits')+'</button><button type="button" class="btn ghost fam-renommer">Renommer</button>'+(f.systeme ? '' : '<button type="button" class="btn ghost fam-suppr" style="color:#c0392b;">Supprimer</button>')+'</div>'+
+      (famRenommer[f.id] ? '<div style="display:flex;gap:6px;margin-top:8px;"><input type="text" class="fam-nom" maxlength="60" value="'+escapeHtml(f.nom)+'" style="flex:1;min-width:0;"><button type="button" class="btn primary fam-renommer-ok" style="width:auto;padding:6px 10px;">Enregistrer</button></div>' : '')+
+      (ouvert ? produitsFamilleHtml(f) : '')+'</div>';
+  }).join('');
+}
+function bilanFam(r, ok, ko){ msgFam(r.ok ? ok+(r.liens ? ' '+r.liens+' lien'+(r.liens > 1 ? 's' : '')+' client mis à jour.' : '') : '⚠ '+r.motif, r.ok); }
+document.getElementById('famListe').addEventListener('click', async function(ev){
+  var b = ev.target.closest ? ev.target.closest('button') : null, carte = ev.target.closest ? ev.target.closest('.fam') : null; if(!b || !carte) return;
+  var id = carte.getAttribute('data-fam'), ligne = b.closest('.fp-ligne'), r;
+  if(b.classList.contains('fam-ouvrir')){ famOuvertes[id] = !famOuvertes[id]; renderFamillesProduits(); return; }
+  if(b.classList.contains('fam-renommer')){ famRenommer[id] = !famRenommer[id]; renderFamillesProduits(); return; }
+  if(b.classList.contains('fam-renommer-ok')){ r = await renommerFamille(id, carte.querySelector('.fam-nom').value); bilanFam(r, 'Famille renommée.'); if(r.ok){ famRenommer[id] = false; renderFamillesProduits(); } return; }
+  if(b.classList.contains('fam-suppr')){ if(!confirm('Supprimer cette famille et ses produits ?')) return; r = await supprimerFamille(id); bilanFam(r, 'Famille supprimée.'); if(r.ok) renderFamillesProduits(); return; }
+  if(b.classList.contains('fp-enreg') && ligne){ r = await modifierProduit(id, ligne.getAttribute('data-prod'), ligne.querySelector('.fp-nom').value, ligne.querySelector('.fp-poids').value); bilanFam(r, 'Produit enregistré.'); if(r.ok) renderFamillesProduits(); return; }
+  if(b.classList.contains('fp-suppr') && ligne){ r = await supprimerProduit(id, ligne.getAttribute('data-prod')); bilanFam(r, 'Produit supprimé.'); if(r.ok) renderFamillesProduits(); return; }
+  if(b.classList.contains('fp-ajouter')){ var z = carte.querySelector('.fp-ajout'); r = await ajouterProduit(id, z.querySelector('.fp-new-nom').value, z.querySelector('.fp-new-poids').value); bilanFam(r, 'Produit ajouté.'); if(r.ok) renderFamillesProduits(); }
+});
+document.getElementById('btnFamCreer').addEventListener('click', async function(){ var r = await creerFamille(document.getElementById('famNouveauNom').value); bilanFam(r, 'Famille créée.'); if(r.ok){ document.getElementById('famNouveauNom').value = ''; renderFamillesProduits(); } });
+document.getElementById('btnFamPoidsSave').addEventListener('click', async function(){ var r = await enregistrerPoidsDefaut(document.getElementById('famPoidsDefaut').value); bilanFam(r, 'Poids par défaut enregistré.'); if(r.ok) renderFamillesProduits(); });
+// ----- fiche client : familles affectées et personnalisation -----
+var catEdition = { familles:[], desactives:[], poids:{}, propres:[] };
+function catalogueVersEdition(c){
+  var k = c && c.catalogue ? c.catalogue : {}, poids = {}; Object.keys(k.poids || {}).forEach(function(x){ poids[x] = fmtPoids(k.poids[x]); });
+  return { familles:(k.familles||[]).slice(), desactives:(k.desactives||[]).slice(), poids:poids, propres:(k.propres||[]).map(function(p){ return { id:p.id, nom:p.nom, poidsTxt:(p.poidsKg > 0 ? fmtPoids(p.poidsKg) : '') }; }) };
+}
+function afficherCatalogueClient(c){ catEdition = catalogueVersEdition(c); renderCatalogueEdition(); }
+function renderCatalogueEdition(){
+  var zone = document.getElementById('cli-catalogue'); if(!zone) return; var off = state.isAdmin ? '' : ' disabled', ph = fmtPoids(poidsDefautProduit());
+  var h = getFamillesProduits().map(function(f){
+    var coche = catEdition.familles.indexOf(f.id) >= 0;
+    return '<div style="margin:8px 0;"><label style="display:flex;align-items:center;gap:8px;font-weight:700;margin:0;"><input type="checkbox" class="cc-fam" data-id="'+escapeHtml(f.id)+'"'+(coche ? ' checked' : '')+off+' style="width:18px;height:18px;"> '+escapeHtml(f.nom)+' <span class="hint" style="margin:0;font-weight:400;">('+f.produits.length+' produit'+(f.produits.length > 1 ? 's' : '')+')</span></label>'+
+      (coche ? f.produits.map(function(p){ var key = f.id+':'+p.id, actif = catEdition.desactives.indexOf(key) < 0; return '<div style="display:flex;align-items:center;gap:8px;margin:4px 0 4px 26px;"><label style="display:flex;align-items:center;gap:6px;font-weight:400;margin:0;flex:1;min-width:0;"><input type="checkbox" class="cc-prod" data-key="'+escapeHtml(key)+'"'+(actif ? ' checked' : '')+off+' style="width:17px;height:17px;"> '+escapeHtml(p.nom)+'</label><input type="text" class="cc-poids" data-key="'+escapeHtml(key)+'" inputmode="decimal" value="'+escapeHtml(catEdition.poids[key] || '')+'" placeholder="'+fmtPoids(poidsProduit(p))+'"'+off+' style="width:70px;flex:none;"><span class="hint" style="margin:0;flex:none;">kg</span></div>'; }).join('') : '')+'</div>';
+  }).join('');
+  h += '<div style="margin:12px 0 4px;font-weight:700;">Produits propres à ce client</div>'+catEdition.propres.map(function(p){ return '<div style="display:flex;align-items:center;gap:8px;margin:4px 0;"><span style="flex:1;min-width:0;">'+escapeHtml(p.nom)+'</span><input type="text" class="cc-propre-poids" data-id="'+escapeHtml(p.id)+'" inputmode="decimal" value="'+escapeHtml(p.poidsTxt)+'" placeholder="'+ph+'"'+off+' style="width:70px;flex:none;"><span class="hint" style="margin:0;flex:none;">kg</span><button type="button" class="btn ghost cc-propre-suppr" data-id="'+escapeHtml(p.id)+'"'+off+' style="width:auto;padding:6px 10px;" title="Retirer ce produit">🗑</button></div>'; }).join('')+
+    (state.isAdmin ? '<div style="display:flex;gap:6px;align-items:center;margin-top:8px;"><input type="text" id="cc-new-nom" maxlength="80" placeholder="Nouveau produit propre" style="flex:1;min-width:0;"><input type="text" id="cc-new-poids" inputmode="decimal" placeholder="'+ph+'" style="width:70px;flex:none;"><span class="hint" style="margin:0;flex:none;">kg</span><button type="button" class="btn ghost cc-ajouter" style="width:auto;padding:6px 10px;">Ajouter</button></div>' : '')+'<div id="cc-msg" style="margin-top:6px;font-size:12.5px;font-weight:600;color:var(--danger);"></div>';
+  zone.innerHTML = h;
+}
+function lireCatalogueEdition(){
+  var fams = getFamillesProduits(), famIds = catEdition.familles.filter(function(id){ return fams.some(function(f){ return f.id === id; }); }), poids = {}, des = [], propres = [], total = 0, nomDe = function(key){ var f = fams.find(function(x){ return x.id === key.split(':')[0]; }), p = f && f.produits.find(function(x){ return x.id === key.split(':')[1]; }); return p ? p.nom : key; };
+  for(var key in catEdition.poids){ var t = catEdition.poids[key]; if(String(t).trim() === '') continue; var w = lirePoids(t); if(!w.ok) return { ok:false, erreur:'Poids invalide pour « '+nomDe(key)+' » : un nombre de kg entre 0,001 et 5000.' }; if(famIds.indexOf(key.split(':')[0]) >= 0) poids[key] = w.v; }
+  for(var i = 0; i < catEdition.propres.length; i++){ var p = catEdition.propres[i], w2 = lirePoids(p.poidsTxt); if(!w2.ok) return { ok:false, erreur:'Poids invalide pour « '+p.nom+' » : un nombre de kg entre 0,001 et 5000.' }; propres.push({ id:p.id, nom:p.nom, poidsKg:w2.v }); }
+  catEdition.desactives.forEach(function(k){ if(famIds.indexOf(k.split(':')[0]) >= 0) des.push(k); });
+  famIds.forEach(function(id){ fams.find(function(f){ return f.id === id; }).produits.forEach(function(p){ if(des.indexOf(id+':'+p.id) < 0) total++; }); }); total += propres.length;
+  if(total > MAX_PRODUITS_CLIENT) return { ok:false, erreur:'Trop de produits pour un seul client ('+total+') : '+MAX_PRODUITS_CLIENT+' au plus.' };
+  return { ok:true, catalogue:((famIds.length || propres.length) ? { familles:famIds, desactives:des, poids:poids, propres:propres } : null) };
+}
+function calculerCatalogueClient(c){
+  var k = c && c.catalogue; if(!k) return []; var out = [], fams = getFamillesProduits();
+  (k.familles||[]).forEach(function(fid){
+    var f = fams.find(function(x){ return x.id === fid; }); if(!f) return;
+    var prods = f.produits.filter(function(p){ return (k.desactives||[]).indexOf(f.id+':'+p.id) < 0; }).map(function(p){ return { id:f.id+':'+p.id, nom:p.nom, poids:poidsProduit(p, (k.poids||{})[f.id+':'+p.id]) }; });
+    if(prods.length) out.push({ nom:f.nom, produits:prods });
+  });
+  var pr = (k.propres||[]).filter(function(p){ return p && p.nom; }).map(function(p){ return { id:'propre:'+p.id, nom:p.nom, poids:(p.poidsKg > 0 ? p.poidsKg : poidsDefautProduit()) }; });
+  if(pr.length) out.push({ nom:'Produits propres', produits:pr });
+  return out;
+}
+function appliquerCataloguePublic(doc, client){ delete doc.catalogue; var cat = calculerCatalogueClient(client); if(cat.length) doc.catalogue = cat; }
+document.getElementById('cli-catalogue').addEventListener('change', function(ev){
+  var e = ev.target; if(!state.isAdmin) return;
+  if(e.classList.contains('cc-fam')){ var id = e.getAttribute('data-id'), i = catEdition.familles.indexOf(id); if(e.checked && i < 0) catEdition.familles.push(id); if(!e.checked && i >= 0) catEdition.familles.splice(i, 1); renderCatalogueEdition(); }
+  else if(e.classList.contains('cc-prod')){ var k = e.getAttribute('data-key'), j = catEdition.desactives.indexOf(k); if(e.checked && j >= 0) catEdition.desactives.splice(j, 1); if(!e.checked && j < 0) catEdition.desactives.push(k); }
+});
+document.getElementById('cli-catalogue').addEventListener('input', function(ev){
+  var e = ev.target; if(!state.isAdmin) return;
+  if(e.classList.contains('cc-poids')) catEdition.poids[e.getAttribute('data-key')] = e.value;
+  else if(e.classList.contains('cc-propre-poids')){ var p = catEdition.propres.find(function(x){ return x.id === e.getAttribute('data-id'); }); if(p) p.poidsTxt = e.value; }
+});
+document.getElementById('cli-catalogue').addEventListener('click', function(ev){
+  var b = ev.target.closest ? ev.target.closest('button') : null; if(!b || !state.isAdmin) return;
+  if(b.classList.contains('cc-propre-suppr')){ catEdition.propres = catEdition.propres.filter(function(x){ return x.id !== b.getAttribute('data-id'); }); renderCatalogueEdition(); }
+  else if(b.classList.contains('cc-ajouter')){
+    var v = nomValide(document.getElementById('cc-new-nom').value, 80, catEdition.propres.map(function(x){ return x.nom; })), w = lirePoids(document.getElementById('cc-new-poids').value), msg = document.getElementById('cc-msg');
+    if(!v.ok){ msg.textContent = '⚠ '+v.motif; return; } if(!w.ok){ msg.textContent = '⚠ Poids invalide : un nombre de kg entre 0,001 et 5000 (ou vide pour le poids par défaut).'; return; }
+    catEdition.propres.push({ id:'p_'+Date.now().toString(36)+Math.random().toString(36).slice(2, 5), nom:v.nom, poidsTxt:(w.v ? fmtPoids(w.v) : '') }); renderCatalogueEdition();
+  }
+});
 
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
@@ -4478,8 +4660,11 @@ document.getElementById('btnSaveClientFiche').addEventListener('click', async fu
   if(!c){ msg.textContent = 'Client introuvable'; msg.style.color='var(--danger)'; return; }
   var rg = null;
   if(state.isAdmin){ rg = lireReglagesTarifClient(); if(!rg.ok){ msg.textContent = '⚠ '+rg.erreur; msg.style.color='var(--danger)'; return; } }   // validé avant de toucher à la fiche
+  var cg = null;
+  if(state.isAdmin){ cg = lireCatalogueEdition(); if(!cg.ok){ msg.textContent = '⚠ '+cg.erreur; msg.style.color='var(--danger)'; return; } }   // validé avant de toucher à la fiche
   var profile = collectProfileFields('cli');
   Object.assign(c, profile);
+  if(cg){ if(cg.catalogue) c.catalogue = cg.catalogue; else delete c.catalogue; }
   if(rg){ if(rg.coefficient==='') delete c.coefficientTarif; else c.coefficientTarif = rg.coefficient; if(Object.keys(rg.prixOptions).length) c.prixOptions = rg.prixOptions; else delete c.prixOptions; if(rg.adValorem) c.adValorem = rg.adValorem; else delete c.adValorem; }
   c.email = profile.mail || c.email; // conserve l'adresse mail principale déjà utilisée pour l'envoi des documents
   c.nomEntreprise = document.getElementById('cli-nomEntreprise').value.trim();
@@ -5703,7 +5888,7 @@ function resumeFicheHtml(f){
   var oui = function(ks){ return ks.filter(function(k){ return f[k]; }).map(function(k){ return FICHE_LIBELLES[k]; }).join(', ') || '—'; };
   var ln = function(l, v){ return v ? '<div class="sub"><strong>'+escapeHtml(l)+' :</strong> '+escapeHtml(v)+'</div>' : ''; };
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+ln('Pays', f.pays)+ln('Livraison', /^2[AB]$/i.test(f.departement||'') ? 'Corse : uniquement sur devis' : '')+
-    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Valeur déclarée de la marchandise', f.valeurTTC ? String(f.valeurTTC).replace('.', ',')+' € TTC' : '')+ln('Référence de dossier', f.refDossier)+ln('Précisions', f.accesPrecisions)+
+    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Valeur déclarée de la marchandise', f.valeurTTC ? String(f.valeurTTC).replace('.', ',')+' € TTC' : '')+ln('Référence de dossier', f.refDossier)+ln('Produits commandés', f.produits)+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose ? dateCourte(f.datePose)+(f.posePar ? ' · pose par '+(f.posePar==='magasin' ? 'le magasin' : 'l\'artisan') : '') : '')+
     ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
@@ -5928,7 +6113,8 @@ async function ecrireLienClient(client, patch){
   appliquerParametresModele(doc);   // réglages du modèle du client (blocs masqués, options) lus par la fiche en ligne
   appliquerMagasinPublic(doc, client);   // adresse du magasin du client (enlèvement au magasin)
   appliquerGrillePublique(doc, client);   // grille de tarif du client (mode « grille du client »)
-  appliquerAdValoremPublic(doc, client);   // taux ad valorem du client (mode « ad valorem »)   // coefficient, prix des options et jours d'ouverture du client (lus par la fiche en ligne)
+  appliquerAdValoremPublic(doc, client);   // taux ad valorem du client (mode « ad valorem »)
+  appliquerCataloguePublic(doc, client);   // produits proposés au client dans sa fiche   // coefficient, prix des options et jours d'ouverture du client (lus par la fiche en ligne)
   try{ await db.collection('stls_fiches_clients').doc(clientLienId(client.code)).set(doc); liensClients[client.code] = doc; return true; }
   catch(e){ console.error('lien client', e); banner('⚠ Enregistrement impossible ('+((e && e.code)||'erreur')+')'); return false; }
 }
@@ -11153,6 +11339,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.submodule-tile'), funct
     if(btn.getAttribute('data-key')==='etiquettestatuts'){ renderEtiquetteStatutsApercu(); }
     if(btn.getAttribute('data-key')==='marchandises'){ renderMarchandisesFiche(); }
     if(btn.getAttribute('data-key')==='advalorem'){ renderAdValoremAgence(); }
+    if(btn.getAttribute('data-key')==='familles'){ renderFamillesProduits(); }
     if(btn.getAttribute('data-key')==='codesuppression'){ renderCodeSuppression(); }
     if(btn.getAttribute('data-key')==='journalsuppr'){ renderJournalSuppressions(); }
     if(btn.getAttribute('data-key')==='securite'){ renderAccountsList(); populateNewAccountAgencySelect(); updateSecurityIdentityLine(); }
@@ -11465,7 +11652,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0117';
+var APP_VERSION = '2026.0118';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){

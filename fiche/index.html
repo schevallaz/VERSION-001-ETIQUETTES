@@ -25,6 +25,10 @@
   .field.err select{ border-color:var(--red); background:#fdf2f0; }
   .aide.rouge{ color:var(--red); font-weight:700; }
   .aide.info{ color:#8a5a00; font-weight:700; background:#fff8e1; border:1px solid #f0dd9a; border-radius:8px; padding:6px 9px; margin:0 0 10px; font-size:13px; }
+  .groupeProduits{ font-weight:700; margin:12px 0 2px; font-size:13px; color:var(--soft); }
+  .prodLigne{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .prodLigne .prodQte{ width:76px !important; text-align:center; padding:8px; flex:none; }
+  .totauxProduits{ margin-top:10px; font-weight:700; color:var(--accent); }
   .lvcard{ border:1px solid var(--line); border-radius:12px; padding:12px; margin:8px 0; background:#fff; }
   .lvtag{ display:inline-block; background:#e1f5ee; border:1px solid #b9e2d3; border-radius:999px; padding:4px 10px; font-size:13px; font-weight:700; color:var(--accent); margin-top:8px; }
   .warnbox{ background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:10px; padding:10px 12px; margin:10px 0; font-size:14px; }
@@ -452,7 +456,7 @@ function afficherFormulaire(){
       '<div class="row2">'+champ('colisLongHauteurCm','Hauteur (cm)',{max:8,inputmode:'decimal'})+champ('colisLongDescription','Description ou référence',{max:200})+'</div>'+
       '<label class="l" style="margin-top:6px;">Colis le plus lourd</label>'+
       '<div class="row2">'+champ('colisLourdPoidsKg','Poids (kg)',{req:1,max:8,inputmode:'decimal'})+champ('colisLourdDescription','Description ou référence',{max:200})+'</div>'+
-      (clientConf ? '<label class="l" style="margin-top:6px;">Ensemble de la commande</label><div class="row2">'+champ('poidsTotalKg','Poids total estimé (kg)',{req:1,max:8,inputmode:'decimal',aide:'Poids de l\'ensemble de la marchandise à livrer (une estimation suffit). Il sert au calcul de votre tarif.'})+champ('nbColisTotal','Nombre total de colis',{type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>'+(adValoremActif() ? champ('valeurTTC','Valeur de la marchandise (€ TTC)',{req:1,max:14,inputmode:'decimal',aide:'Valeur d\'achat TTC de l\'ensemble de la marchandise transportée : votre tarif en est un pourcentage, selon la zone.'}) : '') : '')+
+      (clientConf ? (catalogueActif() ? sectionProduits() : '<label class="l" style="margin-top:6px;">Ensemble de la commande</label><div class="row2">'+champ('poidsTotalKg','Poids total estimé (kg)',{req:1,max:8,inputmode:'decimal',aide:'Poids de l\'ensemble de la marchandise à livrer (une estimation suffit). Il sert au calcul de votre tarif.'})+champ('nbColisTotal','Nombre total de colis',{type:'number',attrs:'min="1" step="1"',inputmode:'numeric'})+'</div>')+(adValoremActif() ? champ('valeurTTC','Valeur de la marchandise (€ TTC)',{req:1,max:14,inputmode:'decimal',aide:'Valeur d\'achat TTC de l\'ensemble de la marchandise transportée : votre tarif en est un pourcentage, selon la zone.'}) : '') : '')+
     '</div>'+
     ((clientConf && blocVisible('tarif')) ? titreSection('Votre tarif estimatif')+'<div class="card" id="cardTarif"><div class="note" style="margin-top:0;">Votre tarif est calculé automatiquement d\'après vos déclarations : adresse, étage et ascenseur, marchandise et options choisies. Il est <strong>estimatif</strong> et confirmé par STLS.</div><div id="tarifResultat"><div class="aide">Renseignez votre adresse et votre marchandise : votre tarif s\'affichera ici.</div></div><button type="button" class="btn ghost" id="btnTarif" style="margin-top:10px;">Recalculer mon tarif</button></div>' : '')+
     titreSection('Confirmation')+'<div class="card">'+
@@ -502,6 +506,7 @@ function validerSaisie(){
   }
   if(valeur('mail') && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valeur('mail'))) ko('mail','Adresse mail invalide'); else if(!valeur('mail') && mailObligatoire()) ko('mail','Champ obligatoire');
   if(numeroCommandeActif() && !valeur('numCommande')) ko('numCommande','Champ obligatoire');
+  if(catalogueActif() && !(nombre('poidsTotalKg') > 0)) ko('produits','Choisissez au moins un produit (quantité 1 ou plus).');
   if(adValoremActif()){ var vt = parseValeur(valeur('valeurTTC')); if(!(vt > 0)) ko('valeurTTC','Indiquez la valeur de votre marchandise (€ TTC).'); else if(vt > 10000000) ko('valeurTTC','Valeur trop élevée : contactez STLS.'); }
   if(grilleActive() && grilleFamille(valeur('famille')) === 'electromenager' && ['LV','LP','EM'].indexOf(prestationChoisie()) >= 0 && !(nombre('nbColisTotal') >= 1)) ko('nbColisTotal','Indiquez le nombre de pièces (électroménager).');
   if(autreMagasinActif()){ if(!valeur('mag-nom')) ko('mag-nom','Champ obligatoire'); if(!valeur('mag-adresse1')) ko('mag-adresse1','Champ obligatoire'); if(!valeur('mag-cp')) ko('mag-cp','Champ obligatoire'); else if(!/^\d{5}$/.test(valeur('mag-cp'))) ko('mag-cp','Code postal invalide (5 chiffres)'); if(!valeur('mag-ville')) ko('mag-ville','Champ obligatoire'); }
@@ -603,6 +608,7 @@ async function envoyer(){
   ACCES.forEach(function(a){ doc[a[0]] = coche(a[0]); }); OPTIONS.forEach(function(o){ doc[o[0]] = coche(o[0]); }); JOURS.forEach(function(j){ doc[j[0]] = coche(j[0]); });
   if(prestationConfiguree() && estTrottoir()){ ACCES.forEach(function(a){ doc[a[0]] = false; }); OPTIONS.forEach(function(o){ doc[o[0]] = false; }); doc.etage = ''; doc.accesPrecisions = ''; delete doc.magasin; }   // trottoir : ni accès ni options
   if(prestationConfiguree()) doc.prestation = prestationChoisie();   // champs nouveaux, seulement si les prestations sont proposées (règles de sécurité version 11)
+  if(catalogueActif() && textProduits()) doc.produits = textProduits();   // lignes de produits commandés (règles de sécurité version 16) ; poids total et nombre de colis en sont déduits
   if(adValoremActif()) doc.valeurTTC = arrondi(parseValeur(valeur('valeurTTC')));   // valeur déclarée (règles de sécurité version 14)
   if(devisApplicable() || (tarifFinal && tarifFinal.statut === 'devis')) doc.devisObligatoire = true;
   if(grilleActive() && prestationChoisie() === 'LP'){ var ga = parseInt(valeur('grosAppareils'), 10); if(ga > 0) doc.nbGrosAppareils = ga; if(coche('installation')) doc.installation = true; if(coche('repriseUnPourUn')) doc.repriseUnPourUn = true; if(coche('nacelle')) doc.nacelle = true; if(coche('debarras')) doc.debarras = true; }   // compléments de la livraison avec prestations (règles de sécurité version 13)
@@ -649,7 +655,7 @@ function afficherConfirmation(numero, d, tarif){
       (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — commande '+e.numeroCommande+' — disponible le '+e.dateDisponibilite.split('-').reverse().join('/')+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
       ln('Colis le plus long', d.colisLongLongueurCm+' cm'+(d.colisLongLargeurCm?' × '+d.colisLongLargeurCm+' cm':'')+(d.colisLongHauteurCm?' × '+d.colisLongHauteurCm+' cm':'')+(d.colisLongDescription?' — '+d.colisLongDescription:''))+
       ln('Colis le plus lourd', d.colisLourdPoidsKg+' kg'+(d.colisLourdDescription?' — '+d.colisLourdDescription:''))+
-      ln('Référence de dossier', d.refDossier)+ln('Magasin d’enlèvement', d.autreMagasin && d.enlevements && d.enlevements[0] ? d.enlevements[0].fournisseur+' — vérifié par STLS avant l’enlèvement' : '')+ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[d.prestation] || '')))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
+      ln('Produits commandés', d.produits)+ln('Référence de dossier', d.refDossier)+ln('Magasin d’enlèvement', d.autreMagasin && d.enlevements && d.enlevements[0] ? d.enlevements[0].fournisseur+' — vérifié par STLS avant l’enlèvement' : '')+ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[d.prestation] || '')))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
       (d.tarifTTC!=null ? '<h3>Tarif estimatif</h3>'+ln('Montant', fmtE(d.tarifHT)+' HT — '+fmtE(d.tarifTTC)+' TTC')+(d.tarifPersonnes!=null ? ln('Équipe', d.tarifPersonnes+' personne(s)') : '')+ln('Zone', d.tarifZone+' (~'+d.tarifDistanceKm+' km)')+ln('Options', d.tarifComplements) : '')+
       '<h3>Confirmation</h3>'+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
   }
@@ -859,6 +865,11 @@ function majAvertissementPose(){
   else { z.textContent = ''; z.style.display = 'none'; }
 }
 function brancherOptionsModele(){
+  if(catalogueActif()){
+    document.querySelectorAll('.prodQte').forEach(function(e){ e.addEventListener('input', majTotauxProduits); });
+    ['colisLourdPoidsKg', 'colisLourdDescription'].forEach(function(id){ if(el(id)) el(id).addEventListener('input', function(ev){ if(ev.isTrusted) el(id).dataset.manuel = '1'; }); });   // une saisie à la main n'est plus écrasée
+    majTotauxProduits();
+  }
   if(enlevementMagasinActif()){ el('fiche').addEventListener('input', syncEnlevementMagasin); el('fiche').addEventListener('change', syncEnlevementMagasin); syncEnlevementMagasin(); }
   if(document.querySelector('input[name="prestation"]') || el('grpLP')){ document.querySelectorAll('input[name="prestation"]').forEach(function(r){ r.addEventListener('change', majPrestation); }); if(el('colisLourdPoidsKg')) el('colisLourdPoidsKg').addEventListener('input', majPrestation); majPrestation(); }
   if(el('numCommande') && refCommande) el('numCommande').value = refCommande;
@@ -1131,6 +1142,39 @@ function sectionLP(){
     champ('grosAppareils','Réfrigérateur américain ou piano de cuisson : nombre d’articles',{type:'number',attrs:'min="0" max="20" step="1"',inputmode:'numeric'})+
     '<div class="field"><div class="cases">'+h('installation', 'Installation de l’électroménager (hors appareils intégrables)')+h('repriseUnPourUn', 'Reprise « 1 pour 1 »')+h('nacelle', 'Livraison par nacelle (3 étages maximum, prévisite STLS obligatoire)')+h('debarras', 'Débarras de l’ancien meuble (sur devis)')+'</div></div></div></div>';
 }
+
+// ================= Produits commandés (étape E10) =================
+// Si l'agence a affecté des familles de produits au client (publiées sur son lien : catalogue), le client choisit ses produits avec une quantité par ligne.
+// Nombre de colis, poids total (quantité × poids de chaque produit) et colis le plus lourd sont calculés ; ils alimentent le tarif. Colis le plus long : saisie à la main.
+// Sans catalogue, la fiche reste celle d'aujourd'hui (poids total et nombre de colis saisis à la main).
+function fmtKg(n){ return String(Math.round(n * 100) / 100).replace('.', ','); }
+function catalogueGroupes(){
+  var c = clientConf && clientConf.catalogue; if(!Array.isArray(c)) return [];
+  return c.map(function(g){ return { nom:String((g && g.nom) || '').slice(0, 60), produits:(Array.isArray(g && g.produits) ? g.produits : []).filter(function(p){ return p && typeof p.id === 'string' && typeof p.nom === 'string' && p.nom && typeof p.poids === 'number' && p.poids > 0 && p.poids <= 5000; }).slice(0, 300) }; }).filter(function(g){ return g.nom && g.produits.length; });
+}
+function produitsPlats(){ var out = []; catalogueGroupes().forEach(function(g){ g.produits.forEach(function(p){ out.push(p); }); }); return out; }
+function catalogueActif(){ return produitsPlats().length > 0; }
+function sectionProduits(){
+  var i = 0, h = function(id){ return '<input type="hidden" id="'+id+'" value="">'; };
+  return '<div class="field" id="f-produits" style="margin-top:6px;"><label class="l">Produits commandés *</label>'+
+    catalogueGroupes().map(function(g){ return '<div class="groupeProduits">'+esc(g.nom)+'</div>'+g.produits.map(function(p){ var k = i++; return '<div class="prodLigne"><span>'+esc(p.nom)+' <span class="aide">'+fmtKg(p.poids)+' kg</span></span><input type="number" class="prodQte" data-i="'+k+'" min="0" max="99" step="1" value="0" inputmode="numeric" aria-label="Quantité : '+esc(p.nom)+'"></div>'; }).join(''); }).join('')+
+    '<div class="msgerr" id="e-produits"></div><div class="totauxProduits" id="totauxProduits">Aucun produit choisi</div>'+h('poidsTotalKg')+h('nbColisTotal')+'</div>';
+}
+function lireProduits(){
+  var pl = produitsPlats(), out = [];
+  document.querySelectorAll('.prodQte').forEach(function(e){ var q = parseInt(e.value, 10); if(q > 0) out.push({ p:pl[parseInt(e.getAttribute('data-i'), 10)], q:Math.min(99, q) }); });
+  return out;
+}
+function majTotauxProduits(){
+  var l = lireProduits(), colis = 0, poids = 0, lourd = null;
+  l.forEach(function(x){ colis += x.q; poids += x.q * x.p.poids; if(!lourd || x.p.poids > lourd.poids) lourd = x.p; });
+  poids = Math.round(poids * 100) / 100;
+  el('poidsTotalKg').value = poids > 0 ? String(poids) : ''; el('nbColisTotal').value = colis > 0 ? String(colis) : '';
+  el('totauxProduits').textContent = colis > 0 ? colis+' colis · '+fmtKg(poids)+' kg au total' : 'Aucun produit choisi';
+  var cl = el('colisLourdPoidsKg');
+  if(cl && lourd && !cl.dataset.manuel){ cl.value = String(lourd.poids); var cd = el('colisLourdDescription'); if(cd && !cd.dataset.manuel) cd.value = lourd.nom.slice(0, 200); }
+}
+function textProduits(){ return lireProduits().map(function(x){ return x.q+' × '+x.p.nom; }).join(' ; ').slice(0, 600); }
 function tarifSpecialHtml(){
   if(comportement!=='generique') return '';
   if(estOutreMer()) return '<div class="note"><strong>Livraison non assurée dans ce département.</strong></div>';
