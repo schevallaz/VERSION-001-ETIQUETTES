@@ -406,7 +406,7 @@ var instancesColRef = null;   // tournées planifiées (instances : tournée typ
 var blColRef = null;
 var tourneesColRef = null;
 
-var APP_VERSION = '2026.0031';
+var APP_VERSION = '2026.0032';
 document.getElementById('appVersion').textContent = 'Version '+APP_VERSION;
 
 var state = {
@@ -951,6 +951,7 @@ function renderBLManagePanel(numero, boxId){
   html += '<div class="row2"><div class="field"><label>Étage</label><input type="text" id="bl-etage-'+numero+'" value="'+escapeHtml(c.etage||'')+'"></div>'+
     '<div class="field"><label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">Ascenseur</label><label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="checkbox" id="bl-ascenseur-'+numero+'" '+(c.ascenseur?'checked':'')+' style="width:17px;height:17px;">Oui</label></div></div>';
   html += '<label style="display:flex;align-items:center;gap:6px;font-weight:400;margin-bottom:10px;"><input type="checkbox" id="bl-accesDiff-'+numero+'" '+(c.accesDifficile?'checked':'')+' style="width:17px;height:17px;">Accès difficile</label>';
+  if(c.siteAPreciser || c.typeSite) html += '<div class="field"><label>Type de site « Autre » : à préciser au RDV</label><input type="text" id="bl-typeSite-'+numero+'" value="'+escapeHtml(c.typeSite||'')+'" maxlength="80" placeholder="ex. gîte, salle des fêtes, chantier…"></div>';
   html += '<div class="field"><label>Contact sur place</label><input type="text" id="bl-contact-'+numero+'" value="'+escapeHtml(c.contactSurPlace||'')+'"></div>';
   html += '<div class="row2"><div class="field"><label>Volume</label><input type="text" id="bl-volume-'+numero+'" value="'+escapeHtml(b.volume||'')+'"></div>'+
     '<div class="field"><label>Nature marchandise</label><input type="text" id="bl-nature-'+numero+'" value="'+escapeHtml(b.natureMarchandise||'')+'"></div></div>';
@@ -987,6 +988,8 @@ function renderBLManagePanel(numero, boxId){
         etage: document.getElementById('bl-etage-'+numero).value.trim(),
         ascenseur: document.getElementById('bl-ascenseur-'+numero).checked,
         accesDifficile: document.getElementById('bl-accesDiff-'+numero).checked,
+        siteAPreciser: !!((bCur.contraintes||{}).siteAPreciser),
+        typeSite: (document.getElementById('bl-typeSite-'+numero) ? document.getElementById('bl-typeSite-'+numero).value.trim() : ((bCur.contraintes||{}).typeSite||'')),
         contactSurPlace: document.getElementById('bl-contact-'+numero).value.trim()
       },
       volume: document.getElementById('bl-volume-'+numero).value.trim(),
@@ -1046,6 +1049,7 @@ function renderBLActions(numero){
     }
   } else if(b.statut==='a_prendre_rdv' || b.statut==='rdv_en_cours'){
     html += '<div class="hint" style="font-weight:600;margin-bottom:6px;">Enregistrer le rendez-vous</div>';
+    if((b.contraintes||{}).siteAPreciser && !(b.contraintes||{}).typeSite) html += '<div class="hint" id="rdv-site-'+numero+'" style="background:#fff7e0;border:1px solid #f0d98a;border-radius:8px;padding:8px 10px;color:#9a6700;font-weight:600;margin-bottom:8px;">⚠ Type de site « Autre » : à préciser avec le client pendant la prise de RDV (champ « Type de site » dans les informations du BL, ci-dessus).</div>';
     html += '<div class="row2"><div class="field"><label>Date du RDV</label><input type="date" id="rdv-date-'+numero+'" value="'+((b.rdv&&b.rdv.date)||'')+'"></div>'+
       '<div class="field"><label>Pris par</label><input type="text" id="rdv-par-'+numero+'" value="'+escapeHtml((b.rdv&&b.rdv.prisPar)||'')+'"></div></div>';
     html += '<div class="row2"><div class="field"><label>Créneau début</label><input type="time" id="rdv-debut-'+numero+'" value="'+((b.rdv&&b.rdv.creneauDebut)||'')+'"></div>'+
@@ -1283,12 +1287,14 @@ function generateBLPdf(b){
   }
   if(b.creneauSouhaite){ hasCond = true; yR = wrap('Créneau souhaité : '+b.creneauSouhaite, xR, yR, colW, 5); }
   if(!isEmporte){
-    var hasAccess = !!(c.etage || c.ascenseur || c.accesDifficile || c.contactSurPlace);
+    var hasAccess = !!(c.etage || c.ascenseur || c.accesDifficile || c.contactSurPlace || c.siteAPreciser || c.typeSite);
     hasCond = true;
     if(hasAccess){
       if(c.etage) yR = wrap('Étage : '+c.etage, xR, yR, colW, 5);
       yR = wrap('Ascenseur : '+(c.ascenseur?'Oui':'Non'), xR, yR, colW, 5);
       if(c.accesDifficile){ doc.setFont('helvetica','bold'); yR = wrap('Accès difficile : OUI', xR, yR, colW, 5); doc.setFont('helvetica','normal'); }
+      if(c.typeSite){ yR = wrap('Type de site : '+c.typeSite, xR, yR, colW, 5); }
+      else if(c.siteAPreciser){ doc.setFont('helvetica','bold'); yR = wrap('Type de site « Autre » : à préciser au RDV', xR, yR, colW, 5); doc.setFont('helvetica','normal'); }
       if(c.contactSurPlace) yR = wrap('Contact sur place : '+c.contactSurPlace, xR, yR, colW, 5);
     } else {
       // rien n'a été saisi : on le dit plutôt que d'afficher un "Non" trompeur
@@ -1656,6 +1662,7 @@ function rdvInfoHtml(b){
   if(c.etage) cons.push('Étage '+escapeHtml(c.etage));
   if(c.etage || c.ascenseur) cons.push('Ascenseur '+(c.ascenseur?'oui':'non'));
   if(c.accesDifficile) cons.push('<strong>Accès difficile</strong>');
+  if(c.typeSite) cons.push('Site : '+escapeHtml(c.typeSite)); else if(c.siteAPreciser) cons.push('<strong class="rdv-site" style="color:#9a6700;">⚠ Type de site « Autre » à préciser</strong>');
   if(c.contactSurPlace) cons.push('Contact : '+escapeHtml(c.contactSurPlace));
   h += '<div class="sub">'+(cons.length ? cons.join(' · ') : '<span style="color:var(--ink-soft);">Contraintes d\'accès : non renseignées</span>')+'</div>';
   var presta = [];
@@ -1829,6 +1836,7 @@ function eligibiliteBL(b){
 
   // avertissements : jamais bloquants
   if(!(c.etage || c.ascenseur || c.accesDifficile || c.contactSurPlace)) r.avertissements.push('Contraintes d\'accès non renseignées (étage, ascenseur, accès)');
+  if(c.siteAPreciser && !c.typeSite) r.avertissements.push('Type de site « Autre » à préciser avec le client');
   var cs = communeStatus(adr.cp, adr.ville);
   if(cs.etat==='vide' || cs.etat==='non_reconnue') r.avertissements.push('Commune '+(cs.etat==='vide' ? 'non renseignée' : '« '+adr.ville+' » non reconnue')+' pour '+adr.cp+' : à corriger sur le BL');
   if(an.avertissement) r.avertissements.push(an.avertissement);

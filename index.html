@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0119">
+<meta name="app-version" content="2026.0120">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -6569,7 +6569,7 @@ async function createBonLivraisonFromBP(numero, dateInfo){
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
     dateLivraisonPrevue: dateInfo.dateSouhaitee||dateInfo.dateImperative||'', dateSouhaitee: dateInfo.dateSouhaitee||'', dateImperative: dateInfo.dateImperative||'', estImperative: !!dateInfo.estImperative, creneauSouhaite: '',
     reprise: !!dateInfo.reprise, montage: !!dateInfo.montage, instructions: dateInfo.instructions||'',
-    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '' },
+    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '', siteAPreciser: !!cmProfile.accesAutre, typeSite: '' },
     volume: '', natureMarchandise: '', emailDestinataire: cmProfile.mail||'',
     rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
     validationExploitant: { valide:false, par:'', le:'' }, tourneeId: '', bpOrigine: numero,
@@ -8079,7 +8079,7 @@ async function createBonLivraison(contremarque, selection, dateInfo, cmId){
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
     dateLivraisonPrevue: dateInfo.dateSouhaitee||dateInfo.dateImperative||'', dateSouhaitee: dateInfo.dateSouhaitee||'', dateImperative: dateInfo.dateImperative||'', estImperative: !!dateInfo.estImperative, creneauSouhaite: '',
     reprise: !!dateInfo.reprise, montage: !!dateInfo.montage, instructions: dateInfo.instructions||'',
-    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '' },
+    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '', siteAPreciser: !!cmProfile.accesAutre, typeSite: '' },
     volume: '', natureMarchandise: '', emailDestinataire: cmProfile.mail||'',
     rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
     validationExploitant: { valide: false, par:'', le:'' },
@@ -11701,7 +11701,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0119';
+var APP_VERSION = '2026.0120';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
