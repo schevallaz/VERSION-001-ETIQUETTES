@@ -428,7 +428,7 @@ function afficherFormulaire(){
     (blocVisible('acces') ? (ouvrirGroupe('grpAcces')+(
     (comportement==='generique' ? section2Generique() : (
     titreSection(lib('sAcces', 'Accès à l\'adresse'))+'<div class="card">'+
-      '<div class="cases">'+ACCES.filter(function(a){ return itemActif('acces', a[0]); }).map(function(a){ return cb(a[0], libItem('acces', a[0], a[1])); }).join('')+'</div>'+
+      '<div class="cases">'+ACCES.filter(function(a){ return itemActif('acces', a[0]); }).map(function(a){ return cb(a[0], libItem('acces', a[0], a[1])); }).join('')+typesAjoutHtml('cb')+'</div>'+
       zone('accesPrecisions', lib('precisions', 'Précisions utiles (interphone, stationnement, ascenseur…)', 120), 600)+
       champ('etage','Nombre d\'étages',{max:3,inputmode:'numeric'})+
     '</div>'
@@ -437,7 +437,7 @@ function afficherFormulaire(){
     (marchandiseActive() ? sectionMarchandise() : '')+
     ((blocVisible('options') || blocVisible('datePose')) ? (ouvrirGroupe('grpOptions')+titreSection(blocVisible('options') ? lib('sOptions', 'Options souhaitées') : lib('sDatePose', 'Date de la pose'), questionPrestation() ? 'h2Options' : null)+'<div class="card">'+
       (blocVisible('options') ? (ouvrirGroupe('grpOptionsCases')+
-      '<div class="cases">'+OPTIONS.filter(function(o){ return itemActif('options', o[0]); }).map(function(o){ return cb(o[0], libItem('options', o[0], o[1])); }).join('')+'</div>'+
+      '<div class="cases">'+OPTIONS.filter(function(o){ return itemActif('options', o[0]); }).map(function(o){ return cb(o[0], libItem('options', o[0], o[1])); }).join('')+optionsAjoutHtml()+'</div>'+
       noteOptionsHtml()+fermerGroupe()
       ) : '')+
       (blocVisible('datePose') ? blocDatePose() : '')+
@@ -611,6 +611,9 @@ async function envoyer(){
   ACCES.forEach(function(a){ doc[a[0]] = coche(a[0]); }); OPTIONS.forEach(function(o){ doc[o[0]] = coche(o[0]); }); JOURS.forEach(function(j){ doc[j[0]] = coche(j[0]); });
   if(prestationConfiguree() && estTrottoir()){ ACCES.forEach(function(a){ doc[a[0]] = false; }); OPTIONS.forEach(function(o){ doc[o[0]] = false; }); doc.etage = ''; doc.accesPrecisions = ''; delete doc.magasin; }   // trottoir : ni accès ni options
   if(prestationConfiguree()) doc.prestation = prestationChoisie();   // champs nouveaux, seulement si les prestations sont proposées (règles de sécurité version 11)
+  var oa = ajoutsCoches('optionsAjoutees', 5, 'optAjout'), ta = ajoutsCoches('typesAjoutes', 3, 'typeAjout');
+  if(oa.length) doc.optionsAjoutees = oa.join(' ; ').slice(0, 400);
+  if(ta.length) doc.typeSiteAjout = ta.join(' ; ').slice(0, 200);
   if(catalogueActif() && textProduits()) doc.produits = textProduits();   // lignes de produits commandés (règles de sécurité version 16) ; poids total et nombre de colis en sont déduits
   if(adValoremActif()) doc.valeurTTC = arrondi(parseValeur(valeur('valeurTTC')));   // valeur déclarée (règles de sécurité version 14)
   if(devisApplicable() || (tarifFinal && tarifFinal.statut === 'devis')) doc.devisObligatoire = true;
@@ -658,7 +661,7 @@ function afficherConfirmation(numero, d, tarif){
       (d.enlevements||[]).map(function(e, i){ return ln('Enlèvement n° '+(i+1), e.fournisseur+' — '+e.adresse+' — commande '+e.numeroCommande+' — disponible le '+e.dateDisponibilite.split('-').reverse().join('/')+' — '+e.colis+' colis, '+e.poidsKg+' kg'+(e.horaires?' ('+e.horaires+')':'')); }).join('')+
       ln('Colis le plus long', d.colisLongLongueurCm+' cm'+(d.colisLongLargeurCm?' × '+d.colisLongLargeurCm+' cm':'')+(d.colisLongHauteurCm?' × '+d.colisLongHauteurCm+' cm':'')+(d.colisLongDescription?' — '+d.colisLongDescription:''))+
       ln('Colis le plus lourd', d.colisLourdPoidsKg+' kg'+(d.colisLourdDescription?' — '+d.colisLourdDescription:''))+
-      ln('Produits commandés', d.produits)+ln('Référence de dossier', d.refDossier)+ln('Magasin d’enlèvement', d.autreMagasin && d.enlevements && d.enlevements[0] ? d.enlevements[0].fournisseur+' — vérifié par STLS avant l’enlèvement' : '')+ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[d.prestation] || '')))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
+      ln('Options supplémentaires', d.optionsAjoutees)+ln('Type de site (précisé)', d.typeSiteAjout)+ln('Produits commandés', d.produits)+ln('Référence de dossier', d.refDossier)+ln('Magasin d’enlèvement', d.autreMagasin && d.enlevements && d.enlevements[0] ? d.enlevements[0].fournisseur+' — vérifié par STLS avant l’enlèvement' : '')+ln('Prestation', d.prestation==='LT' ? 'Livraison trottoir (LT)' : (d.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[d.prestation] || '')))+ln('Devis', d.devisObligatoire ? 'obligatoire : votre fiche est transmise à STLS pour chiffrage' : '')+
       (d.tarifTTC!=null ? '<h3>Tarif estimatif</h3>'+ln('Montant', fmtE(d.tarifHT)+' HT — '+fmtE(d.tarifTTC)+' TTC')+(d.tarifPersonnes!=null ? ln('Équipe', d.tarifPersonnes+' personne(s)') : '')+ln('Zone', d.tarifZone+' (~'+d.tarifDistanceKm+' km)')+ln('Options', d.tarifComplements) : '')+
       '<h3>Confirmation</h3>'+ln('Demandeur', d.demandeur)+ln('Référence', d.ref)+'</div>';
   }
@@ -801,7 +804,7 @@ function posePar(){ var r = document.querySelector('input[name="posePar"]:checke
 function section2Generique(){
   return titreSection(lib('sAcces', 'Accès à l’adresse'))+'<div class="card">'+
     '<div class="field"><label class="l">'+libChamp('typeSite', 'Type de site')+'</label><div class="cases">'+
-      [['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['magasin','Magasin'],['accesAutre','Autre']].filter(function(t){ return itemActif('acces', t[0]); }).map(function(t){ return '<label class="case"><input type="radio" name="typeSite" id="'+t[0]+'"> '+libItem('acces', t[0], t[1])+'</label>'; }).join('')+
+      [['villa','Villa'],['immeuble','Immeuble'],['bureau','Bureau'],['magasin','Magasin'],['accesAutre','Autre']].filter(function(t){ return itemActif('acces', t[0]); }).map(function(t){ return '<label class="case"><input type="radio" name="typeSite" id="'+t[0]+'"> '+libItem('acces', t[0], t[1])+'</label>'; }).join('')+typesAjoutHtml('radio')+
     '</div></div>'+
     champ('etage','Nombre d’étages',{max:3,inputmode:'numeric'})+
     '<div class="field"><label class="l">'+libChamp('contraintesAcces', 'Contraintes d’accès')+'</label><div class="cases"><span id="blocAscEsc" style="display:none;gap:10px 18px;flex-wrap:wrap;">'+(itemActif('acces', 'ascenseur') ? cb('ascenseur', libItem('acces', 'ascenseur', 'Ascenseur')) : '')+(itemActif('acces', 'escalier') ? cb('escalier', libItem('acces', 'escalier', 'Escalier')) : '')+'</span>'+(itemActif('acces', 'accesDifficile') ? cb('accesDifficile', libItem('acces', 'accesDifficile', 'Accès difficile')) : '')+'</div></div>'+
@@ -1217,6 +1220,11 @@ function libBloc(cle, defaut){ var t = libTexteLong(cle); return t ? esc(t).repl
 function libItem(groupe, id, defaut){ var g = libs()[groupe], it = g && typeof g === 'object' ? g[id] : null, t = (it && typeof it === 'object') ? libTxt(it.libelle, 80) : ''; return t ? esc(t) : defaut; }
 function itemActif(groupe, id){ var g = libs()[groupe], it = g && typeof g === 'object' ? g[id] : null; return !(it && typeof it === 'object' && it.actif === false); }
 function libChamp(id, defaut){ var g = libs().champs, t = (g && typeof g === 'object') ? libTxt(g[id], 100) : ''; return t ? esc(t) : defaut; }   // libellé d'un champ (la mention « * » reste ajoutée par la fiche)
+// Options et types de site ajoutés par le modèle (5 options et 3 types au plus) : sans prix, transmis à l'agence sous forme de texte (règles de sécurité version 17).
+function ajoutsListe(cle, max){ var l = libs()[cle]; if(!Array.isArray(l)) return []; var out = []; l.forEach(function(t){ t = libTxt(t, 80); if(t && out.length < max) out.push(t); }); return out; }
+function optionsAjoutHtml(){ return ajoutsListe('optionsAjoutees', 5).map(function(t, i){ return cb('optAjout'+(i + 1), esc(t)); }).join(''); }
+function typesAjoutHtml(mode){ return ajoutsListe('typesAjoutes', 3).map(function(t, i){ var id = 'typeAjout'+(i + 1); return mode === 'radio' ? '<label class="case"><input type="radio" name="typeSite" id="'+id+'"> '+esc(t)+'</label>' : cb(id, esc(t)); }).join(''); }
+function ajoutsCoches(cle, max, prefixe){ return ajoutsListe(cle, max).filter(function(t, i){ return coche(prefixe+(i + 1)); }); }
 function paysDefautAutre(){ return libs().paysDefaut === 'AUTRE'; }
 function paysOptionsHtml(){ return paysDefautAutre() ? '<option value="FR">FR - France</option><option value="AUTRE" selected>Autre pays</option>' : '<option value="FR" selected>FR - France</option><option value="AUTRE">Autre pays</option>'; }
 function noteOptionsHtml(){ var t = libTexteLong('noteOptions'); return t ? '<div class="note">'+esc(t).replace(/\n/g, '<br>')+'</div>' : '<div class="note"><strong>* Informations importantes concernant les options :</strong><br>'+

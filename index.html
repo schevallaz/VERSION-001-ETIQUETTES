@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0121">
+<meta name="app-version" content="2026.0122">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -3825,6 +3825,7 @@ function normaliserLibelles(l){
     g[1].forEach(function(x){ var it = src[x[0]]; if(!it || typeof it !== 'object') return; var e = {}, t = libNettoye(it.libelle, 80); if(t) e.libelle = t; if(it.actif === false) e.actif = false; if(Object.keys(e).length) o[x[0]] = e; });
     if(Object.keys(o).length) out[g[0]] = o;
   });
+  [['optionsAjoutees', 5], ['typesAjoutes', 3]].forEach(function(g){ var src = l[g[0]]; if(!Array.isArray(src)) return; var o = []; src.forEach(function(t){ t = libNettoye(t, 80); if(t && o.length < g[1] && !o.some(function(x){ return x.toLowerCase() === t.toLowerCase(); })) o.push(t); }); if(o.length) out[g[0]] = o; });
   var ch = l.champs; if(ch && typeof ch === 'object'){ var oc = {}; LIB_CHAMPS.forEach(function(x){ var t = libNettoye(ch[x[0]], 100); if(t) oc[x[0]] = t; }); if(Object.keys(oc).length) out.champs = oc; }
   if(l.paysDefaut === 'AUTRE') out.paysDefaut = 'AUTRE';
   return out;
@@ -3839,6 +3840,8 @@ function libellesEditHtml(n){
     '<div style="font-weight:700;margin:8px 0 2px;">Titres des sections</div>'+LIB_SECTIONS.map(function(x){ return champ('mf-lib', x[0], x[1], x[2], l[x[0]], 80); }).join('')+
     '<div style="font-weight:700;margin:12px 0 2px;">Type de site et accès</div>'+LIB_ACCES.map(function(x){ return ligne('acces', x); }).join('')+
     '<div style="font-weight:700;margin:12px 0 2px;">Options souhaitées</div>'+LIB_OPTIONS.map(function(x){ return ligne('options', x); }).join('')+
+    '<div style="font-weight:700;margin:12px 0 2px;">Options ajoutées (5 au plus)</div><p class="hint" style="margin:0 0 6px;">Sans prix : le client les coche, l\'agence les reçoit sur la fiche et le BL les affiche dans « Options retenues ».</p>'+[0, 1, 2, 3, 4].map(function(i){ return '<div class="field" style="margin:4px 0;"><input type="text" class="mf-ajout-opt" maxlength="80" placeholder="Option ajoutée '+(i + 1)+' (ex. Pose de rideaux)" value="'+escapeHtml(((l.optionsAjoutees || [])[i]) || '')+'"></div>'; }).join('')+
+    '<div style="font-weight:700;margin:12px 0 2px;">Types de site ajoutés (3 au plus)</div>'+[0, 1, 2].map(function(i){ return '<div class="field" style="margin:4px 0;"><input type="text" class="mf-ajout-type" maxlength="80" placeholder="Type de site ajouté '+(i + 1)+' (ex. Maison de retraite)" value="'+escapeHtml(((l.typesAjoutes || [])[i]) || '')+'"></div>'; }).join('')+
     zone('noteOptions', 'Note sous les options (une ligne par retour à la ligne)', 'Laisse vide pour la note d\'aujourd\'hui (montage simple : 15 minutes, mise en place sans fixation, évacuation…)', l.noteOptions)+
     LIB_TEXTES.map(function(x){ return champ('mf-lib', x[0], x[1], x[3], l[x[0]], x[2]); }).join('')+
     zone('declaration', 'Texte de la déclaration (section Confirmation)', 'Laisse vide pour le texte d\'aujourd\'hui (« Je certifie que les informations communiquées sont exactes… »)', l.declaration)+
@@ -3853,10 +3856,14 @@ function lireLibellesEdit(carte){
   carte.querySelectorAll('.mf-lib-long').forEach(function(e){ l[e.getAttribute('data-k')] = e.value; });
   carte.querySelectorAll('.mf-item-lib').forEach(function(e){ var g = e.getAttribute('data-g'), id = e.getAttribute('data-id'); (l[g][id] = l[g][id] || {}).libelle = e.value; });
   carte.querySelectorAll('.mf-item-actif').forEach(function(e){ var g = e.getAttribute('data-g'), id = e.getAttribute('data-id'); (l[g][id] = l[g][id] || {}).actif = e.checked; });
+  l.optionsAjoutees = Array.prototype.map.call(carte.querySelectorAll('.mf-ajout-opt'), function(e){ return e.value; });
+  l.typesAjoutes = Array.prototype.map.call(carte.querySelectorAll('.mf-ajout-type'), function(e){ return e.value; });
   var pa = carte.querySelector('.mf-pays'); if(pa) l.paysDefaut = pa.value;
   return l;
 }
 
+// Options retenues par le client (cochées sur sa fiche : standard et ajoutées), reprises sur le BL de livraison dans le cadre « Options retenues ».
+function optionsRetenuesDe(p){ var out = []; OPTIONS_TARIF_CLIENT.forEach(function(o){ if(p && p[o[0]]) out.push(o[1]); }); String((p && p.optionsAjoutees) || '').split(' ; ').forEach(function(t){ t = t.trim(); if(t && out.length < 12) out.push(t.slice(0, 80)); }); return out; }
 function arreterStatutsBLBP(){ statutsUnsub.forEach(function(f){ try{ f(); }catch(e){} }); statutsUnsub = []; statutsWatchStarted = false; statutsBL = {}; blDetails = {}; bpDetails = {}; }
 function watchStatutsBLBP(){
   if(!fsReady() || statutsWatchStarted) return; statutsWatchStarted = true;
@@ -4171,7 +4178,7 @@ var PROFILE_FIELD_IDS = ['nom','prenom','adresse1','adresse2','departement','cp'
 var PROFILE_CHECK_IDS = ['ascenseur','villa','immeuble','bureau','horairesAM','horairesPM','joursTous','lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
 var PROFILE_TIME_IDS = ['amDe','amA','pmDe','pmA','journeeDe','journeeA'];
 // compléments propres à la fiche CONTREMARQUE (d'après la fiche de livraison STLS) : accès, options souhaitées, contraintes
-var PROFILE_EXTRA_FIELD_IDS = ['accesPrecisions','datePose','contraintes','posePar','refDossier'];
+var PROFILE_EXTRA_FIELD_IDS = ['accesPrecisions','datePose','contraintes','posePar','refDossier','optionsAjoutees','typeSiteAjout'];
 var PROFILE_EXTRA_CHECK_IDS = ['escalier','accesDifficile','accesAutre','magasin','optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation'];
 
 function collectProfileFields(p){
@@ -4369,7 +4376,8 @@ function dessinerFicheLivraison(p){
   var acces = [['Ascenseur',p.ascenseur],['Villa',p.villa],['Immeuble',p.immeuble],['Bureau',p.bureau],['Escalier',p.escalier],['Accès difficile',p.accesDifficile],['Autre',p.accesAutre]];
   if(p.magasin) acces.splice(4, 0, ['Magasin', true]);   // type de site « Magasin » (modèle Générique)
   rangeeCases(acces, M+2, wG-4);
-  if(p.accesPrecisions){ var lp = doc.splitTextToSize(p.accesPrecisions, wD-4).slice(0,4); doc.setFont('helvetica','normal'); doc.setFontSize(8.2); doc.setTextColor(17,24,39); doc.text(lp, M+wG+2, y+4); }
+  var prec = [p.typeSiteAjout ? 'Type de site : '+p.typeSiteAjout : '', p.accesPrecisions || ''].filter(Boolean).join(' - ');
+  if(prec){ var lp = doc.splitTextToSize(prec, wD-4).slice(0,4); doc.setFont('helvetica','normal'); doc.setFontSize(8.2); doc.setTextColor(17,24,39); doc.text(lp, M+wG+2, y+4); }
   y += 16;
   doc.rect(M, y, CW, 7);
   T("Nombre d'étages :", M+2, y+4.8, { bold:true, size:8.4 });
@@ -4380,6 +4388,7 @@ function dessinerFicheLivraison(p){
   barre('3. Options souhaitées');
   var opts = [['Déballage *',p.optDeballage],['Reprise des emballages *',p.optRepriseEmballages],['Montage simple *',p.optMontageSimple],['Mise en place *',p.optMiseEnPlace],['Évacuation ancien matériel *',p.optEvacuation]];
   var h3 = rangeeCases(opts, M, CW); y += h3 + 1.5;
+  if(p.optionsAjoutees){ var lo = doc.splitTextToSize('Options supplémentaires : '+p.optionsAjoutees, CW).slice(0, 2); lo.forEach(function(t){ T(t, M, y+3, { size:8.2, bold:true }); y += 4.2; }); y += 1; }
   var note = ['* Informations importantes concernant les options :',
     "Montage simple : durée maximale de 15 minutes. Au-delà, la prestation est facturée au temps passé si elle a été prévue et validée en amont.",
     "Mise en place : positionnement du mobilier ou de l'équipement sans aucune fixation.",
@@ -5918,7 +5927,7 @@ function meilleureContremarque(f){
   if(idx<0) idx = cms.findIndex(function(c){ return normNom(c.nom)===n; });
   return idx;
 }
-var FICHE_LIBELLES = { refDossier:'Référence de dossier', magasin:'Magasin', posePar:'Pose par', pays:'Pays', nom:'Nom', prenom:'Prénom', tel1:'Téléphone 1', tel2:'Téléphone 2', adresse1:'Adresse 1', adresse2:'Adresse 2', departement:'Département', cp:'Code postal', ville:'Ville', mail:'Mail', etage:'Étages',
+var FICHE_LIBELLES = { optionsAjoutees:'Options supplémentaires', typeSiteAjout:'Type de site (précisé)', refDossier:'Référence de dossier', magasin:'Magasin', posePar:'Pose par', pays:'Pays', nom:'Nom', prenom:'Prénom', tel1:'Téléphone 1', tel2:'Téléphone 2', adresse1:'Adresse 1', adresse2:'Adresse 2', departement:'Département', cp:'Code postal', ville:'Ville', mail:'Mail', etage:'Étages',
   accesPrecisions:'Précisions d\'accès', datePose:'Date de pose', contraintes:'Contraintes', ascenseur:'Ascenseur', villa:'Villa', immeuble:'Immeuble', bureau:'Bureau', escalier:'Escalier', accesDifficile:'Accès difficile', accesAutre:'Accès : autre',
   optDeballage:'Déballage', optRepriseEmballages:'Reprise des emballages', optMontageSimple:'Montage simple', optMiseEnPlace:'Mise en place', optEvacuation:'Évacuation ancien matériel',
   joursTous:'Tous les jours', lundi:'Lundi', mardi:'Mardi', mercredi:'Mercredi', jeudi:'Jeudi', vendredi:'Vendredi', samedi:'Samedi', dimanche:'Dimanche' };
@@ -5943,7 +5952,7 @@ function resumeFicheHtml(f){
   var oui = function(ks){ return ks.filter(function(k){ return f[k]; }).map(function(k){ return FICHE_LIBELLES[k]; }).join(', ') || '—'; };
   var ln = function(l, v){ return v ? '<div class="sub"><strong>'+escapeHtml(l)+' :</strong> '+escapeHtml(v)+'</div>' : ''; };
   return ln('Contact', f.nom+' '+f.prenom+' · '+f.tel1+(f.tel2?' / '+f.tel2:'')+(f.mail?' · '+f.mail:''))+ln('Adresse', f.adresse1+(f.adresse2?', '+f.adresse2:'')+' — '+f.cp+' '+f.ville+' ('+f.departement+')')+ln('Pays', f.pays)+ln('Livraison', /^2[AB]$/i.test(f.departement||'') ? 'Corse : uniquement sur devis' : '')+
-    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Valeur déclarée de la marchandise', f.valeurTTC ? String(f.valeurTTC).replace('.', ',')+' € TTC' : '')+ln('Référence de dossier', f.refDossier)+ln('Produits commandés', f.produits)+ln('Précisions', f.accesPrecisions)+
+    ln('Accès', oui(['ascenseur','villa','immeuble','bureau','magasin','escalier','accesDifficile','accesAutre'])+(f.etage?' · '+f.etage+' étage(s)':''))+ln('À préciser au RDV', f.accesAutre ? 'Type de site « Autre » : à préciser à la prise de RDV' : '')+ln('Famille de marchandise', f.famille ? f.famille+(f.familleAutre ? ' : '+f.familleAutre : '') : '')+ln('Prestation', f.prestation==='LT' ? 'Livraison trottoir (LT)' : (f.prestation==='LV' ? 'Livraison dans la pièce (LV)' : (GRILLE_PRESTATIONS[f.prestation] || '')))+ln('Compléments', [f.nbGrosAppareils ? f.nbGrosAppareils+' réfrigérateur(s) américain(s) / piano(s)' : '', f.installation ? 'installation' : '', f.repriseUnPourUn ? 'reprise « 1 pour 1 »' : '', f.nacelle ? 'nacelle' : '', f.debarras ? 'débarras' : ''].filter(Boolean).join(', '))+ln('Devis', f.devisObligatoire ? texteDevis(f) : '')+ln('Valeur déclarée de la marchandise', f.valeurTTC ? String(f.valeurTTC).replace('.', ',')+' € TTC' : '')+ln('Options supplémentaires', f.optionsAjoutees)+ln('Type de site précisé', f.typeSiteAjout)+ln('Référence de dossier', f.refDossier)+ln('Produits commandés', f.produits)+ln('Précisions', f.accesPrecisions)+
     ln('Options', oui(['optDeballage','optRepriseEmballages','optMontageSimple','optMiseEnPlace','optEvacuation']))+ln('Date de pose', f.datePose ? dateCourte(f.datePose)+(f.posePar ? ' · pose par '+(f.posePar==='magasin' ? 'le magasin' : 'l\'artisan') : '') : '')+
     ln('Jours possibles', f.joursTous ? 'Tous' : oui(['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']))+ln('Contraintes', f.contraintes)+(f.clientNom ? ln('Reçue via le lien de', f.clientNom+' ('+(f.clientCode||'')+')') : '')+(f.poidsTotalKg!=null ? ln('Poids total estimé', nbFr(f.poidsTotalKg)+' kg'+(f.nbColisTotal ? ' · '+f.nbColisTotal+' colis' : '')) : '')+(f.tarifHT!=null ? ln('Tarif annoncé à la contremarque', tarifResumeTexte(f)) : '')+lignesMarchandise(f).map(function(l){ return ln(l[0], l[1]); }).join('')+ln('Demandeur', f.demandeur)+ln('Référence', f.ref)+ln('Enseigne', f.enseigne);
 }
@@ -6575,7 +6584,7 @@ async function createBonLivraisonFromBP(numero, dateInfo){
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
     dateLivraisonPrevue: dateInfo.dateSouhaitee||dateInfo.dateImperative||'', dateSouhaitee: dateInfo.dateSouhaitee||'', dateImperative: dateInfo.dateImperative||'', estImperative: !!dateInfo.estImperative, creneauSouhaite: '',
     reprise: !!dateInfo.reprise, montage: !!dateInfo.montage, instructions: dateInfo.instructions||'',
-    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '', siteAPreciser: !!cmProfile.accesAutre, typeSite: '' },
+    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '', siteAPreciser: !!cmProfile.accesAutre, typeSite: '' }, optionsRetenues: optionsRetenuesDe(cmProfile),
     volume: '', natureMarchandise: '', emailDestinataire: cmProfile.mail||'',
     rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
     validationExploitant: { valide:false, par:'', le:'' }, tourneeId: '', bpOrigine: numero,
@@ -8085,7 +8094,7 @@ async function createBonLivraison(contremarque, selection, dateInfo, cmId){
     poidsTotal: poidsTotal, nbColisTotal: nbColisTotal,
     dateLivraisonPrevue: dateInfo.dateSouhaitee||dateInfo.dateImperative||'', dateSouhaitee: dateInfo.dateSouhaitee||'', dateImperative: dateInfo.dateImperative||'', estImperative: !!dateInfo.estImperative, creneauSouhaite: '',
     reprise: !!dateInfo.reprise, montage: !!dateInfo.montage, instructions: dateInfo.instructions||'',
-    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '', siteAPreciser: !!cmProfile.accesAutre, typeSite: '' },
+    contraintes: { etage: cmProfile.etage||'', ascenseur: !!cmProfile.ascenseur, accesDifficile: false, contactSurPlace: '', siteAPreciser: !!cmProfile.accesAutre, typeSite: '' }, optionsRetenues: optionsRetenuesDe(cmProfile),
     volume: '', natureMarchandise: '', emailDestinataire: cmProfile.mail||'',
     rdv: { date:'', creneauDebut:'', creneauFin:'', prisPar:'', dateHeurePrise:'', observations:'' },
     validationExploitant: { valide: false, par:'', le:'' },
@@ -11707,7 +11716,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0121';
+var APP_VERSION = '2026.0122';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
