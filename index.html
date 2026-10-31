@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Gestion dépôt STLS</title>
-<meta name="app-version" content="2026.0122">
+<meta name="app-version" content="2026.0123">
 <script>
 // Diagnostic de démarrage : placé AVANT le code de l'application pour fonctionner même si celui-ci ne s'exécute pas.
 // Il affiche la version réellement chargée et la cause (erreur de script, SDK Firebase bloqué, démarrage qui n'aboutit pas).
@@ -732,7 +732,7 @@
     </div>
     <div class="card">
       <h2>🔧 Réparation</h2>
-      <p class="hint" style="margin:0 0 12px;">Si une commande reste bloquée dans "CDE en attente" alors qu'elle est déjà rangée en dépôt, c'est qu'elle n'a jamais été confirmée "reçue" (souvent une commande ancienne). Ce bouton confirme automatiquement la réception (à la date déjà enregistrée) de toutes les commandes concernées, sans rien changer d'autre.</p>
+      <p class="hint" style="margin:0 0 12px;">Si une commande reste bloquée dans "CDE en attente" alors qu'elle est déjà rangée en dépôt, c'est qu'elle n'a jamais été confirmée "reçue" (souvent une commande ancienne). Ce bouton confirme la réception de ces commandes <strong>déjà rangées au dépôt</strong> uniquement. Les commandes simplement annoncées (marchandise pas encore arrivée, même si la semaine prévue est passée) ne sont jamais touchées. Une confirmation est demandée avant, avec la liste des commandes concernées.</p>
       <div class="btn-row">
         <button class="btn primary" id="btnRepairReceivedAt" style="width:100%;">Réparer les commandes non confirmées</button>
       </div>
@@ -1824,7 +1824,7 @@ async function switchToAgency(code){
   await migrateLabelNumbers();
   await migrateArchiveStats();
   await migrateContremarque();
-  await migrateReceivedAt();
+  /* migrateReceivedAt retirée : elle recopiait la date prévue comme date de réception et pouvait faire passer des commandes en attente dans « CDE à ranger » */
   await migrateContremarqueId();
   await migrateItemAffectation();
   refreshDatalists();
@@ -3926,11 +3926,11 @@ function diffReception(prev, cur){
   var ev = [];
   if(!prev){
     ev.push(evenement('creation', { client:cur.client||'', fournisseur:cur.fournisseur||'', contremarque:cur.contremarque||'', origine: cur.origineCollecte ? 'collecte '+cur.origineCollecte : '' }));
-    if(cur.receivedAt) ev.push(evenement('reception', { date:cur.receivedAt }));
+    if(cur.receivedAt) ev.push(evenement('reception', { date:cur.receivedAt, source:cur.receivedAtSource||'' }));
     return ev;
   }
   if((prev.receivedAt||'') !== (cur.receivedAt||'')){
-    if(!prev.receivedAt && cur.receivedAt) ev.push(evenement('reception', { date:cur.receivedAt }));
+    if(!prev.receivedAt && cur.receivedAt) ev.push(evenement('reception', { date:cur.receivedAt, source:cur.receivedAtSource||'' }));
     else if(prev.receivedAt && !cur.receivedAt) ev.push(evenement('reception_annulee', {}));
     else ev.push(evenement('modification', { champs:[{ c:'date de réception effective', de:String(prev.receivedAt), vers:String(cur.receivedAt) }] }));
   }
@@ -5062,7 +5062,7 @@ function libelleEvenement(e){
   var d = e.d || {};
   switch(e.k){
     case 'creation': return ['🆕', 'Commande créée'+(d.origine?' ('+d.origine+')':'')+(d.client?' — '+d.client:'')+(d.fournisseur?' · '+d.fournisseur:'')];
-    case 'reception': return ['📥', 'Marchandise réceptionnée le '+dateCourte(d.date)];
+    case 'reception': return ['📥', 'Marchandise réceptionnée le '+dateCourte(d.date)+(d.source==='quai' ? ' (confirmée à quai)' : (d.source==='reparation' ? ' (par la réparation)' : ''))];
     case 'retour_quai': return ['📥', 'Retour de tournée validé à quai'+(d.items && d.items.length ? ' : '+itemsTexte(d.items) : '')];
     case 'reception_annulee': return ['↩️', 'Réception annulée : retour en « CDE en attente »'];
     case 'rangement': return ['📍', 'Rangée : '+itemsTexte(d.items)];
@@ -9736,6 +9736,12 @@ function resetPendingWeekDefaults(){
   if(!toEl.value){ toEl.value = curWeek; }
 }
 
+// commande annoncée pour une semaine déjà passée (avant le lundi de la semaine en cours) et toujours pas réceptionnée
+function enRetardAttente(h){
+  if(h.date) return h.date < dateToISO(infosSemaineCourante().lundi);
+  var wk = h.weekNumber ? parseInt(h.weekNumber, 10) : null;
+  return !!wk && wk < infosSemaineCourante().semaine;
+}
 function renderPendingList(){
   var el = document.getElementById('attenteList');
   var q = (document.getElementById('attenteSearch').value || '').trim().toLowerCase();
@@ -9756,6 +9762,7 @@ function renderPendingList(){
     items = items.filter(function(h){
       var wk = itemWeekNumber(h);
       if(wk==null) return true; // pas de semaine connue : toujours affichée
+      if(enRetardAttente(h)) return true; // annoncée pour une semaine passée et pas reçue : toujours affichée, jamais masquée par le filtre de semaine
       return wk>=wkFrom && wk<=wkTo;
     });
   }
@@ -9764,10 +9771,11 @@ function renderPendingList(){
     el.innerHTML = '<div class="empty">'+(totalPending?'Aucun résultat':'Aucune commande en attente pour le moment')+'</div>';
     return;
   }
-  el.innerHTML = items.map(function(h){
+  var nbRetard = items.filter(enRetardAttente).length;
+  el.innerHTML = (nbRetard ? '<div class="hint" id="attenteRetard" style="background:#fff7e0;border:1px solid #f0d98a;border-radius:8px;padding:8px 10px;color:#9a6700;font-weight:600;margin:0 0 10px;">⚠ '+nbRetard+' commande'+(nbRetard > 1 ? 's' : '')+' annoncée'+(nbRetard > 1 ? 's' : '')+' pour une semaine passée et pas encore réceptionnée'+(nbRetard > 1 ? 's' : '')+' : elle'+(nbRetard > 1 ? 's restent' : ' reste')+' ici tant que la marchandise n\'est pas arrivée.</div>' : '')+items.map(function(h){
     var numBadge = h.labelNumber ? '<span style="color:var(--accent);font-weight:700;margin-right:6px;">'+escapeHtml(h.labelNumber)+'</span>' : '';
     var nameLine = escapeHtml(h.client||'—') + (h.contremarque ? ' - '+escapeHtml(h.contremarque) : '') + badgeStatut(h);
-    var dateLine = h.date ? ('Réception prévue : '+fmtDate(h.date)) : 'Date de réception non communiquée';
+    var dateLine = (h.date ? ('Réception prévue : '+fmtDate(h.date)) : 'Date de réception non communiquée')+(enRetardAttente(h) ? ' <span class="retard-badge" style="color:#b45309;font-weight:700;">⚠ en retard</span>' : '');
     var weekLine = h.weekNumber ? (' · Semaine '+escapeHtml(String(h.weekNumber))) : '';
     var avarieBadge = (h.avarieCount ? ' <span class="avarie-badge" data-id="'+h.id+'" title="Réserve à consulter" style="font-size:15px;cursor:pointer;">🚑</span>' : '') + (h.cmrRecu ? ' <span style="color:#1e8e3e;font-weight:600;font-size:12px;">📎 CMR</span>' : '');
     var mailBadge = h.receptionMailSent ? mailStatusBadge(true, h.id) : '';
@@ -9819,7 +9827,7 @@ function renderPendingList(){
         var dateVal = document.getElementById('quaiDate-'+id).value || todayISO();
         var rec = await getReceptionRecord(id);
         if(!rec){ banner('Introuvable'); return; }
-        rec.data.receivedAt = dateVal;
+        rec.data.receivedAt = dateVal; rec.data.receivedAtSource = 'quai';
         await saveReceptionRecord(id, rec);
         var idx = state.historyIndex.findIndex(function(x){ return x.id===id; });
         if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
@@ -10711,7 +10719,7 @@ function renderToRangeList(){
       if(!confirm('Remettre '+labelNumber+' en "CDE en attente" ? La date de réception confirmée sera effacée (erreur de saisie).')) return;
       var rec = await getReceptionRecord(id);
       if(!rec){ banner('Introuvable'); return; }
-      delete rec.data.receivedAt;
+      delete rec.data.receivedAt; delete rec.data.receivedAtSource;
       await saveReceptionRecord(id, rec);
       var idx = state.historyIndex.findIndex(function(h){ return h.id===id; });
       if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
@@ -11716,7 +11724,7 @@ document.getElementById('btnSaveEmailTemplates').addEventListener('click', async
   banner('Modèles d\'e-mail enregistrés');
 });
 
-var APP_VERSION = '2026.0122';
+var APP_VERSION = '2026.0123';
 (function(){ var g = document.getElementById('gateVersion'); if(g) g.textContent = APP_VERSION; })();
 
 function updateBrandingUI(){
@@ -12020,7 +12028,7 @@ async function loadAgencyDataAndShowApp(){
   await migrateLabelNumbers();
   await migrateArchiveStats();
   await migrateContremarque();
-  await migrateReceivedAt();
+  /* migrateReceivedAt retirée : elle recopiait la date prévue comme date de réception et pouvait faire passer des commandes en attente dans « CDE à ranger » */
   await migrateContremarqueId();
   await migrateItemAffectation();
   refreshDatalists();
@@ -12397,37 +12405,22 @@ async function migrateItemAffectation(){
   await saveBase();
 }
 
-// migration : les commandes déjà enregistrées avant la séparation "date prévue" / "date réellement reçue"
-// sont considérées comme déjà reçues (sinon elles repasseraient à tort en "CDE en attente")
-async function migrateReceivedAt(){
-  if(state.base.receivedAtMigrated) return; // déjà fait une fois pour toutes : ne doit plus jamais retoucher les nouvelles commandes
-  var missing = state.historyIndex.filter(function(h){ return h.receivedAt===undefined && h.date; });
-  for(var i=0;i<missing.length;i++){
-    var h = missing[i];
-    var rec = await getReceptionRecord(h.id);
-    if(rec && rec.data){
-      rec.data.receivedAt = rec.data.date;
-      await saveReceptionRecord(h.id, rec);
-      h.receivedAt = rec.data.date;
-    }
-  }
-  if(missing.length) await saveHistoryIndex();
-  state.base.receivedAtMigrated = true;
-  await saveBase();
-}
+// (migration de la date de réception retirée : une commande n'est « reçue » que par la confirmation à quai, ou par la réparation ci-dessous)
 
 // réparation manuelle (rejouable à volonté) : confirme la réception (à la date déjà connue) des commandes
 // qui n'ont jamais été marquées "reçues", quelle qu'en soit la cause
 async function repairMissingReceivedAt(){
   var msg = document.getElementById('repairMsg');
-  var missing = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !h.receivedAt && h.date && h.date <= todayISO(); });
+  var missing = state.historyIndex.filter(function(h){ return !h.exitedAt && !h.deletedAt && !h.receivedAt && (h.itemsRanged||0) > 0; });   // seulement la marchandise déjà rangée au dépôt : une commande simplement annoncée n'est jamais touchée
   if(!missing.length){ msg.textContent = 'Rien à réparer'; msg.style.color = 'var(--accent)'; return; }
+  if(!confirm('Confirmer la réception de '+missing.length+' commande(s) déjà rangée(s) au dépôt mais jamais confirmée(s) « reçue(s) » ?\n\n'+missing.slice(0, 8).map(function(h){ return (h.labelNumber||'—')+' · '+(h.client||'—'); }).join('\n')+(missing.length > 8 ? '\n…' : '')+'\n\nLes commandes simplement annoncées ne sont pas concernées.')) return;
   var fixed = 0;
   for(var i=0;i<missing.length;i++){
     var h = missing[i];
     var rec = await getReceptionRecord(h.id);
     if(rec && rec.data){
-      rec.data.receivedAt = rec.data.date;
+      rec.data.receivedAt = (rec.data.date && rec.data.date <= todayISO()) ? rec.data.date : todayISO();
+      rec.data.receivedAtSource = 'reparation';
       await saveReceptionRecord(h.id, rec);
       var idx = state.historyIndex.findIndex(function(x){ return x.id===h.id; });
       if(idx>=0){ state.historyIndex[idx] = recordToIndexEntry(rec); }
