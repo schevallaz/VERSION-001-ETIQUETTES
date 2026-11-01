@@ -344,6 +344,20 @@ h3.sub:first-child{margin-top:0}
 .marge-body .grid-4{margin:12px 0}
 .dv td.neg{color:var(--danger);font-weight:600}
 
+/* ---- v3.4 : lignes produits ---- */
+.lg{width:100%;border-collapse:collapse;font-size:14px;margin-top:4px;table-layout:fixed}
+.lg th{text-align:left;font-weight:600;font-size:12.5px;color:var(--ink-3);padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.lg td{padding:4px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+.lg input,.lg select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:14px}
+.lg .w-ref{width:96px}.lg .w-poste{width:150px}.lg .w-qte{width:64px}.lg .w-num{width:92px}.lg .w-num input,.lg .w-qte input{text-align:right}
+.lg .w-tot{width:110px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lg .w-x{width:40px;text-align:center}
+.lg th.w-num,.lg th.w-qte,.lg th.w-tot{text-align:right}
+.lg-actions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
+.prow3{grid-template-columns:170px 1fr auto auto}
+.prow3 select{padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);font-size:13px}
+@media (max-width:900px){ .lg{min-width:780px} }
+
 [hidden]{display:none!important}
 </style>
 </head>
@@ -431,7 +445,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.3";
+const VERSION = "3.4";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -479,13 +493,14 @@ const DEFAULT_PARAMS = {
     {nom:"Cuisine", rubriques:["Meubles","Plan de travail","Sanitaires","Électroménager"], visite:true},
     {nom:"Salle de bain", rubriques:["Meubles","Plan de travail","Sanitaires"], visite:true},
     {nom:"Dressing", rubriques:["Meubles","Plan de travail","Sanitaires"], visite:true},
-    {nom:"Literie", rubriques:["Literie"], visite:false},
+    {nom:"Literie", rubriques:["Literie"], visite:false, devis:"Lignes produits"},
     {nom:"Cuisine extérieure", rubriques:["Meubles","Plan de travail","Électroménager"], visite:true},
     {nom:"Douche vapeur", rubriques:["Description"], visite:true},
     {nom:"Sauna", rubriques:["Description"], visite:true},
     {nom:"Hammam", rubriques:["Description"], visite:true},
-    {nom:"Meubles", rubriques:["Description"], visite:false},
-    {nom:"Canapé", rubriques:["Description"], visite:false}
+    {nom:"Meubles", rubriques:["Description"], visite:false, devis:"Lignes produits"},
+    {nom:"Canapé", rubriques:["Description"], visite:false, devis:"Lignes produits"},
+    {nom:"Électroménager", rubriques:["Description"], visite:false, devis:"Lignes produits"}
   ],
   biens:["Villa","Appartement","Bureau","Magasin"],
   parrains:[],
@@ -494,6 +509,11 @@ const DEFAULT_PARAMS = {
 const SUIVI_TYPES = ["Appel","Message répondeur","SMS","Email","Rendez-vous","RDV showroom","Visite sur place","Autre"];
 const RDV_STEPS = ["s1","s2","s3","s4","s7","s8","s9"];
 const STEP_IDS = ["s1","s2","s3","s4","s5","s6","s7","s8","s9"];
+const DEVIS_MODES = ["Montant global","Lignes produits"];
+const LIGNES_PAR_DEFAUT = ["Literie","Meubles","Canapé","Électroménager"];
+const POSTES = [["mat","Fourniture"],["elec","Électroménager"],["livr","Livraison"],["presta","Installation (pose)"]];
+const defaultDevisMode = type => { const d=P.types.find(t=>t.nom===type)?.devis; return DEVIS_MODES.includes(d) ? d : (LIGNES_PAR_DEFAUT.includes(type) ? "Lignes produits" : "Montant global"); };
+const isLignes = p => p.devisMode==="Lignes produits";
 
 /* ---------- État ---------- */
 let P = structuredClone(DEFAULT_PARAMS);
@@ -526,7 +546,7 @@ function setP(o, path, v){
   a[ks[ks.length-1]] = v;
 }
 // Les commandes d'un projet sont une liste : on l'enregistre en entier.
-function arrayRoot(path){ const m=path.match(/^(projets\.[^.]+\.commandes)\./); return m?m[1]:null; }
+function arrayRoot(path){ const m=path.match(/^(projets\.[^.]+\.(?:commandes|steps\.s\d\.lignes))\./); return m?m[1]:null; }
 
 /* ---------- Dates et montants ---------- */
 const pad = n => String(n).padStart(2,"0");
@@ -571,6 +591,7 @@ function blankProjet(c, type){
   const p={id:uid(), type, libelle:"", ordre:Date.now(), createdAt:new Date().toISOString(),
     tva:P.tvaDefaut, commissionPct:null, installation:{prevue:"",historique:[]}, steps:blankSteps(), commandes:[]};
   p.steps.s3.necessaire = def && def.visite===false ? "Non" : "Oui";
+  p.devisMode = defaultDevisMode(type);
   const par=P.parrains.find(x=>x.nom===c.parrain); if(par && par.pct!=null) p.commissionPct=par.pct;
   return p;
 }
@@ -586,8 +607,10 @@ function normProjet(p){
   });
   ["s2","s4"].forEach(s=>{ const st=p.steps[s];
     if(st.montant!=null && st.mat==null && st.elec==null && st.presta==null && st.livr==null){ st.mat=st.montant; st.saisie="TTC"; }
+    if(!Array.isArray(st.lignes)) st.lignes=[];
     if(!st.saisie) st.saisie="TTC"; });
   if(!p.steps.s3.necessaire) p.steps.s3.necessaire="Oui";
+  if(!DEVIS_MODES.includes(p.devisMode)) p.devisMode="Montant global";
   p.installation={prevue:"",historique:[],...(p.installation||{})};
   p.commandes=Array.isArray(p.commandes)?p.commandes:[];
   if(p.tva==null) p.tva=P.tvaDefaut;
@@ -650,16 +673,26 @@ const currentStep = p => STEP_IDS.findIndex(s=>!p.steps[s].done && !skipped(p,s)
 // Devis : fourniture et prestations au taux du projet, électroménager toujours au taux normal.
 function calcDevis(p, st){
   const r=num(p.tva)||0, rn=num(P.tvaNormal)??20, ttcMode=(st.saisie||"TTC")==="TTC";
-  const cats=[["mat","Fourniture",r],["elec","Électroménager",rn],["livr","Livraison",r],["presta","Installation (pose)",r]];
-  const lines=cats.map(([k,label,rate])=>{
-    const a=num(st[k]); if(a==null) return {k,label,rate,ht:null,tva:null,ttc:null};
-    const ht = ttcMode ? a/(1+rate/100) : a, ttc = ttcMode ? a : a*(1+rate/100);
-    return {k,label,rate,ht,tva:ttc-ht,ttc};
+  const rateOf=k=> k==="elec" ? rn : r;
+  const conv=(a,rate)=>({ht: ttcMode ? a/(1+rate/100) : a, ttc: ttcMode ? a : a*(1+rate/100)});
+  let amounts={}, items=[], achatLignes=null;
+  if(isLignes(p)){
+    (st.lignes||[]).forEach(l=>{
+      const q=num(l.qte)??1, pu=num(l.pu); if(pu==null) return;
+      const k=POSTES.some(x=>x[0]===l.poste)?l.poste:"mat", rate=rateOf(k), v=conv(q*pu,rate);
+      amounts[k]=(amounts[k]||0)+q*pu;
+      items.push({...l, k, q, pu, rate, ht:v.ht, ttc:v.ttc, total:q*pu});
+      const pa=num(l.pa); if(pa!=null && (k==="mat"||k==="elec")) achatLignes=(achatLignes||0)+q*pa;
+    });
+  } else POSTES.forEach(([k])=>{ const a=num(st[k]); if(a!=null) amounts[k]=a; });
+  const lines=POSTES.map(([k,label])=>{
+    const a=amounts[k], rate=rateOf(k); if(a==null) return {k,label,rate,ht:null,tva:null,ttc:null};
+    const v=conv(a,rate); return {k,label,rate,ht:v.ht,tva:v.ttc-v.ht,ttc:v.ttc};
   });
-  const has=lines.some(l=>l.ttc!=null), sum=k=>lines.reduce((s,l)=>s+(l[k]||0),0);
+  const has=lines.some(l=>l.ttc!=null), sum=k=>lines.reduce((t,l)=>t+(l[k]||0),0);
   const mat=lines.filter(l=>l.k==="mat"||l.k==="elec");
-  return {lines, has, ht:sum("ht"), tva:sum("tva"), ttc:sum("ttc"),
-    materielHT:mat.reduce((s,l)=>s+(l.ht||0),0), prestaTTC:(lines[2].ttc||0)+(lines[3].ttc||0),
+  return {lines, items, achatLignes, lignes:isLignes(p), has, ht:sum("ht"), tva:sum("tva"), ttc:sum("ttc"),
+    materielHT:mat.reduce((t,l)=>t+(l.ht||0),0), prestaTTC:(lines[2].ttc||0)+(lines[3].ttc||0),
     htOf:k=>lines.find(l=>l.k===k)?.ht||0};
 }
 function devisRetenu(p){ const d4=calcDevis(p,p.steps.s4); return d4.has ? d4 : calcDevis(p,p.steps.s2); }
@@ -678,7 +711,7 @@ function commission(c,p){
 function calcMarge(c,p){
   const d=devisRetenu(p), k=p.couts||{}, n=x=>num(x)||0, com=commission(c,p);
   const rows=[
-    {k:"produits", poste:"Produits (fourniture + électroménager)", vente:d.htOf("mat")+d.htOf("elec"), cout:n(k.achat)},
+    {k:"produits", poste:"Produits (fourniture + électroménager)", vente:d.htOf("mat")+d.htOf("elec"), cout:d.achatLignes!=null?d.achatLignes:n(k.achat)},
     {k:"annexes",  poste:"Coûts annexes (transport d’approche, divers)", vente:0, cout:n(k.approche)+n(k.divers)},
     {k:"livraison",poste:"Livraison", vente:d.htOf("livr"), cout:n(k.livraison)},
     {k:"pose",     poste:"Installation (sous-traitance pose)", vente:d.htOf("presta"), cout:n(k.pose)}
@@ -686,7 +719,7 @@ function calcMarge(c,p){
   if(c.parrain) rows.push({k:"commission", poste:"Commission parrain", vente:0, cout:com?com.montant:0});
   rows.forEach(r=>{ r.marge=r.vente-r.cout; r.taux=r.vente?r.marge/r.vente*100:null; });
   const vente=rows.reduce((s,r)=>s+r.vente,0), cout=rows.reduce((s,r)=>s+r.cout,0);
-  return {rows, vente, cout, marge:vente-cout, taux:vente?(vente-cout)/vente*100:null, has:d.has, saisis:Object.values(k).some(v=>num(v)!=null)};
+  return {rows, vente, cout, marge:vente-cout, taux:vente?(vente-cout)/vente*100:null, has:d.has, achatLignes:d.achatLignes, saisis:Object.values(k).some(v=>num(v)!=null)||d.achatLignes!=null};
 }
 const lastSuivi = c => [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date))[0];
 /* ---------- Enregistrement ---------- */
@@ -982,20 +1015,45 @@ function rdvBlock(c,p,id){
     <div class="rdv-actions"><button class="btn primary small" data-rdv-val="${key}">✓ Valider le RDV${others.length?" pour tous":""}</button></div>
   </div>${histHtml}`;
 }
+function lignesTable(c,p,sid,d){
+  const st=p.steps[sid], b=`projets.${p.id}.steps.${sid}.lignes`, mode=st.saisie||"TTC";
+  const inp=(i,k,o={})=>`<input id="f-${b.replace(/\./g,"-")}-${i}-${k}" data-p="${b}.${i}.${k}" ${o.kind?`data-kind="${o.kind}"`:""} type="${o.type||"text"}" value="${esc(st.lignes[i][k]??"")}" ${o.attrs||""} aria-label="${o.label}">`;
+  const nAttr=`step="0.01" min="0" inputmode="decimal"`;
+  const rows=st.lignes.map((l,i)=>{
+    const it=d.items.find(x=>x.id===l.id);
+    return `<tr>
+      <td>${inp(i,"designation",{label:"Désignation",attrs:'placeholder="Produit, modèle, dimensions…"'})}</td>
+      <td class="w-ref">${inp(i,"ref",{label:"Référence"})}</td>
+      <td class="w-poste"><select data-p="${b}.${i}.poste" aria-label="Poste">${POSTES.map(([k,lb])=>`<option value="${k}" ${(l.poste||"mat")===k?"selected":""}>${lb}</option>`).join("")}</select></td>
+      <td class="w-qte">${inp(i,"qte",{type:"number",kind:"num",label:"Quantité",attrs:'step="1" min="0" inputmode="decimal"'})}</td>
+      <td class="w-num">${inp(i,"pu",{type:"number",kind:"num",label:`Prix unitaire ${mode}`,attrs:nAttr})}</td>
+      ${showMarge?`<td class="w-num">${inp(i,"pa",{type:"number",kind:"num",label:"Prix d’achat unitaire HT",attrs:nAttr})}</td>`:""}
+      <td class="w-tot">${it?eur(it.total):"–"}</td>
+      <td class="w-x"><button class="btn ghost danger small" data-delline="${p.id}|${sid}|${i}" aria-label="Supprimer la ligne">✕</button></td></tr>`;
+  }).join("");
+  const copy = sid==="s4" && !st.lignes.length && (p.steps.s2.lignes||[]).length
+    ? `<button class="btn small" data-copylines="${p.id}">Reprendre les lignes du devis prévu</button>` : "";
+  return `<div class="dv-wrap"><table class="lg">
+    <thead><tr><th>Désignation</th><th class="w-ref">Réf.</th><th class="w-poste">Poste</th><th class="w-qte">Qté</th><th class="w-num">PU ${mode}</th>${showMarge?`<th class="w-num" title="Prix d’achat unitaire HT, usage interne">PA HT</th>`:""}<th class="w-tot">Total ${mode}</th><th class="w-x"></th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="${showMarge?8:7}" class="muted" style="padding:10px">Aucune ligne : ajoutez les produits du devis.</td></tr>`}</tbody></table></div>
+    <div class="lg-actions"><button class="btn small" data-addline="${p.id}|${sid}">+ Ajouter une ligne</button>${copy}</div>`;
+}
 function devisBlock(c,p,sid){
   const b=`projets.${p.id}.steps.${sid}`, s=p.steps[sid], d=calcDevis(p,s), mode=s.saisie||"TTC";
   const nf={type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`};
-  return `<div class="devis">
-    <div class="devis-head">
-      ${seg(c,`${b}.saisie`,"Montants saisis en",["TTC","HT"],{req:true,def:"TTC"})}
-      <div class="muted">TVA du projet : ${pctTxt(p.tva)} – électroménager : ${pctTxt(P.tvaNormal)}</div>
-    </div>
-    <div class="grid-4">
+  const saisie = isLignes(p) ? lignesTable(c,p,sid,d) : `<div class="grid-4">
       ${fi(c,`${b}.mat`,`Fourniture ${mode}`,{...nf,hint:"Meubles, plan de travail, sanitaires, literie…"})}
       ${fi(c,`${b}.elec`,`Électroménager ${mode}`,{...nf,hint:`Toujours à ${pctTxt(P.tvaNormal)}`})}
       ${fi(c,`${b}.livr`,`Livraison ${mode}`,{...nf,hint:"Prestation de livraison"})}
       ${fi(c,`${b}.presta`,`Installation (pose) ${mode}`,{...nf,hint:"Pose, montage, raccordements…"})}
+    </div>`;
+  return `<div class="devis">
+    <div class="devis-head">
+      ${seg(c,`projets.${p.id}.devisMode`,"Saisie du devis (pour ce projet)",DEVIS_MODES,{req:true,def:"Montant global"})}
+      ${seg(c,`${b}.saisie`,"Montants saisis en",["TTC","HT"],{req:true,def:"TTC"})}
+      <div class="muted">TVA du projet : ${pctTxt(p.tva)} – électroménager : ${pctTxt(P.tvaNormal)}</div>
     </div>
+    ${saisie}
     ${d.has?`<div class="dv-wrap"><table class="dv">
       <thead><tr><th>Poste</th><th>TVA</th><th>HT</th><th>Montant TVA</th><th>TTC</th></tr></thead>
       <tbody>${d.lines.filter(l=>l.ttc!=null).map(l=>`<tr><td>${l.label}</td><td>${pctTxt(l.rate)}</td><td>${eur(l.ht)}</td><td>${eur(l.tva)}</td><td>${eur(l.ttc)}</td></tr>`).join("")}</tbody>
@@ -1224,7 +1282,9 @@ function margeBlock(c,p){
     <div class="marge-body">
       <p class="route-hint" style="margin:0 0 10px">Ventes HT reprises du devis ${calcDevis(p,p.steps.s4).has?"définitif (étape 4)":"prévu (étape 2)"}. Ces informations n’apparaissent jamais sur le PDF client.</p>
       <div class="grid-4">
-        ${fi(c,`${pc}.achat`,"Prix d’achat HT des produits",{...nf,hint:"Fourniture et électroménager"})}
+        ${m.achatLignes!=null
+          ? `<div class="field"><label>Prix d’achat HT des produits</label><div class="calc" style="padding:7px 10px"><b>${eur(m.achatLignes)}</b><small>Total des prix d’achat saisis sur les lignes du devis</small></div></div>`
+          : fi(c,`${pc}.achat`,"Prix d’achat HT des produits",{...nf,hint:isLignes(p)?"Ou saisissez le prix d’achat sur chaque ligne du devis":"Fourniture et électroménager"})}
         ${fi(c,`${pc}.approche`,"Transport d’approche HT",nf)}
         ${fi(c,`${pc}.divers`,"Divers HT",nf)}
         ${fi(c,`${pc}.livraison`,"Coût de la livraison HT",nf)}
@@ -1416,11 +1476,12 @@ function renderParams(){
     </section>
 
     <section class="block"><h2>Types de projet</h2>
-      <p class="route-hint" style="margin:0 0 12px">Les rubriques, séparées par des virgules, créent les zones de description à l’étape « Découverte ». « Visite technique » indique si elle est prévue par défaut pour ce type (modifiable dans chaque projet).</p>
+      <p class="route-hint" style="margin:0 0 12px">Les rubriques, séparées par des virgules, créent les zones de description à l’étape « Découverte ». « Visite technique » indique si elle est prévue par défaut pour ce type, et le dernier choix le mode de saisie du devis par défaut (montant global ou lignes produits). Les deux restent modifiables dans chaque projet.</p>
       ${P.types.map((t,i)=>`<div class="prow prow3">
         <input value="${esc(t.nom)}" data-ptype="${i}" data-k="nom" aria-label="Nom du type">
         <input value="${esc(t.rubriques.join(", "))}" data-ptype="${i}" data-k="rubriques" aria-label="Rubriques de ${esc(t.nom)}">
         <label class="toggle" style="margin:0;font-weight:400;font-size:13px"><input type="checkbox" data-ptype="${i}" data-k="visite" ${t.visite!==false?"checked":""}> Visite technique</label>
+        <select data-ptype="${i}" data-k="devis" aria-label="Saisie du devis pour ${esc(t.nom)}">${DEVIS_MODES.map(m=>`<option ${defaultDevisMode(t.nom)===m?"selected":""}>${m}</option>`).join("")}</select>
         <button class="btn ghost danger small" data-pdel="types" data-i="${i}">Retirer</button></div>`).join("")}
       <button class="btn small" data-padd="types">+ Ajouter un type de projet</button>
     </section>
@@ -1593,6 +1654,18 @@ $("#main").addEventListener("click", async e=>{
 
   // projets
   if(t.closest("[data-toggle-marge]")){ showMarge=!showMarge; rerenderKeep(); return; }
+  const al=t.closest("[data-addline]");
+  if(al){ const [pid,sid]=al.dataset.addline.split("|"), st=c.projets[pid].steps[sid];
+    st.lignes=[...(st.lignes||[]),{id:uid(),designation:"",ref:"",poste:c.projets[pid].type==="Électroménager"?"elec":"mat",qte:1,pu:null,pa:null}];
+    flushPending(); updateFields(c.id,{[`projets.${pid}.steps.${sid}.lignes`]:clone(st.lignes)}); rerenderKeep();
+    setTimeout(()=>document.getElementById(`f-projets-${pid}-steps-${sid}-lignes-${st.lignes.length-1}-designation`)?.focus(),0); return; }
+  const dl=t.closest("[data-delline]");
+  if(dl){ const [pid,sid,i]=dl.dataset.delline.split("|"), st=c.projets[pid].steps[sid];
+    st.lignes.splice(+i,1); flushPending(); updateFields(c.id,{[`projets.${pid}.steps.${sid}.lignes`]:clone(st.lignes)}); rerenderKeep(); return; }
+  const cl=t.closest("[data-copylines]");
+  if(cl){ const pr=c.projets[cl.dataset.copylines];
+    pr.steps.s4.lignes=clone(pr.steps.s2.lignes).map(l=>({...l,id:uid()})); pr.steps.s4.saisie=pr.steps.s2.saisie;
+    flushPending(); updateFields(c.id,{[`projets.${pr.id}.steps.s4.lignes`]:clone(pr.steps.s4.lignes),[`projets.${pr.id}.steps.s4.saisie`]:pr.steps.s4.saisie}); rerenderKeep(); return; }
   const tb=t.closest("[data-proj]");
   if(tb){ flushPending(); selProj=tb.dataset.proj; addingProject=false; openStep=null; suiviFilter="all"; editingEntry=null; rerenderKeep(); return; }
   if(t.closest("[data-addproj]")){ addingProject=!addingProject; rerenderKeep(); return; }
@@ -1836,6 +1909,11 @@ function devisMail(c,p){
   const docsDevis=s2.docsDevis||[];
   const L=[`${hello},`,"",
     `Suite à notre rendez-vous${rdv?` du ${fmtD(rdv)}`:""}, vous trouverez ci-dessous ${s2.numero?`notre devis n° ${s2.numero}`:"notre devis"} pour votre projet ${(p.libelle||p.type).toLowerCase()}.`,""];
+  if(d.lignes && d.items.length){
+    L.push("Détail :");
+    d.items.forEach(it=>L.push(`– ${it.q} × ${it.designation||"Article"}${it.ref?` (réf. ${it.ref})`:""} : ${eur(it.ttc)} TTC`));
+    L.push("");
+  }
   if(d.has){
     L.push("Récapitulatif :");
     d.lines.filter(l=>l.ttc!=null).forEach(l=>L.push(`– ${l.label} : ${eur(l.ttc)} TTC (TVA ${pctTxt(l.rate)})`));
@@ -1958,6 +2036,11 @@ function buildPdf(c, version, pids){
     if(rubs.length){ h3("Description du projet"); table(["Rubrique","Détail"], rubs, {cols:{0:{cellWidth:42,fontStyle:"bold"}}}); }
     if(d.has){
       h3(`Devis ${useDef?"définitif":"prévu"}${st.numero?` n° ${st.numero}`:""}`);
+      if(d.lignes && d.items.length){
+        const md=st.saisie||"TTC";
+        table(["Désignation","Réf.","Qté","TVA",`PU ${md}`,"Total TTC"], d.items.map(it=>[it.designation||"Article",it.ref||"",String(it.q).replace(".",","),pctTxt(it.rate),peur(it.pu),peur(it.ttc)]),
+          {right:[2,3,4,5], cols:{0:{cellWidth:68}}});
+      }
       table(["Poste","TVA","HT","Montant TVA","TTC"], d.lines.filter(l=>l.ttc!=null).map(l=>[l.label,pctTxt(l.rate),peur(l.ht),peur(l.tva),peur(l.ttc)]),
         {foot:["Total","",peur(d.ht),peur(d.tva),peur(d.ttc)], right:[1,2,3,4]});
       h3("Échéancier de règlement");
@@ -2044,7 +2127,7 @@ $("#pdf-share").addEventListener("click", async ()=>{
 function paramInput(el){
   if(el.dataset.ptype!==undefined){
     const t=P.types[+el.dataset.ptype];
-    if(el.dataset.k==="visite"){ return; }
+    if(el.dataset.k==="visite" || el.dataset.k==="devis"){ return; }
     if(el.dataset.k==="nom") t.nom=el.value.trim();
     else t.rubriques=el.value.split(",").map(s=>s.trim()).filter(Boolean);
     saveParams(); return;
@@ -2058,6 +2141,7 @@ function paramInput(el){
 }
 function paramChange(el){
   if(el.dataset.ptype!==undefined && el.dataset.k==="visite"){ P.types[+el.dataset.ptype].visite=el.checked; saveParams(true); return; }
+  if(el.dataset.ptype!==undefined && el.dataset.k==="devis"){ P.types[+el.dataset.ptype].devis=el.value; saveParams(true); return; }
   if(el.dataset.pp==="tvaDefaut"){ P.tvaDefaut=num(el.value); saveParams(true); rerenderKeep(); return; }
   if(el.dataset.pp){ refreshAfter(el); }
 }
