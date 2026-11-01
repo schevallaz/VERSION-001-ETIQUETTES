@@ -321,6 +321,20 @@ h3.sub:first-child{margin-top:0}
 .st.skip .num{border-style:dashed;color:var(--ink-3)}
 .prow3{grid-template-columns:180px 1fr auto auto}
 @media (max-width:720px){ .prow3{grid-template-columns:1fr} .tab{padding:6px 10px} }
+/* ---- v3.1 : RDV communs, suivi par projet ---- */
+.rdv-links{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);display:flex;flex-direction:column;gap:6px}
+.rdv-ok .rdv-links,.rdv-ok + .rdv-links{border-top:none}
+.link-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.link-row select{padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:13px}
+.rdv-common{font-size:13px;margin:4px 0 8px;color:var(--ink-2)}
+.rdv-over{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:12px;background:var(--surface-2);font-size:14px}
+.rdv-over ul{margin:0;padding-left:18px}
+.rdv-over li{margin:3px 0}
+.tag-ok{background:var(--olive-soft);border-color:var(--olive);color:var(--olive)}
+.tag-warn{background:var(--ochre-soft);border-color:var(--ochre);color:var(--ochre-ink)}
+.proj-suivi{border-top:1px solid var(--line);margin-top:22px}
+#pdfDlg .radios label{align-items:flex-start}
+#pdfDlg .radios input{margin-top:4px}
 
 [hidden]{display:none!important}
 </style>
@@ -375,6 +389,23 @@ h3.sub:first-child{margin-top:0}
     </div>
   </div>
 </dialog>
+<dialog id="pdfDlg">
+  <div class="dlg">
+    <h2>Exporter la fiche en PDF</h2>
+    <div class="field"><label>Version</label>
+      <div class="radios" style="flex-direction:column;gap:8px">
+        <label><input type="radio" name="pdf-v" value="client" checked> <span><b>Version client</b> – coordonnées, projets, devis, échéancier, rendez-vous et avancement. Sans parrain, commission, notes ni suivi interne.</span></label>
+        <label><input type="radio" name="pdf-v" value="interne"> <span><b>Version interne</b> – tout, plus le parrainage et la commission, les commandes fournisseurs, le suivi et la synthèse chiffrée des projets.</span></label>
+      </div></div>
+    <div class="field"><label>Projets à inclure</label><div id="pdf-projs"></div></div>
+    <div class="dlg-warn" id="pdf-err" style="background:transparent;padding:0;min-height:1.2em"></div>
+    <div class="dlg-actions">
+      <button class="btn ghost" id="pdf-cancel">Annuler</button>
+      <button class="btn" id="pdf-share" hidden>Partager…</button>
+      <button class="btn primary" id="pdf-dl">Télécharger le PDF</button>
+    </div>
+  </div>
+</dialog>
 <div class="toast" id="toast" role="status"></div>
 <script type="module">
 /* ============================================================
@@ -392,7 +423,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.0";
+const VERSION = "3.1";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -878,9 +909,30 @@ function stepSummary(c,p,id){
   }
   return parts.filter(Boolean).join(" – ");
 }
+function groupMembers(c,gid){ const out=[]; if(!gid) return out;
+  projList(c).forEach(q=>RDV_STEPS.forEach(s=>{ if(q.steps[s].rendezvous?.groupe===gid) out.push({q,s}); })); return out; }
+const rdvCandidates = q => RDV_STEPS.filter(s=>!q.steps[s].done && !skipped(q,s));
+function rdvLinks(c,p,id){
+  const r=p.steps[id].rendezvous, others=projList(c).filter(q=>q.id!==p.id), defs=stepDefs();
+  if(!others.length) return "";
+  const members=groupMembers(c,r.groupe);
+  const rows=others.map(q=>{
+    const m=members.find(x=>x.q.id===q.id);
+    const cands=rdvCandidates(q); if(!m && !cands.length) return "";
+    const selStep = m ? m.s : (cands.includes(id) ? id : cands[0]);
+    const opts=(m?[m.s]:cands).map(sid=>`<option value="${sid}" ${sid===selStep?"selected":""}>${STEP_IDS.indexOf(sid)+1}. ${esc(defs[STEP_IDS.indexOf(sid)].t)}</option>`).join("");
+    return `<div class="link-row">
+      <label class="toggle" style="margin:0"><input type="checkbox" data-rdv-link="${p.id}|${id}|${q.id}" ${m?"checked":""}> ${esc(projLabel(c,q))}</label>
+      <select id="lk-${p.id}-${id}-${q.id}" ${m?"disabled":""} aria-label="Étape du projet ${esc(projLabel(c,q))}">${opts}</select></div>`;
+  }).join("");
+  if(!rows) return "";
+  return `<div class="rdv-links"><div class="muted">Même rendez-vous pour d’autres projets du client :</div>${rows}</div>`;
+}
 function rdvBlock(c,p,id){
   const r=p.steps[id].rendezvous, b=`projets.${p.id}.steps.${id}.rendezvous`, key=`${p.id}|${id}`;
-  const hist=r.historique||[];
+  const hist=r.historique||[], defs=stepDefs();
+  const others=groupMembers(c,r.groupe).filter(m=>!(m.q.id===p.id&&m.s===id));
+  const common = others.length ? `<div class="rdv-common">🔗 RDV commun avec ${others.map(m=>`<b>${esc(projLabel(c,m.q))}</b> (${STEP_IDS.indexOf(m.s)+1}. ${esc(defs[STEP_IDS.indexOf(m.s)].t)})`).join(", ")}</div>` : "";
   const histHtml = hist.length ? `<details class="rdv-hist"><summary>Historique des modifications (${hist.length})</summary><ul>
       ${hist.slice().reverse().map(h=>`<li>RDV ${h.valide?`validé le ${fmtDT(h.valide)}`:`prévu le ${fmtDT(h.prevu)}`}${h.lieu?` – ${esc(h.lieu)}`:""}
         <span class="muted">modifié le ${fmtDT(h.at)}${h.by?` par ${esc(h.by.split("@")[0])}`:""}${h.motif?` : ${esc(h.motif)}`:""}</span></li>`).join("")}</ul></details>` : "";
@@ -888,11 +940,13 @@ function rdvBlock(c,p,id){
     return `<div class="rdv rdv-ok">
       <div class="rdv-main"><span class="rdv-badge">RDV validé</span>
         <div><b>${fmtDT(r.valide)}</b>${r.lieu?` – ${esc(r.lieu)}`:""}</div>
-        ${r.prevu && r.prevu!==r.valide?`<div class="muted">Prévu initialement le ${fmtDT(r.prevu)}</div>`:""}</div>
-      <button class="btn small" data-rdv-mod="${key}">Modifier le RDV</button>
-    </div>${histHtml}`;
+        ${r.prevu && r.prevu!==r.valide?`<div class="muted">Prévu initialement le ${fmtDT(r.prevu)}</div>`:""}
+        ${common}</div>
+      <button class="btn small" data-rdv-mod="${key}">Modifier le RDV${others.length?" (pour tous)":""}</button>
+    </div>${rdvLinks(c,p,id)}${histHtml}`;
   }
   return `<div class="rdv">
+    ${common}
     <div class="grid-4">
       ${fi(c,`${b}.prevu`,"RDV prévu (jour et heure)",{type:"datetime-local"})}
       ${fi(c,`${b}.valide`,"RDV validé (jour et heure)",{type:"datetime-local",hint:"Vide : le RDV prévu est repris"})}
@@ -900,7 +954,8 @@ function rdvBlock(c,p,id){
         hint:`<span class="lieu-q"><button type="button" class="linkbtn" data-rdv-lieu="${key}" data-v="install">Adresse d’installation</button>
               <button type="button" class="linkbtn" data-rdv-lieu="${key}" data-v="Showroom STLS">Showroom</button></span>`})}
     </div>
-    <div class="rdv-actions"><button class="btn primary small" data-rdv-val="${key}">✓ Valider le RDV</button></div>
+    ${rdvLinks(c,p,id)}
+    <div class="rdv-actions"><button class="btn primary small" data-rdv-val="${key}">✓ Valider le RDV${others.length?" pour tous":""}</button></div>
   </div>${histHtml}`;
 }
 function devisBlock(c,p,sid){
@@ -1105,10 +1160,71 @@ function projetPanel(c,p){
           ${open?`<div class="st-body">${stepBody(c,p,df.id)}</div>`:""}
         </div>`; }).join("")}
     </div>
+    <div class="proj-suivi">
+      <h3 class="sub" style="margin-top:26px">Suivi du projet ${esc(projLabel(c,p))}</h3>
+      ${suiviBlock(c,p)}
+    </div>
     <div style="display:flex;justify-content:flex-end;margin-top:14px">
       <button class="btn ghost danger small" data-delproj="${p.id}">Supprimer ce projet</button>
     </div>
   </div>`;
+}
+function suiviBlock(c,p){
+  const scope=p?p.id:"gen", defs=stepDefs();
+  const mine=c.suivis.filter(s=> p ? s.projet===p.id : (!s.projet || !c.projets[s.projet]));
+  const ed = editingEntry ? mine.find(s=>s.id===editingEntry) : null;
+  const f = p ? suiviFilter : "all";
+  const list=mine.filter(s=>f==="all" || s.etape===f).sort((a,b)=>b.date.localeCompare(a.date));
+  const cur=p?currentStep(p):-1;
+  const etapeSel = p ? `<div class="field"><label for="s-etape-${scope}">Étape concernée</label>
+      <select id="s-etape-${scope}"><option value="g">Général du projet</option>
+      ${defs.map((df,i)=>`<option value="${df.id}" ${(ed?ed.etape===df.id:(cur>=0&&STEP_IDS[cur]===df.id))?"selected":""}>${i+1}. ${esc(df.t)}</option>`).join("")}</select></div>` : `<div></div>`;
+  return `<div class="add ${ed?"editing":""}" id="addForm-${scope}">
+      <div class="field"><label for="s-date-${scope}">Date et heure</label><input id="s-date-${scope}" type="datetime-local" value="${ed?ed.date:nowLocal()}"></div>
+      <div class="field"><label for="s-type-${scope}">Type de contact</label>
+        <select id="s-type-${scope}">${SUIVI_TYPES.map(t=>`<option ${ed&&ed.type===t?"selected":""}>${t}</option>`).join("")}</select></div>
+      ${etapeSel}
+      <div class="field note-wrap"><label for="s-note-${scope}">Compte rendu</label>
+        <textarea id="s-note-${scope}" placeholder="Ce qui a été dit, la prochaine action…">${esc(ed?ed.note:"")}</textarea></div>
+      <div class="add-actions">
+        ${ed?`<button class="btn" data-cancel-edit>Annuler</button>`:""}
+        <button class="btn primary" data-add-entry="${scope}">${ed?"Enregistrer la modification":"Ajouter au suivi"}</button>
+      </div>
+    </div>
+    ${p&&mine.length?`<div class="filters" role="group" aria-label="Filtrer le suivi par étape">
+      <button class="chip" data-filter="all" aria-pressed="${f==="all"}">Tout (${mine.length})</button>
+      ${mine.some(s=>s.etape==="g")?`<button class="chip" data-filter="g" aria-pressed="${f==="g"}">Général (${mine.filter(s=>s.etape==="g").length})</button>`:""}
+      ${STEP_IDS.filter(id=>mine.some(s=>s.etape===id)).map(id=>`<button class="chip" data-filter="${id}" aria-pressed="${f===id}">Étape ${STEP_IDS.indexOf(id)+1} (${mine.filter(s=>s.etape===id).length})</button>`).join("")}
+    </div>`:""}
+    ${list.length?`<ol class="journal">${list.map(s=>`<li class="entry">
+        <div class="entry-head">
+          <span class="entry-date">${fmtDT(s.date)}</span>
+          <span class="tag">${esc(s.type)}</span>
+          ${p?`<span class="tag">${s.etape==="g"?"Général":`Étape ${STEP_IDS.indexOf(s.etape)+1}`}</span>`:""}
+          ${s.by?`<span class="tag">${esc(s.by.split("@")[0])}</span>`:""}
+          <span class="entry-actions">
+            <button class="btn ghost" data-edit="${s.id}">Modifier</button>
+            <button class="btn ghost danger" data-del="${s.id}">Supprimer</button>
+          </span>
+        </div>
+        ${s.note?`<div class="entry-note">${esc(s.note)}</div>`:""}</li>`).join("")}</ol>`
+      : `<p class="journal-empty">${mine.length?"Aucun contact pour cette étape.":"Aucun contact noté."}</p>`}`;
+}
+function rdvOverview(c){
+  const seen=new Set(), rows=[];
+  projList(c).forEach(q=>RDV_STEPS.forEach(sid=>{
+    const r=q.steps[sid].rendezvous, d=r.valide||r.prevu; if(!d || skipped(q,sid)) return;
+    if(r.groupe){ if(seen.has(r.groupe)) return; seen.add(r.groupe); }
+    const members = r.groupe ? groupMembers(c,r.groupe) : [{q,s:sid}];
+    rows.push({d, ok:!!r.valide, lieu:r.lieu, who:members.map(m=>`${projLabel(c,m.q)} (${stepDefs()[STEP_IDS.indexOf(m.s)].t})`), grouped:!!r.groupe});
+  }));
+  const now=nowLocal();
+  const next=rows.filter(x=>x.d>=now.slice(0,10)).sort((a,b)=>a.d.localeCompare(b.d));
+  if(!next.length) return "";
+  const days={}; next.forEach(x=>{ const k=x.d.slice(0,10); days[k]=(days[k]||0)+1; });
+  return `<div class="rdv-over"><div class="muted" style="margin-bottom:4px">Prochains rendez-vous du client</div><ul>
+    ${next.map(x=>`<li><b>${fmtDT(x.d)}</b> ${x.ok?"":"<span class=\"tag\">à valider</span>"} – ${esc(x.who.join(" + "))}${x.lieu?` – ${esc(x.lieu)}`:""}
+      ${x.grouped?`<span class="tag tag-ok">RDV commun</span>`:days[x.d.slice(0,10)]>1?`<span class="tag tag-warn">même jour qu’un autre RDV : à regrouper ?</span>`:""}</li>`).join("")}</ul></div>`;
 }
 function suiviLabel(c,s){
   if(s.etape==="g" && !s.projet) return "Général";
@@ -1121,12 +1237,6 @@ function renderFiche(c){
   if(!selProj && ps.length) selProj=ps[0].id;
   const p=curProj(c);
   const tels=[c.c1,c.c2].filter(x=>x.tel).map(x=>`<a href="tel:${esc(x.tel.replace(/[^\d+]/g,""))}">${esc(x.tel)}</a>`).join(" ");
-  const ed = editingEntry ? c.suivis.find(s=>s.id===editingEntry) : null;
-  const matchF = s => suiviFilter==="all" || (suiviFilter==="g" ? !s.projet : (suiviFilter.includes("|") ? `${s.projet}|${s.etape}`===suiviFilter : s.projet===suiviFilter));
-  const suivis=c.suivis.filter(matchF).sort((a,b)=>b.date.localeCompare(a.date));
-  const fp = suiviFilter!=="all" && suiviFilter!=="g" ? suiviFilter.split("|")[0] : null;
-  const defs=stepDefs();
-  const cible = ed ? `${ed.projet||""}|${ed.etape}` : (p ? `${p.id}|${STEP_IDS[Math.max(0,currentStep(p))]}` : "|g");
   const planning=ps.filter(x=>x.installation.prevue).sort((a,b)=>a.installation.prevue.localeCompare(b.installation.prevue));
 
   return `<div class="sheet">
@@ -1138,7 +1248,7 @@ function renderFiche(c){
       </div>
       <div class="top-actions">
         <button class="btn primary" id="mailBtn">Envoyer par mail</button>
-        <button class="btn" id="exportBtn">Exporter</button>
+        <button class="btn" id="exportBtn">Exporter en PDF</button>
         <button class="btn danger" id="delBtn">Supprimer</button>
       </div>
     </div>
@@ -1174,6 +1284,7 @@ function renderFiche(c){
     <section class="block">
       <div class="route-head"><h2 style="margin:0">Projets</h2>
         ${planning.length>1?`<div class="muted">Installations : ${planning.map(x=>`${esc(projLabel(c,x))} le ${fmtD(x.installation.prevue)}`).join(", puis ")}</div>`:""}</div>
+      ${rdvOverview(c)}
       <div class="tabs" role="tablist" style="margin-top:12px">
         ${ps.map(x=>{ const i=currentStep(x); return `<button class="tab" role="tab" data-proj="${x.id}" aria-selected="${p&&x.id===p.id}">
           <span class="tab-t">${esc(projLabel(c,x))}</span>
@@ -1188,44 +1299,9 @@ function renderFiche(c){
     </section>
 
     <section class="block">
-      <h2>Suivi</h2>
-      <div class="add ${ed?"editing":""}" id="addForm">
-        <div class="field"><label for="s-date">Date et heure</label><input id="s-date" type="datetime-local" value="${ed?ed.date:nowLocal()}"></div>
-        <div class="field"><label for="s-type">Type de contact</label>
-          <select id="s-type">${SUIVI_TYPES.map(t=>`<option ${ed&&ed.type===t?"selected":""}>${t}</option>`).join("")}</select></div>
-        <div class="field"><label for="s-cible">Projet et étape</label>
-          <select id="s-cible"><option value="|g">Général</option>
-            ${ps.map(x=>`<optgroup label="${esc(projLabel(c,x))}"><option value="${x.id}|g" ${cible===`${x.id}|g`?"selected":""}>${esc(projLabel(c,x))} – général</option>
-              ${defs.map((df,i)=>`<option value="${x.id}|${df.id}" ${cible===`${x.id}|${df.id}`?"selected":""}>${i+1}. ${esc(df.t)}</option>`).join("")}</optgroup>`).join("")}
-          </select></div>
-        <div class="field note-wrap"><label for="s-note">Compte rendu</label>
-          <textarea id="s-note" placeholder="Ce qui a été dit, la prochaine action…">${esc(ed?ed.note:"")}</textarea></div>
-        <div class="add-actions">
-          ${ed?`<button class="btn" id="cancelEdit">Annuler</button>`:""}
-          <button class="btn primary" id="addEntry">${ed?"Enregistrer la modification":"Ajouter au suivi"}</button>
-        </div>
-      </div>
-      <div class="filters" role="group" aria-label="Filtrer le suivi">
-        <button class="chip" data-filter="all" aria-pressed="${suiviFilter==="all"}">Tout (${c.suivis.length})</button>
-        ${c.suivis.some(s=>!s.projet)?`<button class="chip" data-filter="g" aria-pressed="${suiviFilter==="g"}">Général (${c.suivis.filter(s=>!s.projet).length})</button>`:""}
-        ${ps.filter(x=>c.suivis.some(s=>s.projet===x.id)).map(x=>`<button class="chip" data-filter="${x.id}" aria-pressed="${fp===x.id}">${esc(projLabel(c,x))} (${c.suivis.filter(s=>s.projet===x.id).length})</button>`).join("")}
-      </div>
-      ${fp?`<div class="filters" role="group" aria-label="Filtrer par étape">
-        ${STEP_IDS.filter(id=>c.suivis.some(s=>s.projet===fp&&s.etape===id)).map(id=>`<button class="chip" data-filter="${fp}|${id}" aria-pressed="${suiviFilter===`${fp}|${id}`}">Étape ${STEP_IDS.indexOf(id)+1} (${c.suivis.filter(s=>s.projet===fp&&s.etape===id).length})</button>`).join("")}
-      </div>`:""}
-      ${suivis.length?`<ol class="journal">${suivis.map(s=>`<li class="entry">
-          <div class="entry-head">
-            <span class="entry-date">${fmtDT(s.date)}</span>
-            <span class="tag">${esc(s.type)}</span>
-            <span class="tag">${esc(suiviLabel(c,s))}</span>
-            ${s.by?`<span class="tag">${esc(s.by.split("@")[0])}</span>`:""}
-            <span class="entry-actions">
-              <button class="btn ghost" data-edit="${s.id}">Modifier</button>
-              <button class="btn ghost danger" data-del="${s.id}">Supprimer</button>
-            </span>
-          </div>
-          ${s.note?`<div class="entry-note">${esc(s.note)}</div>`:""}</li>`).join("")}</ol>`
-        : `<p class="journal-empty">${c.suivis.length?"Aucun contact pour ce filtre.":"Aucun contact noté. Ajoutez le premier ci-dessus."}</p>`}
+      <h2>Suivi général du client</h2>
+      <p class="route-hint" style="margin:-6px 0 12px">Contacts qui ne concernent pas un projet en particulier. Le suivi de chaque projet se trouve sous le projet.</p>
+      ${suiviBlock(c,null)}
     </section>
   </div>`;
 }
@@ -1330,15 +1406,24 @@ $("#main").addEventListener("input", e=>{
   if(el.dataset.fmt==="siret"){ const p=el.selectionStart, before=el.value.length; el.value=fmtSiret(el.value); try{ el.setSelectionRange(p+(el.value.length-before),p+(el.value.length-before)); }catch(_){} }
   if(el.dataset.fmt==="tva"){ el.value=fmtTva(el.value); }
   const p=el.dataset.p; if(!p || el.tagName==="SELECT" || el.type==="checkbox" || el.dataset.nolive!==undefined) return;
-  const v=readVal(el); setP(c,p,v); queue(c,p,v);
+  const v=readVal(el);
+  const m=p.match(RDV_RE);
+  if(m) setRdvField(c,m[1],m[2],m[3],v); else { setP(c,p,v); queue(c,p,v); }
   if(/^c[12]\./.test(p)) renderList();
 });
+const RDV_RE=/^projets\.([^.]+)\.steps\.(s\d)\.rendezvous\.(prevu|valide|lieu)$/;
+function setRdvField(c,pid,sid,field,v){
+  const r=c.projets[pid].steps[sid].rendezvous; r[field]=v; queue(c,`projets.${pid}.steps.${sid}.rendezvous.${field}`,v);
+  groupMembers(c,r.groupe).forEach(({q,s})=>{ if(q.id===pid&&s===sid) return;
+    q.steps[s].rendezvous[field]=v; queue(c,`projets.${q.id}.steps.${s}.rendezvous.${field}`,v); });
+}
 $("#main").addEventListener("change", e=>{
   const el=e.target;
   if(selId==="__params"){ paramChange(el); return; }
   const c=current(); if(!c) return;
   const p0=curProj(c);
   if(el.dataset.up){ uploadDocs(c, el.dataset.up, [...el.files]); el.value=""; return; }
+  if(el.dataset.rdvLink){ const [pid,sid,qid]=el.dataset.rdvLink.split("|"); lierRdv(c,pid,sid,qid,el.checked); return; }
   if(el.dataset.nbcmd!==undefined){ setCmdCount(c, c.projets[el.dataset.nbcmd], Math.max(0,Math.min(20,parseInt(el.value)||0))); return; }
   if(el.dataset.done && p0){
     const sid=el.dataset.done, s=p0.steps[sid]; s.done=el.checked; s.date=el.checked?(s.date||today()):"";
@@ -1438,12 +1523,12 @@ $("#main").addEventListener("click", async e=>{
     }
     return;
   }
-  if(t.closest("#exportBtn")){ exportTxt(c); return; }
+  if(t.closest("#exportBtn")){ flushPending(); openPdf(c); return; }
   if(t.closest("#mailBtn")){ flushPending(); openMail(c); return; }
 
   // projets
   const tb=t.closest("[data-proj]");
-  if(tb){ flushPending(); selProj=tb.dataset.proj; addingProject=false; openStep=null; suiviFilter="all"; rerenderKeep(); return; }
+  if(tb){ flushPending(); selProj=tb.dataset.proj; addingProject=false; openStep=null; suiviFilter="all"; editingEntry=null; rerenderKeep(); return; }
   if(t.closest("[data-addproj]")){ addingProject=!addingProject; rerenderKeep(); return; }
   const np=t.closest("[data-newproj]");
   if(np){ addProjet(c, np.dataset.newproj); return; }
@@ -1459,7 +1544,7 @@ $("#main").addEventListener("click", async e=>{
     await updateFields(c.id,{[`projets.${pr.id}`]:deleteField()});
     selProj=null; openStep=null; rerenderKeep(); renderList(); toast("Projet supprimé"); return; }
 
-  if(!p && !t.closest("[data-filter],#addEntry,#cancelEdit,[data-edit],[data-del],[data-set],[data-tvasug]")) return;
+  if(!p && !t.closest("[data-filter],[data-add-entry],[data-cancel-edit],[data-edit],[data-del],[data-set],[data-tvasug]")) return;
 
   const g=t.closest("[data-goto]");
   if(g){ openStep=g.dataset.goto; renderMain(); document.getElementById("st-"+openStep)?.scrollIntoView({behavior:"smooth",block:"start"}); return; }
@@ -1489,7 +1574,7 @@ $("#main").addEventListener("click", async e=>{
   const rl=t.closest("[data-rdv-lieu]");
   if(rl){ const [pid,sid]=rl.dataset.rdvLieu.split("|"), v = rl.dataset.v==="install" ? addrText(c.install) : rl.dataset.v;
     if(!v){ toast("Renseignez d’abord l’adresse d’installation."); return; }
-    c.projets[pid].steps[sid].rendezvous.lieu=v; queue(c,`projets.${pid}.steps.${sid}.rendezvous.lieu`,v); flushPending(); rerenderKeep(); return; }
+    setRdvField(c,pid,sid,"lieu",v); flushPending(); rerenderKeep(); return; }
   const sd=t.closest("[data-send-devis]");
   if(sd){ flushPending(); openMail(c,"devis",c.projets[sd.dataset.sendDevis]); return; }
   const pa=t.closest("[data-print-ar]");
@@ -1497,9 +1582,11 @@ $("#main").addEventListener("click", async e=>{
 
   const fl=t.closest("[data-filter]");
   if(fl){ suiviFilter=fl.dataset.filter; rerenderKeep(); return; }
-  if(t.closest("#addEntry")){
-    const date=$("#s-date").value||nowLocal(), type=$("#s-type").value, note=$("#s-note").value.trim();
-    const [projet,etape]=$("#s-cible").value.split("|");
+  const ae=t.closest("[data-add-entry]");
+  if(ae){
+    const sc=ae.dataset.addEntry, projet= sc==="gen" ? "" : sc;
+    const date=$(`#s-date-${sc}`).value||nowLocal(), type=$(`#s-type-${sc}`).value, note=$(`#s-note-${sc}`).value.trim();
+    const etape= projet ? $(`#s-etape-${sc}`).value : "g";
     flushPending();
     if(editingEntry){
       const s=c.suivis.find(x=>x.id===editingEntry); if(s) Object.assign(s,{date,type,projet,etape,note});
@@ -1510,9 +1597,11 @@ $("#main").addEventListener("click", async e=>{
     }
     rerenderKeep(); renderList(); return;
   }
-  if(t.closest("#cancelEdit")){ editingEntry=null; rerenderKeep(); return; }
+  if(t.closest("[data-cancel-edit]")){ editingEntry=null; rerenderKeep(); return; }
   const eb=t.closest("button[data-edit]");
-  if(eb){ editingEntry=eb.dataset.edit; renderMain(); $("#addForm").scrollIntoView({block:"center"}); $("#s-note").focus(); return; }
+  if(eb){ editingEntry=eb.dataset.edit; const en=c.suivis.find(x=>x.id===editingEntry);
+    const sc = en && en.projet && c.projets[en.projet] ? en.projet : "gen";
+    renderMain(); document.getElementById(`addForm-${sc}`)?.scrollIntoView({block:"center"}); document.getElementById(`s-note-${sc}`)?.focus(); return; }
   const db_=t.closest("button[data-del]");
   if(db_ && confirm("Supprimer ce contact du suivi ?")){
     const entry=c.suivis.find(s=>s.id===db_.dataset.del);
@@ -1529,26 +1618,56 @@ function logSuivi(c, projet, etape, note, type="Rendez-vous"){
   c.suivis.push(entry); return updateFields(c.id,{suivis:arrayUnion(entry)});
 }
 function stepLabel(c,p,id){ const i=STEP_IDS.indexOf(id); return `${projLabel(c,p)}, étape ${i+1} (${stepDefs()[i].t})`; }
+function rdvTargets(c,p,id){ const r=p.steps[id].rendezvous; const m=groupMembers(c,r.groupe); return m.length?m:[{q:p,s:id}]; }
 async function validerRdv(c,p,id){
-  const r=p.steps[id].rendezvous, b=`projets.${p.id}.steps.${id}.rendezvous`;
+  const r=p.steps[id].rendezvous;
   const v=r.valide||r.prevu;
   if(!v){ toast("Indiquez le jour et l’heure du RDV."); return; }
-  r.valide=v; if(!r.prevu) r.prevu=v;
-  await updateFields(c.id,{[`${b}.valide`]:r.valide,[`${b}.prevu`]:r.prevu,[`${b}.lieu`]:r.lieu||""});
-  logSuivi(c,p.id,id,`RDV validé (${stepLabel(c,p,id)}) : ${fmtDT(r.valide)}${r.lieu?`, ${r.lieu}`:""}.`);
+  const fields={}, targets=rdvTargets(c,p,id);
+  targets.forEach(({q,s})=>{ const x=q.steps[s].rendezvous, b=`projets.${q.id}.steps.${s}.rendezvous`;
+    x.valide=v; x.prevu=r.prevu||v; x.lieu=r.lieu||"";
+    fields[`${b}.valide`]=x.valide; fields[`${b}.prevu`]=x.prevu; fields[`${b}.lieu`]=x.lieu; });
+  await updateFields(c.id,fields);
+  targets.forEach(({q,s})=>logSuivi(c,q.id,s,`RDV validé (${stepLabel(c,q,s)}) : ${fmtDT(v)}${r.lieu?`, ${r.lieu}`:""}${targets.length>1?" – RDV commun":""}.`));
   rerenderKeep(); renderList();
 }
 async function modifierRdv(c,p,id){
-  const r=p.steps[id].rendezvous;
   const motif=prompt("Motif de la modification (facultatif) :","");
   if(motif===null) return;
-  const h={prevu:r.prevu||"",valide:r.valide||"",lieu:r.lieu||"",motif:motif.trim(),at:nowLocal(),by:me?.email||""};
-  r.historique=[...(r.historique||[]),h];
-  r.prevu=r.valide||r.prevu; r.valide="";
-  await updateFields(c.id,{[`projets.${p.id}.steps.${id}.rendezvous`]:clone(r)});
-  logSuivi(c,p.id,id,`RDV à modifier (${stepLabel(c,p,id)}), était le ${fmtDT(h.valide||h.prevu)}${h.motif?` : ${h.motif}`:""}.`);
+  const fields={}, targets=rdvTargets(c,p,id), r0=p.steps[id].rendezvous, was=r0.valide||r0.prevu;
+  targets.forEach(({q,s})=>{ const r=q.steps[s].rendezvous;
+    const h={prevu:r.prevu||"",valide:r.valide||"",lieu:r.lieu||"",motif:motif.trim(),at:nowLocal(),by:me?.email||""};
+    r.historique=[...(r.historique||[]),h]; r.prevu=r.valide||r.prevu; r.valide="";
+    fields[`projets.${q.id}.steps.${s}.rendezvous`]=clone(r); });
+  await updateFields(c.id,fields);
+  targets.forEach(({q,s})=>logSuivi(c,q.id,s,`RDV à modifier (${stepLabel(c,q,s)}), était le ${fmtDT(was)}${motif.trim()?` : ${motif.trim()}`:""}.`));
   openStep=id; rerenderKeep(); renderList();
   setTimeout(()=>document.getElementById(`f-projets-${p.id}-steps-${id}-rendezvous-prevu`)?.focus(),0);
+}
+async function lierRdv(c,pid,sid,qid,on){
+  const p=c.projets[pid], q=c.projets[qid], r=p.steps[sid].rendezvous;
+  flushPending();
+  const fields={};
+  if(on){
+    const qs=document.getElementById(`lk-${pid}-${sid}-${qid}`)?.value; if(!qs) return;
+    const gid=r.groupe||uid(); r.groupe=gid; fields[`projets.${pid}.steps.${sid}.rendezvous.groupe`]=gid;
+    const t=q.steps[qs].rendezvous;
+    if((t.prevu||t.valide) && (t.prevu!==r.prevu || t.valide!==r.valide) &&
+       !confirm(`Le projet ${projLabel(c,q)} avait déjà un RDV (${fmtDT(t.valide||t.prevu)}). Le remplacer par celui-ci ?`)){ rerenderKeep(); return; }
+    if(t.prevu||t.valide) t.historique=[...(t.historique||[]),{prevu:t.prevu,valide:t.valide,lieu:t.lieu,motif:"Regroupé avec "+projLabel(c,p),at:nowLocal(),by:me?.email||""}];
+    Object.assign(t,{prevu:r.prevu,valide:r.valide,lieu:r.lieu,groupe:gid});
+    fields[`projets.${qid}.steps.${qs}.rendezvous`]=clone(t);
+    await updateFields(c.id,fields);
+    logSuivi(c,qid,qs,`RDV regroupé avec ${stepLabel(c,p,sid)}${r.valide||r.prevu?` : ${fmtDT(r.valide||r.prevu)}`:""}.`);
+  } else {
+    const m=groupMembers(c,r.groupe).find(x=>x.q.id===qid); if(!m) return;
+    m.q.steps[m.s].rendezvous.groupe=""; fields[`projets.${qid}.steps.${m.s}.rendezvous.groupe`]="";
+    const rest=groupMembers(c,r.groupe);
+    if(rest.length<=1) rest.forEach(x=>{ x.q.steps[x.s].rendezvous.groupe=""; fields[`projets.${x.q.id}.steps.${x.s}.rendezvous.groupe`]=""; });
+    await updateFields(c.id,fields);
+    logSuivi(c,qid,m.s,`RDV séparé de ${stepLabel(c,p,sid)}.`);
+  }
+  rerenderKeep(); renderList();
 }
 
 /* ---------- Demande de modification d'AR ---------- */
@@ -1626,12 +1745,6 @@ function toText(c, what="full"){
   L.push("—",STLS.nom);
   return L.join("\n");
 }
-function exportTxt(c){
-  const blob=new Blob([toText(c,"full")],{type:"text/plain;charset=utf-8"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`fiche-client-${slug(nomFiche(c)||"client")}.txt`;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-}
-
 /* ---------- Fenêtre d'envoi ---------- */
 const dlg=$("#mailDlg");
 let mailMode="fiche", mailProj=null;
@@ -1708,6 +1821,150 @@ $("#m-send").addEventListener("click", ()=>{
   window.location.href=url; dlg.close(); rerenderKeep(); renderList();
 });
 
+/* ---------- Export PDF (version client / version interne) ---------- */
+const PDF_LIBS=["https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+                "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"];
+function loadScript(src){ return new Promise((ok,ko)=>{ const s=document.createElement("script"); s.src=src; s.onload=ok; s.onerror=()=>ko(new Error(src)); document.head.appendChild(s); }); }
+async function loadPdfLib(){
+  if(window.jspdf?.jsPDF?.API?.autoTable) return;
+  if(!window.jspdf) await loadScript(PDF_LIBS[0]);
+  if(!window.jspdf.jsPDF.API.autoTable) await loadScript(PDF_LIBS[1]);
+}
+// Les polices standard du PDF ne connaissent que l'alphabet latin : on nettoie le texte.
+const PT = s => String(s??"").replace(/[\u202F\u00A0\u2009]/g," ").replace(/[^\x09\x0A\x20-\x7E\xA0-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/g,"");
+const peur = n => PT(eur(n));
+
+function buildPdf(c, version, pids){
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF({unit:"mm",format:"a4"});
+  const interne = version==="interne";
+  const W=210, M=15, ink=[24,33,44], ochre=[217,151,28], grey=[110,120,130];
+  let y=M;
+  const ensure=h=>{ if(y+h>282){ pdf.addPage(); y=M; } };
+  const text=(t,x,o={})=>{ pdf.setFont("helvetica",o.bold?"bold":"normal"); pdf.setFontSize(o.size||10); pdf.setTextColor(...(o.color||ink));
+    const lines=pdf.splitTextToSize(PT(t), o.w||(W-2*M)); ensure(lines.length*(o.lh||4.6)); pdf.text(lines,x,y); y+=lines.length*(o.lh||4.6); };
+  const h2=t=>{ ensure(14); y+=3; pdf.setFillColor(...ochre); pdf.rect(M,y-4.2,1.6,6,"F"); text(t,M+4,{bold:true,size:13}); y+=1.5; };
+  const h3=t=>{ ensure(10); y+=2; text(t,M,{bold:true,size:10.5,color:grey}); y+=0.5; };
+  const table=(head,body,o={})=>{ if(!body.length) return; pdf.autoTable({startY:y, head:head?[head.map(PT)]:undefined, body:body.map(r=>r.map(PT)), foot:o.foot?[o.foot.map(PT)]:undefined,
+      margin:{left:M,right:M}, theme:o.theme||"grid", styles:{font:"helvetica",fontSize:9,cellPadding:1.8,textColor:ink,lineColor:[205,211,217],lineWidth:0.2},
+      headStyles:{fillColor:[233,236,239],textColor:ink,fontStyle:"bold"}, footStyles:{fillColor:[244,246,248],textColor:ink,fontStyle:"bold"},
+      columnStyles:o.cols||{},
+      didParseCell:dd=>{ if(o.right && o.right.includes(dd.column.index)) dd.cell.styles.halign="right"; } });
+    y=pdf.lastAutoTable.finalY+4; };
+  const kv=rows=>table(null, rows.filter(r=>r[1]), {theme:"plain", cols:{0:{fontStyle:"bold",cellWidth:48}}});
+
+  // En-tête
+  pdf.setFont("helvetica","bold"); pdf.setFontSize(16); pdf.setTextColor(...ink); pdf.text(STLS.nom, M, y+4);
+  pdf.setFont("helvetica","normal"); pdf.setFontSize(8.5); pdf.setTextColor(...grey);
+  pdf.text(PT([STLS.adresse, `Tél. ${STLS.tel} – ${STLS.mail}`, `SIRET ${STLS.siret} – TVA ${STLS.tva}`].join("\n")), M, y+9);
+  pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.setTextColor(...ink);
+  pdf.text(PT(interne?"FICHE CLIENT – DOCUMENT INTERNE":"FICHE PROJET"), W-M, y+4, {align:"right"});
+  pdf.setFont("helvetica","normal"); pdf.setFontSize(9); pdf.setTextColor(...grey);
+  pdf.text(PT(`Édité le ${fmtD(today())}`), W-M, y+9, {align:"right"});
+  if(interne){ pdf.setTextColor(179,38,30); pdf.setFont("helvetica","bold"); pdf.text("Confidentiel – ne pas transmettre au client", W-M, y+14, {align:"right"}); }
+  y+=24; pdf.setDrawColor(...ochre); pdf.setLineWidth(0.6); pdf.line(M,y,W-M,y); y+=6;
+
+  // Client
+  h2(nomFiche(c)||c.raisonSociale||"Client");
+  kv([
+    ...[c.c1,c.c2].filter(p=>p.nom||p.prenom).map((p,i)=>[i?"Contact 2":"Contact", [personne(p),p.tel,p.mail].filter(Boolean).join("  –  ")]),
+    ["Adresse d’installation", addrText(c.install)],
+    ["Type de bien", c.typeBien],
+    ["Adresse de facturation", c.factDiff?addrText(c.fact):""],
+    ["Entreprise", c.entreprise?[c.raisonSociale, c.siret&&`SIRET ${c.siret}`, c.tvaIntra&&`TVA ${c.tvaIntra}`].filter(Boolean).join("  –  "):""],
+    ...(interne?[["Parrain", c.parrain],["Notes", c.notes]]:[])
+  ]);
+
+  const defs=stepDefs(), projs=projList(c).filter(p=>pids.includes(p.id)), synth=[];
+  projs.forEach(p=>{
+    const s1=p.steps.s1, r=reglements(p), com=commission(c,p);
+    const useDef=calcDevis(p,p.steps.s4).has, st=useDef?p.steps.s4:p.steps.s2, d=calcDevis(p,st);
+    ensure(40); y+=2;
+    h2(`Projet ${projLabel(c,p)}${p.libelle?` (${p.type})`:""}`);
+    kv([["Installation prévue", p.installation.prevue?fmtD(p.installation.prevue):"À définir"],
+        ["Date prévue du projet", s1.datePrevue?fmtD(s1.datePrevue):""],
+        ["Budget indiqué", num(s1.budget)!=null?`${peur(num(s1.budget))} TTC`:""],
+        ...(interne&&p.installation.historique.length?[["Décalages", p.installation.historique.map(h=>`${h.de?fmtD(h.de):"?"} → ${h.a?fmtD(h.a):"?"}${h.motif?` (${h.motif})`:""}`).join(" ; ")]]:[])]);
+    const def=P.types.find(x=>x.nom===p.type);
+    const rubs=(def?.rubriques||["Description"]).map(rb=>{ const v=s1.rub?.[slug(rb)]; return v&&(v.texte||v.comment) ? [rb, [v.texte, v.comment&&`Commentaire : ${v.comment}`].filter(Boolean).join("\n")] : null; }).filter(Boolean);
+    if(rubs.length){ h3("Description du projet"); table(["Rubrique","Détail"], rubs, {cols:{0:{cellWidth:42,fontStyle:"bold"}}}); }
+    if(d.has){
+      h3(`Devis ${useDef?"définitif":"prévu"}${st.numero?` n° ${st.numero}`:""}`);
+      table(["Poste","TVA","HT","Montant TVA","TTC"], d.lines.filter(l=>l.ttc!=null).map(l=>[l.label,pctTxt(l.rate),peur(l.ht),peur(l.tva),peur(l.ttc)]),
+        {foot:["Total","",peur(d.ht),peur(d.tva),peur(d.ttc)], right:[1,2,3,4]});
+      h3("Échéancier de règlement");
+      const ech=[["Acompte à la validation",P.pctAcompte,r.a,p.steps.s4],["À la livraison",P.pctLivraison,r.l,p.steps.s8],["Solde à l’installation",P.pctSolde,r.s,p.steps.s9]];
+      table(["Échéance","%","Montant TTC","Statut"], ech.map(([l,pc,m,stp])=>[l,`${pc} %`,peur(m),stp.done?`Réglé${stp.date?` le ${fmtD(stp.date)}`:""}`:"À venir"]),
+        {foot:["Reste à régler","",peur(r.reste),""], right:[1,2]});
+    }
+    const rdvs=RDV_STEPS.filter(sid=>!skipped(p,sid)).map(sid=>{ const rv=p.steps[sid].rendezvous, dt=rv.valide||rv.prevu; if(!dt) return null;
+      return [`${STEP_IDS.indexOf(sid)+1}. ${defs[STEP_IDS.indexOf(sid)].t}`, fmtDT(dt), rv.valide?"Confirmé":"À confirmer", rv.lieu||""]; }).filter(Boolean);
+    if(rdvs.length){ h3("Rendez-vous"); table(["Étape","Date","Statut","Lieu"], rdvs); }
+    h3("Avancement");
+    table(["Étape","Statut"], defs.map((df,i)=>{ const x=p.steps[df.id];
+      return [`${i+1}. ${df.t}`, skipped(p,df.id)?"Sans objet":x.done?`Réalisé${x.date?` le ${fmtD(x.date)}`:""}`:(currentStep(p)===i?"En cours":"À venir")]; }), {cols:{0:{cellWidth:80}}});
+    if(interne){
+      if(c.parrain){ h3("Parrainage (confidentiel)");
+        kv([["Parrain", c.parrain],["Commission", com?`${pctTxt(com.pct)} de ${peur(com.base)} HT de matériel, soit ${peur(com.montant)}`:"Taux non renseigné"]]); }
+      if(p.commandes.length){ h3("Commandes fournisseurs");
+        table(["Fournisseur","N°","Commandé","Livraison prévue","Reçu","AR"], p.commandes.map(x=>[x.fournisseur||"",x.numero||"",fmtD(x.dateCommande),fmtD(x.dateLivPrevue),fmtD(x.dateReception),x.arOk?"Conforme":"À vérifier"])); }
+      const sv=c.suivis.filter(x=>x.projet===p.id).sort((a,b)=>b.date.localeCompare(a.date));
+      if(sv.length){ h3("Suivi du projet");
+        table(["Date","Type","Étape","Compte rendu","Par"], sv.map(x=>[fmtDT(x.date),x.type,x.etape==="g"?"Général":String(STEP_IDS.indexOf(x.etape)+1),x.note||"",(x.by||"").split("@")[0]]),
+          {cols:{0:{cellWidth:28},1:{cellWidth:24},2:{cellWidth:14},4:{cellWidth:20}}}); }
+      synth.push([projLabel(c,p), d.has?peur(d.ht):"–", d.has?peur(d.ttc):"–", peur(r.recu), peur(r.reste), com?peur(com.montant):"–", {ht:d.has?d.ht:0, ttc:d.has?d.ttc:0, recu:r.recu, reste:r.reste, com:com?com.montant:0}]);
+    }
+  });
+  if(interne){
+    const gen=c.suivis.filter(x=>!x.projet||!c.projets[x.projet]).sort((a,b)=>b.date.localeCompare(a.date));
+    if(gen.length){ h2("Suivi général du client");
+      table(["Date","Type","Compte rendu","Par"], gen.map(x=>[fmtDT(x.date),x.type,x.note||"",(x.by||"").split("@")[0]]), {cols:{0:{cellWidth:28},1:{cellWidth:26},3:{cellWidth:20}}}); }
+    if(synth.length){
+      h2(synth.length>1?"Synthèse des projets":"Synthèse du projet");
+      const t=synth.reduce((a,x)=>{ Object.keys(a).forEach(k=>a[k]+=x[6][k]); return a; },{ht:0,ttc:0,recu:0,reste:0,com:0});
+      table(["Projet","Total HT","Total TTC","Encaissé","Reste dû","Commission"], synth.map(x=>x.slice(0,6)),
+        {foot: synth.length>1?["Cumul",peur(t.ht),peur(t.ttc),peur(t.recu),peur(t.reste),peur(t.com)]:undefined,
+         right:[1,2,3,4,5]});
+      text("Le tableau de marge (coûts d’achat, marge par projet et cumulée) viendra compléter cette synthèse.",M,{size:8.5,color:grey});
+    }
+  }
+  // Pied de page
+  const n=pdf.getNumberOfPages();
+  for(let i=1;i<=n;i++){ pdf.setPage(i); pdf.setFont("helvetica","normal"); pdf.setFontSize(8); pdf.setTextColor(...grey);
+    pdf.text(PT(`${STLS.nom} – ${nomFiche(c)||"Client"}${interne?" – document interne confidentiel":""}`), M, 290);
+    pdf.text(`Page ${i} / ${n}`, W-M, 290, {align:"right"}); }
+  return pdf;
+}
+const pdfName=(c,v)=>`Fiche-${slug(nomFiche(c)||c.raisonSociale||"client")}-${v==="interne"?"interne":"client"}.pdf`;
+
+const pdfDlg=$("#pdfDlg");
+function openPdf(c){
+  const ps=projList(c);
+  $("#pdf-projs").innerHTML = ps.length ? ps.map(p=>`<label class="toggle" style="margin:0 0 4px"><input type="checkbox" value="${p.id}" checked> ${esc(projLabel(c,p))}</label>`).join("")
+    : `<p class="muted">Aucun projet : seule la partie client sera exportée.</p>`;
+  document.querySelector('input[name="pdf-v"][value="client"]').checked=true;
+  $("#pdf-share").hidden = !(navigator.canShare && navigator.canShare({files:[new File([""],"t.pdf",{type:"application/pdf"})]}));
+  $("#pdf-err").textContent="";
+  pdfDlg.showModal();
+}
+async function makePdf(){
+  const c=current(); if(!c) return null;
+  const v=document.querySelector('input[name="pdf-v"]:checked').value;
+  const pids=[...document.querySelectorAll("#pdf-projs input:checked")].map(i=>i.value);
+  $("#pdf-err").textContent="Préparation du PDF…";
+  try{ await loadPdfLib(); }catch(e){ $("#pdf-err").textContent="Impossible de charger le module PDF : vérifiez la connexion internet."; return null; }
+  try{ const pdf=buildPdf(c,v,pids); $("#pdf-err").textContent=""; return {pdf, name:pdfName(c,v), v}; }
+  catch(e){ console.error(e); $("#pdf-err").textContent="Erreur pendant la création du PDF."; return null; }
+}
+$("#pdf-cancel").addEventListener("click", ()=>pdfDlg.close());
+$("#pdf-dl").addEventListener("click", async ()=>{ const r=await makePdf(); if(!r) return; r.pdf.save(r.name); pdfDlg.close(); toast(`${r.name} téléchargé`); });
+$("#pdf-share").addEventListener("click", async ()=>{
+  const r=await makePdf(); if(!r) return;
+  const file=new File([r.pdf.output("blob")], r.name, {type:"application/pdf"});
+  try{ await navigator.share({files:[file], title:r.name}); pdfDlg.close();
+    const c=current(); if(c) logSuivi(c,"","g",`Fiche PDF ${r.v==="interne"?"interne":"client"} partagée.`,"Email"); }
+  catch(e){ if(e?.name!=="AbortError") $("#pdf-err").textContent="Partage impossible sur cet appareil : utilisez « Télécharger »."; }
+});
 /* ---------- Événements : paramètres ---------- */
 function paramInput(el){
   if(el.dataset.ptype!==undefined){
