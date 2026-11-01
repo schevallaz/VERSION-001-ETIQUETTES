@@ -351,7 +351,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "2.0";
+const VERSION = "2.1";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -561,34 +561,25 @@ function saveParams(now=false){
 }
 
 /* ---------- Communes (API Géo, gouvernement) ---------- */
-const geoCache = {};
-function loadCommunes(dep){
-  if(!dep || !DEPS.some(d=>d[0]===dep)) return Promise.resolve([]);
-  if(!geoCache[dep]){
-    geoCache[dep] = fetch(`https://geo.api.gouv.fr/departements/${dep}/communes?fields=nom,codesPostaux&format=json`)
-      .then(r=>r.ok?r.json():[]).catch(()=>[]);
-  }
-  return geoCache[dep];
+const geoData = {};   // département -> "loading" | [] | [{nom, codesPostaux}]
+function ensureGeo(dep){
+  if(!dep || geoData[dep]!==undefined || !DEPS.some(d=>d[0]===dep)) return;
+  geoData[dep]="loading";
+  fetch(`https://geo.api.gouv.fr/departements/${dep}/communes?fields=nom,codesPostaux&format=json`)
+    .then(r=>r.ok?r.json():[]).catch(()=>[])
+    .then(list=>{
+      geoData[dep]=Array.isArray(list)?list:[];
+      const a=document.activeElement, typing=a && $("#main").contains(a) && /INPUT|TEXTAREA/.test(a.tagName);
+      if(!typing && !dlg.open) rerenderKeep();
+    });
 }
-async function fillGeo(block){
-  const c=current(); if(!c) return;
-  const a=c[block]; if(a.pays!=="FR") return;
-  const list=await loadCommunes(a.dep);
-  const dlCp=document.getElementById(`dl-cp-${block}`), dlV=document.getElementById(`dl-ville-${block}`);
-  if(!dlCp||!dlV) return;
-  const cps=[...new Set(list.flatMap(x=>x.codesPostaux||[]))].sort();
-  dlCp.innerHTML=cps.map(v=>`<option value="${v}">`).join("");
-  const cp=(c[block].cp||"").trim();
-  const villes = cp.length===5 ? list.filter(x=>(x.codesPostaux||[]).includes(cp)) : list;
-  dlV.innerHTML=[...new Set(villes.map(x=>x.nom))].sort((a,b)=>a.localeCompare(b,"fr")).map(v=>`<option value="${esc(v)}">`).join("");
-  const hint=document.getElementById(`geo-hint-${block}`);
-  if(hint) hint.textContent = list.length ? "" : "Liste des communes indisponible : saisie libre.";
-  if(cp.length===5 && villes.length===1 && !c[block].ville){
-    c[block].ville=villes[0].nom; queue(c, `${block}.ville`, villes[0].nom);
-    const inp=document.getElementById(`f-${block}-ville`); if(inp) inp.value=villes[0].nom;
-  }
+function geoList(dep){ const g=geoData[dep]; return Array.isArray(g)?g:null; }
+function cpsOf(dep){ const l=geoList(dep)||[]; return [...new Set(l.flatMap(x=>x.codesPostaux||[]))].sort(); }
+function villesOf(dep,cp){
+  const l=geoList(dep)||[];
+  const f = cp ? l.filter(x=>(x.codesPostaux||[]).includes(cp)) : l;
+  return [...new Set(f.map(x=>x.nom))].sort((a,b)=>a.localeCompare(b,"fr"));
 }
-
 /* ---------- Documents (Firebase Storage) ---------- */
 async function compress(file){
   if(!file.type.startsWith("image/") || file.size < 1.5e6) return file;
@@ -714,15 +705,32 @@ function renderList(){
 /* ---------- Fiche ---------- */
 function addrBlock(c,b){
   const a=c[b], fr=a.pays==="FR";
+  let cpField, villeField, hint="";
+  if(fr && a.dep){
+    ensureGeo(a.dep);
+    const g=geoData[a.dep];
+    if(g==="loading" || g===undefined){
+      cpField=`<div class="field"><label>Code postal</label><select disabled><option>Chargement…</option></select></div>`;
+      villeField=`<div class="field"><label>Ville</label><select disabled><option>Chargement…</option></select></div>`;
+    } else if(g.length){
+      const cps=cpsOf(a.dep); if(a.cp && !cps.includes(a.cp)) cps.unshift(a.cp);
+      const vs=villesOf(a.dep, a.cp); if(a.ville && !vs.includes(a.ville)) vs.unshift(a.ville);
+      cpField=sel(c,`${b}.cp`,"Code postal",cps.map(v=>[v,v]),{empty:"Choisir…"});
+      villeField=sel(c,`${b}.ville`,"Ville",vs.map(v=>[v,v]),{empty:a.cp?"Choisir…":"Choisir (ou le code postal d’abord)…"});
+    } else {
+      hint="Liste des communes indisponible pour le moment : saisie libre.";
+    }
+  }
+  if(!cpField){
+    cpField=fi(c,`${b}.cp`,"Code postal",{attrs:fr?`inputmode="numeric" maxlength="5"`:`maxlength="12"`});
+    villeField=fi(c,`${b}.ville`,"Ville");
+  }
   return `<div class="grid-4">
     ${sel(c,`${b}.pays`,"Pays",PAYS.map(([k,n])=>[k,`${k} – ${n}`]),{empty:false})}
     ${fr?sel(c,`${b}.dep`,"Département",DEPS.map(([k,n])=>[k,`${k} – ${n}`]),{empty:"Choisir…"}):""}
-    ${fi(c,`${b}.cp`,"Code postal",{list:fr?`dl-cp-${b}`:"",attrs:fr?`inputmode="numeric" maxlength="5"`:`maxlength="12"`})}
-    ${fi(c,`${b}.ville`,"Ville",{list:fr?`dl-ville-${b}`:""})}
+    ${cpField}${villeField}
     ${fi(c,`${b}.adresse`,"Adresse",{cls:"span-2",ph:"N° et rue, lieu-dit…"})}
-  </div>
-  <div class="hint" id="geo-hint-${b}" style="font-size:12px;color:var(--ink-3)"></div>
-  <datalist id="dl-cp-${b}"></datalist><datalist id="dl-ville-${b}"></datalist>`;
+  </div>${hint?`<div class="hint" style="font-size:12px;color:var(--ink-3);margin-top:4px">${hint}</div>`:""}`;
 }
 function contactRow(c,k,label){
   const p=c[k];
@@ -1074,7 +1082,6 @@ function renderMain(){
   app.classList.toggle("has-sel", !!c);
   if(!c){ main.innerHTML=`<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`; return; }
   main.innerHTML=renderFiche(c);
-  fillGeo("install"); if(c.factDiff) fillGeo("fact");
 }
 function rerenderKeep(){
   const a=document.activeElement, id=a?.id, pos=a?.selectionStart, top=$("#main").scrollTop;
@@ -1109,7 +1116,6 @@ $("#main").addEventListener("input", e=>{
   const p=el.dataset.p; if(!p || el.tagName==="SELECT") return;
   if(el.type==="checkbox") return;
   const v=readVal(el); setP(c,p,v); queue(c,p,v);
-  if(/\.cp$/.test(p)){ const blk=p.split(".")[0]; fillGeo(blk); }
   if(/^c[12]\./.test(p)) renderList();
 });
 $("#main").addEventListener("change", e=>{
@@ -1130,6 +1136,17 @@ $("#main").addEventListener("change", e=>{
     const def=P.parrains.find(x=>x.nom===v);
     if(def && def.pct!=null){ c.commissionPct=def.pct; queue(c,"commissionPct",def.pct); }
     if(!v){ c.commissionPct=null; queue(c,"commissionPct",null); }
+  }
+  if(/^(install|fact)\.cp$/.test(p) && geoList(c[p.split(".")[0]].dep)){
+    const blk=p.split(".")[0], vs=villesOf(c[blk].dep, v);
+    const nv = vs.length===1 ? vs[0] : (vs.includes(c[blk].ville) ? c[blk].ville : "");
+    if(nv!==c[blk].ville){ c[blk].ville=nv; queue(c,`${blk}.ville`,nv); }
+  }
+  if(/^(install|fact)\.ville$/.test(p) && geoList(c[p.split(".")[0]].dep)){
+    const blk=p.split(".")[0];
+    const com=(geoList(c[blk].dep)||[]).filter(x=>x.nom===v);
+    const cps=[...new Set(com.flatMap(x=>x.codesPostaux||[]))];
+    if(cps.length===1 && c[blk].cp!==cps[0]){ c[blk].cp=cps[0]; queue(c,`${blk}.cp`,cps[0]); }
   }
   if(/\.(pays|dep)$/.test(p)){
     const blk=p.split(".")[0];
