@@ -280,6 +280,21 @@ h3.sub:first-child{margin-top:0}
   .top-actions{flex-wrap:wrap}
 }
 @media print{.side,.top-actions,.toast{display:none}}
+/* ---- v2.2 : rendez-vous, envoi du devis ---- */
+.rdv{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface-2);margin-bottom:6px}
+.rdv .field input{background:var(--surface)}
+.rdv-actions{display:flex;justify-content:flex-end;margin-top:10px}
+.rdv-ok{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-color:var(--olive);background:var(--olive-soft)}
+.rdv-main{display:flex;flex-direction:column;gap:2px}
+.rdv-badge{align-self:flex-start;font-size:12px;font-weight:600;color:var(--surface);background:var(--olive);border-radius:20px;padding:1px 9px;margin-bottom:2px}
+.muted{color:var(--ink-3);font-size:13px}
+.lieu-q{display:inline-flex;gap:12px;flex-wrap:wrap}
+.lieu-q .linkbtn{margin:0;font-size:12.5px}
+.rdv-hist{margin:4px 0 8px;font-size:13px;color:var(--ink-2)}
+.rdv-hist summary{cursor:pointer;color:var(--ink-3)}
+.rdv-hist ul{margin:6px 0 0;padding-left:18px}
+.rdv-hist li{margin-bottom:3px}
+.devis-send{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 4px}
 
 [hidden]{display:none!important}
 </style>
@@ -351,7 +366,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "2.1";
+const VERSION = "2.2";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -411,7 +426,8 @@ const DEFAULT_PARAMS = {
   parrains:[],
   poseurs:[]
 };
-const SUIVI_TYPES = ["Appel","Message répondeur","SMS","Email","RDV showroom","Visite sur place","Autre"];
+const SUIVI_TYPES = ["Appel","Message répondeur","SMS","Email","Rendez-vous","RDV showroom","Visite sur place","Autre"];
+const RDV_STEPS = ["s1","s2","s3","s4","s7","s8","s9"];
 
 /* ---------- État ---------- */
 let P = structuredClone(DEFAULT_PARAMS);
@@ -493,6 +509,12 @@ function normalize(c){
   c.c1={...b.c1,...c.c1}; c.c2={...b.c2,...c.c2};
   c.install={...b.install,...c.install}; c.fact={...b.fact,...c.fact};
   STEP_IDS.forEach(s=>{ c.steps[s]={done:false,date:"",...(c.steps[s]||{})}; });
+  RDV_STEPS.forEach(s=>{
+    const st=c.steps[s];
+    if(!st.rendezvous || typeof st.rendezvous!=="object") st.rendezvous={prevu: typeof st.rdv==="string"?st.rdv:"", valide:"", lieu: st.lieu||"", historique:[]};
+    st.rendezvous={prevu:"",valide:"",lieu:"",historique:[],...st.rendezvous};
+    if(!Array.isArray(st.rendezvous.historique)) st.rendezvous.historique=[];
+  });
   c.types=Array.isArray(c.types)?c.types:[]; c.commandes=Array.isArray(c.commandes)?c.commandes:[]; c.suivis=Array.isArray(c.suivis)?c.suivis:[];
   c.suivis.forEach(s=>{ if(!s.etape) s.etape="g"; });
   return c;
@@ -742,12 +764,22 @@ function contactRow(c,k,label){
     ${fi(c,`${k}.mail`,"Email",{type:"email",ph:"nom@exemple.fr",bad:isMail(p.mail)?"":"Adresse email non valide"})}
   </div>`;
 }
+function rdvTxt(c,id){
+  const r=c.steps[id]?.rendezvous; if(!r) return "";
+  if(r.valide) return `RDV validé le ${fmtDT(r.valide)}${r.lieu?` (${r.lieu})`:""}`;
+  if(r.prevu) return `RDV prévu le ${fmtDT(r.prevu)}`;
+  return "";
+}
 function stepSummary(c,id){
+  const base=stepSummary0(c,id), rv=rdvTxt(c,id);
+  return [rv, base].filter(Boolean).join(" – ");
+}
+function stepSummary0(c,id){
   const s=c.steps[id], r=reglements(c);
   switch(id){
     case "s1": return [s.datePrevue&&`Projet prévu le ${fmtD(s.datePrevue)}`, num(s.budget)!=null&&`budget max ${eur(num(s.budget))}`].filter(Boolean).join(", ");
     case "s2": return [s.numero&&`Devis ${s.numero}`, num(s.montant)!=null&&eur(num(s.montant)), s.decision].filter(Boolean).join(", ");
-    case "s3": return s.rdv?`RDV le ${fmtDT(s.rdv)}`:"";
+    case "s3": return s.planValide?`Plan validé : ${s.planValide}`:"";
     case "s4": return r.m?`Acompte ${eur(r.a)}${s.methode?` par ${s.methode.toLowerCase()}`:""}`:"";
     case "s5": return c.commandes.length?`${c.commandes.length} commande${c.commandes.length>1?"s":""}`:"";
     case "s6": { const n=c.commandes.filter(x=>x.arOk).length; return c.commandes.length?`${n}/${c.commandes.length} AR conformes`:""; }
@@ -757,7 +789,37 @@ function stepSummary(c,id){
   }
   return "";
 }
+function rdvBlock(c,id){
+  const r=c.steps[id].rendezvous, b=`steps.${id}.rendezvous`;
+  const hist=r.historique||[];
+  const histHtml = hist.length ? `<details class="rdv-hist"><summary>Historique des modifications (${hist.length})</summary><ul>
+      ${hist.slice().reverse().map(h=>`<li>RDV ${h.valide?`validé le ${fmtDT(h.valide)}`:`prévu le ${fmtDT(h.prevu)}`}${h.lieu?` – ${esc(h.lieu)}`:""}
+        <span class="muted">modifié le ${fmtDT(h.at)}${h.by?` par ${esc(h.by.split("@")[0])}`:""}${h.motif?` : ${esc(h.motif)}`:""}</span></li>`).join("")}</ul></details>` : "";
+  if(r.valide){
+    return `<div class="rdv rdv-ok">
+      <div class="rdv-main"><span class="rdv-badge">RDV validé</span>
+        <div><b>${fmtDT(r.valide)}</b>${r.lieu?` – ${esc(r.lieu)}`:""}</div>
+        ${r.prevu && r.prevu!==r.valide?`<div class="muted">Prévu initialement le ${fmtDT(r.prevu)}</div>`:""}</div>
+      <button class="btn small" data-rdv-mod="${id}">Modifier le RDV</button>
+    </div>${histHtml}`;
+  }
+  return `<div class="rdv">
+    <div class="grid-4">
+      ${fi(c,`${b}.prevu`,"RDV prévu (jour et heure)",{type:"datetime-local"})}
+      ${fi(c,`${b}.valide`,"RDV validé (jour et heure)",{type:"datetime-local",hint:"Vide : le RDV prévu est repris"})}
+      ${fi(c,`${b}.lieu`,"Lieu du RDV",{cls:"span-2",ph:"Showroom, domicile du client…",
+        hint:`<span class="lieu-q"><button type="button" class="linkbtn" data-rdv-lieu="${id}" data-v="install">Adresse d’installation</button>
+              <button type="button" class="linkbtn" data-rdv-lieu="${id}" data-v="Showroom STLS">Showroom</button></span>`})}
+    </div>
+    <div class="rdv-actions"><button class="btn primary small" data-rdv-val="${id}">✓ Valider le RDV</button></div>
+  </div>${histHtml}`;
+}
 function stepBody(c,id){
+  const inner=stepBody0(c,id);
+  if(!RDV_STEPS.includes(id)) return inner;
+  return `<h3 class="sub" style="margin-top:14px">Rendez-vous</h3>${rdvBlock(c,id)}${inner}`;
+}
+function stepBody0(c,id){
   const s=c.steps[id], r=reglements(c), b=`steps.${id}`;
   switch(id){
   case "s1": {
@@ -778,7 +840,6 @@ function stepBody(c,id){
     return `<div class="grid-2" style="margin-top:12px">
         ${fi(c,`${b}.numero`,"N° du devis")}
         ${fi(c,`${b}.montant`,"Montant TTC du devis (prévu)",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`})}
-        ${fi(c,`${b}.rdv`,"Date et heure du RDV",{type:"datetime-local"})}
         ${contactSel(c,`${b}.contact`)}
         ${seg(c,`${b}.reserveVT`,"Acceptation sous réserve de la visite technique")}
         ${seg(c,`${b}.planValide`,"Plan provisoire validé par le client")}
@@ -786,10 +847,13 @@ function stepBody(c,id){
         ${fi(c,`${b}.decisionDate`,"Date de la décision",{type:"date"})}
       </div>
       ${docs(c,`${b}.docsDevis`,"Devis (photo ou PDF)")}
+      <div class="devis-send">
+        <button class="btn primary small" data-send-devis>✉️ Envoyer le devis par mail</button>
+        ${s.devisEnvoyeLe?`<span class="muted">Dernier envoi le ${fmtDT(s.devisEnvoyeLe)}${s.devisEnvoyeA?` à ${esc(s.devisEnvoyeA)}`:""}</span>`:""}
+      </div>
       ${docs(c,`${b}.docsScan`,"Documents scannés du dossier client")}`;
   case "s3":
     return `<div class="grid-2" style="margin-top:12px">
-        ${fi(c,`${b}.rdv`,"Date et heure du RDV",{type:"datetime-local"})}
         ${contactSel(c,`${b}.contact`)}
         ${seg(c,`${b}.planValide`,"Plan provisoire validé (technique OK)")}
       </div>
@@ -807,8 +871,6 @@ function stepBody(c,id){
         ${fi(c,`${b}.montant`,"Montant TTC définitif",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`,hint:num(c.steps.s2.montant)!=null?`Devis prévu : ${eur(num(c.steps.s2.montant))}`:""})}
         <div class="calc"><small>Acompte de ${P.pctAcompte} % à encaisser</small><span class="money">${eur(r.a)}</span></div>
         ${seg(c,`${b}.methode`,"Méthode de versement",["Chèque","Virement"])}
-        ${fi(c,`${b}.rdv`,"Date et heure du RDV",{type:"datetime-local"})}
-        ${fi(c,`${b}.lieu`,"Lieu du RDV",{ph:"Showroom, domicile du client…"})}
         ${contactSel(c,`${b}.contact`)}
       </div>
       ${docs(c,`${b}.docsDevis`,"Devis définitif")}
@@ -1084,6 +1146,7 @@ function renderMain(){
   main.innerHTML=renderFiche(c);
 }
 function rerenderKeep(){
+  needRefresh=false;
   const a=document.activeElement, id=a?.id, pos=a?.selectionStart, top=$("#main").scrollTop;
   renderMain(); $("#main").scrollTop=top;
   if(id){ const el=document.getElementById(id); if(el){ el.focus({preventScroll:true}); try{ if(pos!=null) el.setSelectionRange(pos,pos);}catch(_){} } }
@@ -1154,8 +1217,19 @@ $("#main").addEventListener("change", e=>{
     c[blk].cp=""; c[blk].ville=""; queue(c,`${blk}.cp`,""); queue(c,`${blk}.ville`,"");
   }
   queue(c,p,v); flushPending();
-  rerenderKeep(); renderList();
+  refreshAfter(el); renderList();
 });
+/* Après une saisie dans un champ texte, on ne redessine pas tout de suite :
+   l'utilisateur est peut-être en train de cliquer dans un autre champ ou d'ouvrir un menu. */
+let needRefresh=false;
+const isTextField = el => el.tagName==="TEXTAREA" || (el.tagName==="INPUT" && !/^(checkbox|radio|file)$/.test(el.type));
+const fieldFocused = () => { const a=document.activeElement; return a && $("#main").contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName); };
+function refreshAfter(el){
+  if(isTextField(el)){ needRefresh=true; setTimeout(tryRefresh,0); }
+  else rerenderKeep();
+}
+function tryRefresh(){ if(needRefresh && !fieldFocused() && !dlg.open){ needRefresh=false; rerenderKeep(); } }
+$("#main").addEventListener("focusout", ()=>setTimeout(tryRefresh,60));
 function addFromSelect(c,p,el){
   const label = p==="typeBien" ? "Nouveau type de bien :" : "Nom du parrain :";
   const v=(prompt(label)||"").trim();
@@ -1217,6 +1291,15 @@ $("#main").addEventListener("click", async e=>{
   if(dc){ const i=+dc.dataset.delcmd; const x=c.commandes[i];
     if((x.fournisseur||x.docs?.length) && !confirm("Retirer cette commande ?")) return;
     c.commandes.splice(i,1); flushPending(); updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))}); rerenderKeep(); return; }
+  const rv=t.closest("[data-rdv-val]");
+  if(rv){ flushPending(); validerRdv(c, rv.dataset.rdvVal); return; }
+  const rm=t.closest("[data-rdv-mod]");
+  if(rm){ flushPending(); modifierRdv(c, rm.dataset.rdvMod); return; }
+  const rl=t.closest("[data-rdv-lieu]");
+  if(rl){ const id=rl.dataset.rdvLieu, v = rl.dataset.v==="install" ? addrText(c.install) : rl.dataset.v;
+    if(!v){ toast("Renseignez d’abord l’adresse d’installation."); return; }
+    c.steps[id].rendezvous.lieu=v; queue(c,`steps.${id}.rendezvous.lieu`,v); flushPending(); rerenderKeep(); return; }
+  if(t.closest("[data-send-devis]")){ flushPending(); openMail(c,"devis"); return; }
   const pa=t.closest("[data-print-ar]");
   if(pa){ flushPending(); printAR(c, +pa.dataset.printAr); return; }
 
@@ -1264,7 +1347,7 @@ function paramInput(el){
 }
 function paramChange(el){
   if(el.dataset.pp==="tvaDefaut"){ P.tvaDefaut=num(el.value); saveParams(true); rerenderKeep(); return; }
-  if(el.dataset.pp){ rerenderKeep(); }
+  if(el.dataset.pp){ refreshAfter(el); }
 }
 function paramClick(t){
   const add=t.closest("[data-padd]");
@@ -1286,6 +1369,34 @@ function paramClick(t){
     if(k==="tvaRates" && !P.tvaRates.includes(P.tvaDefaut)) P.tvaDefaut=P.tvaRates[0];
     saveParams(true); rerenderKeep();
   }
+}
+
+/* ---------- Rendez-vous ---------- */
+function logSuivi(c, etape, note, type="Rendez-vous"){
+  const entry={id:uid(),date:nowLocal(),type,etape,note,by:me?.email||""};
+  c.suivis.push(entry); return updateFields(c.id,{suivis:arrayUnion(entry)});
+}
+function stepLabel(id){ const i=STEP_IDS.indexOf(id); return `étape ${i+1} (${stepDefs()[i].t})`; }
+async function validerRdv(c,id){
+  const r=c.steps[id].rendezvous;
+  const v=r.valide||r.prevu;
+  if(!v){ toast("Indiquez le jour et l’heure du RDV."); return; }
+  r.valide=v; if(!r.prevu) r.prevu=v;
+  await updateFields(c.id,{[`steps.${id}.rendezvous.valide`]:r.valide,[`steps.${id}.rendezvous.prevu`]:r.prevu,[`steps.${id}.rendezvous.lieu`]:r.lieu||""});
+  logSuivi(c,id,`RDV validé pour l’${stepLabel(id)} : ${fmtDT(r.valide)}${r.lieu?`, ${r.lieu}`:""}.`);
+  rerenderKeep(); renderList();
+}
+async function modifierRdv(c,id){
+  const r=c.steps[id].rendezvous;
+  const motif=prompt("Motif de la modification (facultatif) :","");
+  if(motif===null) return;
+  const h={prevu:r.prevu||"",valide:r.valide||"",lieu:r.lieu||"",motif:motif.trim(),at:nowLocal(),by:me?.email||""};
+  r.historique=[...(r.historique||[]),h];
+  r.prevu=r.valide||r.prevu; r.valide="";
+  await updateFields(c.id,{[`steps.${id}.rendezvous`]:JSON.parse(JSON.stringify(r))});
+  logSuivi(c,id,`RDV de l’${stepLabel(id)} à modifier (était le ${fmtDT(h.valide||h.prevu)})${h.motif?` : ${h.motif}`:""}.`);
+  openStep=id; rerenderKeep(); renderList();
+  setTimeout(()=>document.getElementById(`f-steps-${id}-rendezvous-prevu`)?.focus(),0);
 }
 
 /* ---------- Demande de modification d'AR ---------- */
@@ -1369,16 +1480,54 @@ function exportTxt(c){
 
 /* ---------- Fenêtre d'envoi ---------- */
 const dlg=$("#mailDlg");
+let mailMode="fiche";
+const whatField=()=>document.querySelector('#mailDlg .radios').closest(".field");
 function fillMailBody(){
   const c=current(); if(!c) return;
   $("#m-body").value=toText(c, document.querySelector('input[name="m-what"]:checked').value); checkLen();
 }
 function checkLen(){ $("#m-warn").hidden = encodeURIComponent($("#m-body").value).length < 1800; }
-function openMail(c){
-  $("#m-to").value=[c.c1.mail,c.c2.mail].filter(Boolean).join(", ");
-  $("#m-subject").value=`Fiche client – ${nomFiche(c)||"Sans nom"}`;
-  document.querySelector('input[name="m-what"][value="full"]').checked=true;
-  fillMailBody(); dlg.showModal(); $("#m-to").focus();
+function setNote(msg){
+  let n=$("#m-note");
+  if(!n){ n=document.createElement("div"); n.id="m-note"; n.className="dlg-warn"; $("#m-warn").before(n); }
+  n.hidden=!msg; n.textContent=msg||"";
+}
+function devisMail(c){
+  const s2=c.steps.s2, k=s2.contact;
+  const who = k==="c1"?[c.c1]: k==="c2"?[c.c2]: [c.c1,c.c2].filter(p=>p.nom||p.prenom);
+  const to=who.map(p=>p.mail).filter(Boolean).join(", ");
+  let hello="Bonjour";
+  if(who.length===1 && who[0].nom) hello=`Bonjour ${who[0].civ} ${who[0].nom}`;
+  else if(who.length===2) hello=`Bonjour ${who[0].civ}, ${who[1].civ}`;
+  const rdv=c.steps.s2.rendezvous?.valide;
+  const projet=c.types.length?` de ${c.types.map(t=>t.toLowerCase()).join(", ")}`:"";
+  const docsDevis=s2.docsDevis||[];
+  const L=[`${hello},`,"",
+    `Suite à notre rendez-vous${rdv?` du ${fmtD(rdv)}`:""}, vous trouverez ci-dessous ${s2.numero?`notre devis n° ${s2.numero}`:"notre devis"} pour votre projet${projet}${num(s2.montant)!=null?`, d’un montant de ${eur(num(s2.montant))} TTC`:""}.`,""];
+  if(docsDevis.length){ L.push(docsDevis.length>1?"Documents :":"Devis :"); docsDevis.forEach(d=>L.push(`${d.name} : ${d.url}`)); L.push(""); }
+  L.push("Nous restons à votre disposition pour toute question ou modification.","","Bien cordialement,","",
+    STLS.nom, `Tél. ${STLS.tel}`, STLS.mail);
+  return {to, subject:`Votre devis${s2.numero?` n° ${s2.numero}`:""} – ${STLS.nom}`, body:L.join("\n"), hasDoc:docsDevis.length>0};
+}
+function openMail(c, mode="fiche"){
+  mailMode=mode;
+  if(mode==="devis"){
+    const m=devisMail(c);
+    dlg.querySelector("h2").textContent="Envoyer le devis par mail";
+    whatField().hidden=true;
+    $("#m-to").value=m.to; $("#m-subject").value=m.subject; $("#m-body").value=m.body;
+    setNote(m.hasDoc?"Le client recevra un lien pour ouvrir le devis archivé. Vous pouvez aussi joindre le PDF vous-même dans votre messagerie."
+                    :"Aucun devis n’est archivé à l’étape 2 : joignez le PDF vous-même dans votre messagerie, ou ajoutez-le d’abord à la fiche.");
+    checkLen();
+  } else {
+    dlg.querySelector("h2").textContent="Envoyer la fiche par mail";
+    whatField().hidden=false; setNote("");
+    $("#m-to").value=[c.c1.mail,c.c2.mail].filter(Boolean).join(", ");
+    $("#m-subject").value=`Fiche client – ${nomFiche(c)||"Sans nom"}`;
+    document.querySelector('input[name="m-what"][value="full"]').checked=true;
+    fillMailBody();
+  }
+  dlg.showModal(); $("#m-to").focus();
 }
 document.querySelectorAll('input[name="m-what"]').forEach(r=>r.addEventListener("change", fillMailBody));
 $("#m-body").addEventListener("input", checkLen);
@@ -1391,8 +1540,13 @@ $("#m-send").addEventListener("click", ()=>{
   const to=$("#m-to").value.split(/[,;]/).map(s=>s.trim()).filter(Boolean).join(",");
   const url=`mailto:${to}?subject=${encodeURIComponent($("#m-subject").value)}&body=${encodeURIComponent($("#m-body").value)}`;
   const c=current();
-  if(c){ const entry={id:uid(),date:nowLocal(),type:"Email",etape:"g",note:`Fiche envoyée par mail${to?` à ${to}`:""}.`,by:me?.email||""};
-    c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)}); }
+  if(c){
+    if(mailMode==="devis"){
+      const now=nowLocal(); c.steps.s2.devisEnvoyeLe=now; c.steps.s2.devisEnvoyeA=to;
+      updateFields(c.id,{"steps.s2.devisEnvoyeLe":now,"steps.s2.devisEnvoyeA":to});
+      logSuivi(c,"s2",`Devis${c.steps.s2.numero?` n° ${c.steps.s2.numero}`:""} envoyé par mail${to?` à ${to}`:""}.`,"Email");
+    } else logSuivi(c,"g",`Fiche envoyée par mail${to?` à ${to}`:""}.`,"Email");
+  }
   window.location.href=url; dlg.close(); rerenderKeep(); renderList();
 });
 
