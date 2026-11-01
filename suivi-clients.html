@@ -295,6 +295,32 @@ h3.sub:first-child{margin-top:0}
 .rdv-hist ul{margin:6px 0 0;padding-left:18px}
 .rdv-hist li{margin-bottom:3px}
 .devis-send{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0 4px}
+/* ---- v3 : projets, devis ventilé ---- */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:0}
+.tab{all:unset;cursor:pointer;display:flex;flex-direction:column;padding:8px 14px 9px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:var(--surface-2);margin-bottom:-1px}
+.tab[aria-selected="true"]{background:var(--surface);border-color:var(--ochre);border-bottom:1px solid var(--surface);box-shadow:inset 0 3px 0 var(--ochre)}
+.tab:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.tab-t{font-weight:600}
+.tab-s{font-size:12px;color:var(--ink-3)}
+.tab-add{color:var(--ink-2);border-style:dashed;justify-content:center;font-size:14px}
+.newproj{margin:14px 0 4px;padding:12px;border:1px dashed var(--ochre);border-radius:8px;background:var(--ochre-soft)}
+.newproj .chip{background:var(--surface)}
+.proj-panel{padding-top:18px}
+.devis{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface-2)}
+.devis .field input{background:var(--surface)}
+.devis-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.dv-wrap{overflow-x:auto;margin-top:12px}
+.dv{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.dv th{text-align:right;font-weight:600;font-size:12.5px;color:var(--ink-3);padding:4px 8px;border-bottom:1px solid var(--line)}
+.dv td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--line)}
+.dv th:first-child,.dv td:first-child{text-align:left}
+.dv tfoot td{font-weight:700;border-bottom:none;border-top:2px solid var(--ink)}
+.stop.skip .dot{border-style:dashed;color:var(--ink-3);background:var(--surface-2)}
+.stop.skip .stop-t{color:var(--ink-3);text-decoration:line-through}
+.st.skip{opacity:.85;border-style:dashed}
+.st.skip .num{border-style:dashed;color:var(--ink-3)}
+.prow3{grid-template-columns:180px 1fr auto auto}
+@media (max-width:720px){ .prow3{grid-template-columns:1fr} .tab{padding:6px 10px} }
 
 [hidden]{display:none!important}
 </style>
@@ -366,12 +392,12 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "2.2";
+const VERSION = "3.0";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove }
+import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove, deleteField }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sref, uploadBytes, getDownloadURL, deleteObject }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
@@ -408,19 +434,19 @@ const DEPS = [["01","Ain"],["02","Aisne"],["03","Allier"],["04","Alpes-de-Haute-
   ["974","La Réunion"],["976","Mayotte"]];
 
 const DEFAULT_PARAMS = {
-  tvaRates:[10,20], tvaDefaut:10,
+  tvaRates:[10,20], tvaDefaut:10, tvaNormal:20,
   pctAcompte:40, pctLivraison:50, pctSolde:10,
   types:[
-    {nom:"Cuisine", rubriques:["Meubles","Plan de travail","Sanitaires","Électroménager"]},
-    {nom:"Salle de bain", rubriques:["Meubles","Plan de travail","Sanitaires"]},
-    {nom:"Dressing", rubriques:["Meubles","Plan de travail","Sanitaires"]},
-    {nom:"Literie", rubriques:["Literie"]},
-    {nom:"Cuisine extérieure", rubriques:["Meubles","Plan de travail","Électroménager"]},
-    {nom:"Douche vapeur", rubriques:["Description"]},
-    {nom:"Sauna", rubriques:["Description"]},
-    {nom:"Hammam", rubriques:["Description"]},
-    {nom:"Meubles", rubriques:["Description"]},
-    {nom:"Canapé", rubriques:["Description"]}
+    {nom:"Cuisine", rubriques:["Meubles","Plan de travail","Sanitaires","Électroménager"], visite:true},
+    {nom:"Salle de bain", rubriques:["Meubles","Plan de travail","Sanitaires"], visite:true},
+    {nom:"Dressing", rubriques:["Meubles","Plan de travail","Sanitaires"], visite:true},
+    {nom:"Literie", rubriques:["Literie"], visite:false},
+    {nom:"Cuisine extérieure", rubriques:["Meubles","Plan de travail","Électroménager"], visite:true},
+    {nom:"Douche vapeur", rubriques:["Description"], visite:true},
+    {nom:"Sauna", rubriques:["Description"], visite:true},
+    {nom:"Hammam", rubriques:["Description"], visite:true},
+    {nom:"Meubles", rubriques:["Description"], visite:false},
+    {nom:"Canapé", rubriques:["Description"], visite:false}
   ],
   biens:["Villa","Appartement","Bureau","Magasin"],
   parrains:[],
@@ -428,16 +454,19 @@ const DEFAULT_PARAMS = {
 };
 const SUIVI_TYPES = ["Appel","Message répondeur","SMS","Email","Rendez-vous","RDV showroom","Visite sur place","Autre"];
 const RDV_STEPS = ["s1","s2","s3","s4","s7","s8","s9"];
+const STEP_IDS = ["s1","s2","s3","s4","s5","s6","s7","s8","s9"];
 
 /* ---------- État ---------- */
 let P = structuredClone(DEFAULT_PARAMS);
 let paramsExist = false;
 let clients = [];
 let selId = null;           // id de fiche, ou "__params"
+let selProj = null;         // id du projet affiché
+let addingProject = false;
 let query = "";
 let editingEntry = null;
 let openStep = null;
-let suiviFilter = "all";
+let suiviFilter = "all";    // "all" | "g" | <idProjet> | <idProjet>|<étape>
 let unsub = null, unsubP = null;
 let me = null;
 
@@ -445,9 +474,9 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const slug = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "x";
-const rubKey = (t,r) => slug(t)+"__"+slug(r);
 const ref = id => doc(db, COLLECTION, id);
 const current = () => clients.find(x=>x.id===selId);
+const clone = o => JSON.parse(JSON.stringify(o));
 
 /* ---------- Chemins dans l'objet ---------- */
 function getP(o, path){ return path.split(".").reduce((a,k)=>a==null?undefined:a[k], o); }
@@ -456,6 +485,8 @@ function setP(o, path, v){
   ks.slice(0,-1).forEach((k,i)=>{ if(a[k]==null || typeof a[k]!=="object") a[k] = /^\d+$/.test(ks[i+1]) ? [] : {}; a=a[k]; });
   a[ks[ks.length-1]] = v;
 }
+// Les commandes d'un projet sont une liste : on l'enregistre en entier.
+function arrayRoot(path){ const m=path.match(/^(projets\.[^.]+\.commandes)\./); return m?m[1]:null; }
 
 /* ---------- Dates et montants ---------- */
 const pad = n => String(n).padStart(2,"0");
@@ -465,64 +496,107 @@ function fmtDT(v){ if(!v) return ""; const [d,t]=v.split("T"); const [y,m,j]=d.s
 function fmtD(v){ if(!v) return ""; const [y,m,j]=v.slice(0,10).split("-"); return `${j}/${m}/${y}`; }
 const eur = n => (n==null||isNaN(n)) ? "–" : new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format(n);
 const num = v => (v===""||v==null||isNaN(+v)) ? null : +v;
+const pctTxt = v => `${String(v).replace(".",",")} %`;
 
-/* ---------- Modèle de fiche ---------- */
-const STEP_IDS = ["s1","s2","s3","s4","s5","s6","s7","s8","s9"];
+/* ---------- Modèle ---------- */
 function stepDefs(){
   return [
     {id:"s1", t:"Découverte", s:"Budget, plan, choix"},
     {id:"s2", t:"Présentation du devis"},
     {id:"s3", t:"Visite technique"},
-    {id:"s4", t:"Validation du projet", s:`Acompte ${P.pctAcompte} %`, pay:"pctAcompte"},
+    {id:"s4", t:"Validation du projet", s:`Acompte ${P.pctAcompte} %`, pay:true},
     {id:"s5", t:"Commande fournisseurs"},
     {id:"s6", t:"Vérification des AR", s:"Accusés de réception"},
     {id:"s7", t:"Réception"},
-    {id:"s8", t:"Livraison", s:`Règlement ${P.pctLivraison} %`, pay:"pctLivraison"},
-    {id:"s9", t:"Installation", s:`Règlement final ${P.pctSolde} %`, pay:"pctSolde"}
+    {id:"s8", t:"Livraison", s:`Règlement ${P.pctLivraison} %`, pay:true},
+    {id:"s9", t:"Installation", s:`Règlement final ${P.pctSolde} %`, pay:true}
   ];
 }
 const blankAddr = () => ({pays:"FR", dep:"83", cp:"", ville:"", adresse:""});
+const blankRdv = () => ({prevu:"", valide:"", lieu:"", historique:[]});
+function blankSteps(){ const st={}; STEP_IDS.forEach(s=>{ st[s]={done:false,date:""}; if(RDV_STEPS.includes(s)) st[s].rendezvous=blankRdv(); });
+  st.s2.saisie="TTC"; st.s4.saisie="TTC"; return st; }
 function blankClient(){
   const now=new Date().toISOString();
-  const steps={}; STEP_IDS.forEach(s=>steps[s]={done:false,date:""});
   return {id:uid(),
     c1:{civ:"Madame",nom:"",prenom:"",tel:"",mail:""},
     c2:{civ:"Monsieur",nom:"",prenom:"",tel:"",mail:""},
-    types:[], typeBien:"", install:blankAddr(), factDiff:false, fact:blankAddr(),
+    typeBien:"", install:blankAddr(), factDiff:false, fact:blankAddr(),
     entreprise:false, raisonSociale:"", siret:"", tvaIntra:"",
-    parrain:"", commissionPct:null, baseMaterielHT:null, tva:P.tvaDefaut, notes:"",
-    steps, commandes:[], suivis:[],
+    parrain:"", notes:"", projets:{}, suivis:[],
     createdAt:now, updatedAt:now, createdBy:me?.email||"", updatedBy:me?.email||""};
+}
+function blankProjet(c, type){
+  const def=P.types.find(t=>t.nom===type);
+  const p={id:uid(), type, libelle:"", ordre:Date.now(), createdAt:new Date().toISOString(),
+    tva:P.tvaDefaut, commissionPct:null, installation:{prevue:"",historique:[]}, steps:blankSteps(), commandes:[]};
+  p.steps.s3.necessaire = def && def.visite===false ? "Non" : "Oui";
+  const par=P.parrains.find(x=>x.nom===c.parrain); if(par && par.pct!=null) p.commissionPct=par.pct;
+  return p;
+}
+function normProjet(p){
+  const b=blankSteps();
+  p.steps=p.steps||{};
+  STEP_IDS.forEach(s=>{ p.steps[s]={...b[s],...(p.steps[s]||{})}; });
+  RDV_STEPS.forEach(s=>{
+    const st=p.steps[s];
+    if(!st.rendezvous || typeof st.rendezvous!=="object") st.rendezvous={...blankRdv(), prevu: typeof st.rdv==="string"?st.rdv:"", lieu: st.lieu||""};
+    st.rendezvous={...blankRdv(),...st.rendezvous};
+    if(!Array.isArray(st.rendezvous.historique)) st.rendezvous.historique=[];
+  });
+  ["s2","s4"].forEach(s=>{ const st=p.steps[s];
+    if(st.montant!=null && st.mat==null && st.elec==null && st.presta==null){ st.mat=st.montant; st.saisie="TTC"; }
+    if(!st.saisie) st.saisie="TTC"; });
+  if(!p.steps.s3.necessaire) p.steps.s3.necessaire="Oui";
+  p.installation={prevue:"",historique:[],...(p.installation||{})};
+  p.commandes=Array.isArray(p.commandes)?p.commandes:[];
+  if(p.tva==null) p.tva=P.tvaDefaut;
+  return p;
 }
 function normalize(c){
   const b=blankClient();
-  // reprise des fiches de la version 1
-  if(Array.isArray(c.etapes)){
-    c.steps = c.steps || {};
-    c.etapes.forEach((e,i)=>{ c.steps[STEP_IDS[i]] = {...(c.steps[STEP_IDS[i]]||{}), done:!!e.done, date:e.date||""}; });
-    delete c.etapes;
+  // Conversion des fiches v1/v2 (un seul projet porté par la fiche)
+  if(!c.projets || typeof c.projets!=="object" || Array.isArray(c.projets)){
+    const old = Array.isArray(c.types) ? c.types : (c.typeProjet ? [c.typeProjet] : []);
+    let steps=c.steps||{};
+    if(Array.isArray(c.etapes)){ c.etapes.forEach((e,i)=>{ steps[STEP_IDS[i]]={...(steps[STEP_IDS[i]]||{}),done:!!e.done,date:e.date||""}; }); }
+    const hasData = old.length || Object.keys(steps).length || (c.commandes||[]).length;
+    c.projets={};
+    if(hasData){
+      const t0=old[0]||"Cuisine";
+      const p={id:"p1", type:t0, libelle:"", ordre:1, createdAt:c.createdAt||new Date().toISOString(),
+        tva:c.tva??P.tvaDefaut, commissionPct:c.commissionPct??null, installation:{prevue:"",historique:[]},
+        steps:clone(steps), commandes:clone(c.commandes||[])};
+      const rub=p.steps.s1?.rub||{}, nr={};
+      Object.keys(rub).forEach(k=>{ const [t,r]=k.split("__"); if(t===slug(t0)) nr[r]=rub[k]; });
+      if(p.steps.s1) p.steps.s1.rub=nr;
+      c.projets.p1=p;
+      old.slice(1).forEach((t,i)=>{ const q=blankProjet(c,t); q.id="p"+(i+2); q.ordre=i+2; c.projets[q.id]=q; });
+      (c.suivis||[]).forEach(s=>{ if(s.etape && s.etape!=="g" && !s.projet) s.projet="p1"; });
+    }
+    c._migrate=true;
+    if(c.contact!==undefined && !c.c1){ c.c1={...b.c1, nom:c.contact||"", tel:c.telephone||"", mail:c.email||""}; }
+    if(c.localisation && !c.install){ c.install={...b.install, ville:c.localisation}; }
   }
-  if(c.contact!==undefined && !c.c1){ c.c1={...b.c1, nom:c.contact||"", tel:c.telephone||"", mail:c.email||""}; }
-  if(c.typeProjet && !c.types){ c.types=[c.typeProjet]; }
-  if(c.localisation && !c.install){ c.install={...b.install, ville:c.localisation}; }
   for(const k of Object.keys(b)) if(c[k]===undefined) c[k]=b[k];
   c.c1={...b.c1,...c.c1}; c.c2={...b.c2,...c.c2};
   c.install={...b.install,...c.install}; c.fact={...b.fact,...c.fact};
-  STEP_IDS.forEach(s=>{ c.steps[s]={done:false,date:"",...(c.steps[s]||{})}; });
-  RDV_STEPS.forEach(s=>{
-    const st=c.steps[s];
-    if(!st.rendezvous || typeof st.rendezvous!=="object") st.rendezvous={prevu: typeof st.rdv==="string"?st.rdv:"", valide:"", lieu: st.lieu||"", historique:[]};
-    st.rendezvous={prevu:"",valide:"",lieu:"",historique:[],...st.rendezvous};
-    if(!Array.isArray(st.rendezvous.historique)) st.rendezvous.historique=[];
-  });
-  c.types=Array.isArray(c.types)?c.types:[]; c.commandes=Array.isArray(c.commandes)?c.commandes:[]; c.suivis=Array.isArray(c.suivis)?c.suivis:[];
-  c.suivis.forEach(s=>{ if(!s.etape) s.etape="g"; });
+  Object.keys(c.projets).forEach(k=>{ c.projets[k].id=k; normProjet(c.projets[k]); });
+  c.suivis=Array.isArray(c.suivis)?c.suivis:[];
+  c.suivis.forEach(s=>{ if(!s.etape) s.etape="g"; if(s.projet==null) s.projet=""; });
   return c;
 }
+const projList = c => Object.values(c.projets).sort((a,b)=>(a.ordre||0)-(b.ordre||0));
+function projLabel(c,p){
+  if(!p) return "";
+  if(p.libelle) return p.libelle;
+  const same=projList(c).filter(x=>x.type===p.type && !x.libelle);
+  return same.length>1 ? `${p.type} ${same.indexOf(p)+1}` : p.type;
+}
+const curProj = c => c.projets[selProj] || projList(c)[0] || null;
 
 /* ---------- Calculs ---------- */
 const civAbbr = v => v==="Monsieur" ? "M." : "Mme";
-function contactLabel(k){ return k==="both" ? "Les deux" : ""; }
 function personne(p){ return [civAbbr(p.civ), p.prenom, p.nom].filter(Boolean).join(" "); }
 function nomFiche(c){
   const ps=[c.c1,c.c2].filter(p=>p.nom||p.prenom);
@@ -531,22 +605,35 @@ function nomFiche(c){
     return `${civAbbr(ps[0].civ)} et ${civAbbr(ps[1].civ)} ${ps[0].nom}`;
   return ps.map(personne).join(" & ");
 }
-const currentStep = c => STEP_IDS.findIndex(s=>!c.steps[s].done);
-const montantFinal = c => num(c.steps.s4.montant) ?? num(c.steps.s2.montant) ?? 0;
-function reglements(c){
-  const m=montantFinal(c);
+const skipped = (p,id) => id==="s3" && p.steps.s3.necessaire==="Non";
+const currentStep = p => STEP_IDS.findIndex(s=>!p.steps[s].done && !skipped(p,s));
+// Devis : fourniture et prestations au taux du projet, électroménager toujours au taux normal.
+function calcDevis(p, st){
+  const r=num(p.tva)||0, rn=num(P.tvaNormal)??20, ttcMode=(st.saisie||"TTC")==="TTC";
+  const cats=[["mat","Fourniture",r],["elec","Électroménager",rn],["presta","Prestations de services",r]];
+  const lines=cats.map(([k,label,rate])=>{
+    const a=num(st[k]); if(a==null) return {k,label,rate,ht:null,tva:null,ttc:null};
+    const ht = ttcMode ? a/(1+rate/100) : a, ttc = ttcMode ? a : a*(1+rate/100);
+    return {k,label,rate,ht,tva:ttc-ht,ttc};
+  });
+  const has=lines.some(l=>l.ttc!=null), sum=k=>lines.reduce((s,l)=>s+(l[k]||0),0);
+  const mat=lines.filter(l=>l.k!=="presta");
+  return {lines, has, ht:sum("ht"), tva:sum("tva"), ttc:sum("ttc"),
+    materielHT:mat.reduce((s,l)=>s+(l.ht||0),0), prestaTTC:lines[2].ttc||0};
+}
+function devisRetenu(p){ const d4=calcDevis(p,p.steps.s4); return d4.has ? d4 : calcDevis(p,p.steps.s2); }
+function reglements(p){
+  const m=devisRetenu(p).ttc;
   const a=m*P.pctAcompte/100, l=m*P.pctLivraison/100, s=m*P.pctSolde/100;
-  const recu=(c.steps.s4.done?a:0)+(c.steps.s8.done?l:0)+(c.steps.s9.done?s:0);
+  const recu=(p.steps.s4.done?a:0)+(p.steps.s8.done?l:0)+(p.steps.s9.done?s:0);
   return {m,a,l,s,recu,reste:Math.max(0,m-recu)};
 }
-function commission(c){
-  const pct=num(c.commissionPct); if(!c.parrain || pct==null) return null;
-  const base = num(c.baseMaterielHT) ?? (montantFinal(c)/(1+(num(c.tva)||0)/100));
+function commission(c,p){
+  const pct=num(p.commissionPct); if(!c.parrain || pct==null) return null;
+  const base=devisRetenu(p).materielHT;
   return {pct, base, montant: base*pct/100};
 }
 const lastSuivi = c => [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date))[0];
-function contactName(c,k){ if(k==="c1") return personne(c.c1); if(k==="c2") return personne(c.c2); if(k==="both") return nomFiche(c); return ""; }
-
 /* ---------- Enregistrement ---------- */
 const stamp = () => ({updatedAt:new Date().toISOString(), updatedBy:me?.email||""});
 async function safe(p, msg="Enregistrement impossible : vérifiez votre connexion."){
@@ -559,8 +646,8 @@ const updateFields = (id, fields) => safe(updateDoc(ref(id), {...fields, ...stam
 const pendingFields = new Map();
 let saveTimer = null;
 function queue(c, path, v){
-  if(path.startsWith("commandes.")) pendingFields.set("commandes", JSON.parse(JSON.stringify(c.commandes)));
-  else if(path==="types") pendingFields.set("types", [...c.types]);
+  const root=arrayRoot(path);
+  if(root) pendingFields.set(root, JSON.parse(JSON.stringify(getP(c,root)||[])));
   else pendingFields.set(path, v===undefined?null:v);
   clearTimeout(saveTimer); saveTimer=setTimeout(flushPending, 600);
 }
@@ -627,7 +714,8 @@ async function uploadDocs(c, path, files){
       const url=await getDownloadURL(sref(storage, spath));
       const meta={name:f.name, path:spath, url, type:f.type, size:f.size, at:new Date().toISOString(), by:me?.email||""};
       const list=getP(c,path)||[]; list.push(meta); setP(c,path,list);
-      if(path.startsWith("commandes.")){ flushPending(); await updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))}); }
+      const root=arrayRoot(path);
+      if(root){ flushPending(); await updateFields(c.id,{[root]:JSON.parse(JSON.stringify(getP(c,root)))}); }
       else await updateFields(c.id,{[path]:arrayUnion(meta)});
       toast(`« ${f.name} » archivé`);
       rerenderKeep();
@@ -643,7 +731,8 @@ async function removeDoc(c, path, idx){
   if(!confirm(`Supprimer « ${d.name} » ?`)) return;
   try{ await deleteObject(sref(storage,d.path)); }catch(e){ if(e?.code!=="storage/object-not-found"){ toast("Suppression du fichier impossible."); return; } }
   list.splice(idx,1);
-  if(path.startsWith("commandes.")) await updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))});
+  const root=arrayRoot(path);
+  if(root) await updateFields(c.id,{[root]:JSON.parse(JSON.stringify(getP(c,root)))});
   else await updateFields(c.id,{[path]:arrayRemove(d)});
   rerenderKeep();
 }
@@ -670,10 +759,11 @@ function sel(c,p,label,opts,o={}){
       ${o.add?`<option value="__add">+ Ajouter…</option>`:""}
     </select></div>`;
 }
-function seg(c,p,label,opts=["Oui","Non"]){
-  const v=val(c,p);
-  return `<div class="field"><label>${label}</label><div class="seg" role="group" aria-label="${esc(label)}">
-    ${opts.map(o=>`<button type="button" data-set="${p}" data-v="${esc(o)}" aria-pressed="${v===o}">${esc(o)}</button>`).join("")}</div></div>`;
+function seg(c,p,label,opts=["Oui","Non"],o={}){
+  const v=val(c,p)||o.def||"";
+  return `<div class="field ${o.cls||""}"><label>${label}</label><div class="seg" role="group" aria-label="${esc(label)}">
+    ${opts.map(x=>`<button type="button" data-set="${p}" data-v="${esc(x)}" ${o.req?"data-req":""} aria-pressed="${v===x}">${esc(x)}</button>`).join("")}</div>
+    ${o.hint?`<div class="hint">${o.hint}</div>`:""}</div>`;
 }
 function contactSel(c,p,label="Nom du contact"){
   const o=[]; if(c.c1.nom||c.c1.prenom) o.push(["c1",personne(c.c1)]); if(c.c2.nom||c.c2.prenom) o.push(["c2",personne(c.c2)]);
@@ -701,30 +791,8 @@ function tvaFromSiret(siret){
   const key=(12 + 3*(Number(siren)%97))%97; return `FR ${pad(key)}${siren}`;
 }
 
-/* ---------- Liste ---------- */
-function renderList(){
-  const q=query.trim().toLowerCase();
-  const items=clients
-    .filter(c=>!q || [nomFiche(c),c.c1.tel,c.c2.tel,c.c1.mail,c.c2.mail,c.parrain,c.install.ville,c.install.cp,c.types.join(" "),c.raisonSociale].join(" ").toLowerCase().includes(q))
-    .sort((a,b)=>String(lastSuivi(b)?.date||b.updatedAt).localeCompare(String(lastSuivi(a)?.date||a.updatedAt)));
-  $("#count").textContent = clients.length ? `${clients.length} fiche${clients.length>1?"s":""}` : "";
-  $("#paramsBtn").setAttribute("aria-current", selId==="__params");
-  if(!clients.length){ $("#list").innerHTML=`<li class="empty-list">Aucune fiche pour l’instant. Créez la première avec « Nouvelle fiche ».</li>`; return; }
-  if(!items.length){ $("#list").innerHTML=`<li class="empty-list">Aucun client ne correspond à « ${esc(query)} ».</li>`; return; }
-  const defs=stepDefs();
-  $("#list").innerHTML=items.map(c=>{
-    const i=currentStep(c), ls=lastSuivi(c);
-    const step = i===-1 ? "Projet terminé" : `Étape ${i+1} : ${defs[i].t}`;
-    const meta=[c.types.join(", "), c.install.ville].filter(Boolean).join(" – ");
-    return `<li><button data-id="${c.id}" aria-current="${c.id===selId}">
-      <div class="li-name">${esc(nomFiche(c)||c.raisonSociale||"Sans nom")}</div>
-      ${meta?`<div class="li-meta">${esc(meta)}</div>`:""}
-      <div class="li-step">${step}${ls?`, dernier contact ${fmtD(ls.date)}`:""}</div>
-    </button></li>`;
-  }).join("");
-}
 
-/* ---------- Fiche ---------- */
+/* ---------- Adresse ---------- */
 function addrBlock(c,b){
   const a=c[b], fr=a.pays==="FR";
   let cpField, villeField, hint="";
@@ -754,6 +822,30 @@ function addrBlock(c,b){
     ${fi(c,`${b}.adresse`,"Adresse",{cls:"span-2",ph:"N° et rue, lieu-dit…"})}
   </div>${hint?`<div class="hint" style="font-size:12px;color:var(--ink-3);margin-top:4px">${hint}</div>`:""}`;
 }
+/* ---------- Liste ---------- */
+function renderList(){
+  const q=query.trim().toLowerCase();
+  const items=clients
+    .filter(c=>!q || [nomFiche(c),c.c1.tel,c.c2.tel,c.c1.mail,c.c2.mail,c.parrain,c.install.ville,c.install.cp,projList(c).map(p=>projLabel(c,p)).join(" "),c.raisonSociale].join(" ").toLowerCase().includes(q))
+    .sort((a,b)=>String(lastSuivi(b)?.date||b.updatedAt).localeCompare(String(lastSuivi(a)?.date||a.updatedAt)));
+  $("#count").textContent = clients.length ? `${clients.length} fiche${clients.length>1?"s":""}` : "";
+  $("#paramsBtn").setAttribute("aria-current", selId==="__params");
+  if(!clients.length){ $("#list").innerHTML=`<li class="empty-list">Aucune fiche pour l’instant. Créez la première avec « Nouvelle fiche ».</li>`; return; }
+  if(!items.length){ $("#list").innerHTML=`<li class="empty-list">Aucun client ne correspond à « ${esc(query)} ».</li>`; return; }
+  const defs=stepDefs();
+  $("#list").innerHTML=items.map(c=>{
+    const ls=lastSuivi(c), ps=projList(c);
+    const lines=ps.map(p=>{ const i=currentStep(p); return `${esc(projLabel(c,p))} : ${i===-1?"terminé":`${i+1}. ${esc(defs[i].t)}`}`; });
+    return `<li><button data-id="${c.id}" aria-current="${c.id===selId}">
+      <div class="li-name">${esc(nomFiche(c)||c.raisonSociale||"Sans nom")}</div>
+      ${c.install.ville?`<div class="li-meta">${esc(c.install.ville)}</div>`:""}
+      ${lines.length?`<div class="li-step">${lines.join("<br>")}</div>`:`<div class="li-step">Aucun projet</div>`}
+      ${ls?`<div class="li-step">Dernier contact ${fmtD(ls.date)}</div>`:""}
+    </button></li>`;
+  }).join("");
+}
+
+/* ---------- Composants de la fiche ---------- */
 function contactRow(c,k,label){
   const p=c[k];
   return `<div class="contact-row">
@@ -764,33 +856,30 @@ function contactRow(c,k,label){
     ${fi(c,`${k}.mail`,"Email",{type:"email",ph:"nom@exemple.fr",bad:isMail(p.mail)?"":"Adresse email non valide"})}
   </div>`;
 }
-function rdvTxt(c,id){
-  const r=c.steps[id]?.rendezvous; if(!r) return "";
+function rdvTxt(p,id){
+  const r=p.steps[id]?.rendezvous; if(!r) return "";
   if(r.valide) return `RDV validé le ${fmtDT(r.valide)}${r.lieu?` (${r.lieu})`:""}`;
   if(r.prevu) return `RDV prévu le ${fmtDT(r.prevu)}`;
   return "";
 }
-function stepSummary(c,id){
-  const base=stepSummary0(c,id), rv=rdvTxt(c,id);
-  return [rv, base].filter(Boolean).join(" – ");
-}
-function stepSummary0(c,id){
-  const s=c.steps[id], r=reglements(c);
+function stepSummary(c,p,id){
+  if(skipped(p,id)) return "Sans objet pour ce projet";
+  const s=p.steps[id], r=reglements(p), parts=[rdvTxt(p,id)];
   switch(id){
-    case "s1": return [s.datePrevue&&`Projet prévu le ${fmtD(s.datePrevue)}`, num(s.budget)!=null&&`budget max ${eur(num(s.budget))}`].filter(Boolean).join(", ");
-    case "s2": return [s.numero&&`Devis ${s.numero}`, num(s.montant)!=null&&eur(num(s.montant)), s.decision].filter(Boolean).join(", ");
-    case "s3": return s.planValide?`Plan validé : ${s.planValide}`:"";
-    case "s4": return r.m?`Acompte ${eur(r.a)}${s.methode?` par ${s.methode.toLowerCase()}`:""}`:"";
-    case "s5": return c.commandes.length?`${c.commandes.length} commande${c.commandes.length>1?"s":""}`:"";
-    case "s6": { const n=c.commandes.filter(x=>x.arOk).length; return c.commandes.length?`${n}/${c.commandes.length} AR conformes`:""; }
-    case "s7": { const n=c.commandes.filter(x=>x.dateReception).length; return c.commandes.length?`${n}/${c.commandes.length} commandes reçues`:""; }
-    case "s8": return r.m?`${eur(r.l)}${s.dateLivraison?`, livraison le ${fmtD(s.dateLivraison)}`:""}`:"";
-    case "s9": return [s.poseur, r.m&&`solde ${eur(r.s)}`].filter(Boolean).join(", ");
+    case "s1": parts.push(s.datePrevue&&`Projet prévu le ${fmtD(s.datePrevue)}`, num(s.budget)!=null&&`budget max ${eur(num(s.budget))}`); break;
+    case "s2": { const d=calcDevis(p,s); parts.push(s.numero&&`Devis ${s.numero}`, d.has&&eur(d.ttc), s.decision); break; }
+    case "s3": parts.push(s.planValide&&`Plan validé : ${s.planValide}`); break;
+    case "s4": parts.push(r.m?`Acompte ${eur(r.a)}${s.methode?` par ${s.methode.toLowerCase()}`:""}`:""); break;
+    case "s5": parts.push(p.commandes.length?`${p.commandes.length} commande${p.commandes.length>1?"s":""}`:""); break;
+    case "s6": parts.push(p.commandes.length?`${p.commandes.filter(x=>x.arOk).length}/${p.commandes.length} AR conformes`:""); break;
+    case "s7": parts.push(p.commandes.length?`${p.commandes.filter(x=>x.dateReception).length}/${p.commandes.length} commandes reçues`:""); break;
+    case "s8": parts.push(r.m?`${eur(r.l)}${s.dateLivraison?`, livraison le ${fmtD(s.dateLivraison)}`:""}`:""); break;
+    case "s9": parts.push(s.poseur, r.m&&`solde ${eur(r.s)}`); break;
   }
-  return "";
+  return parts.filter(Boolean).join(" – ");
 }
-function rdvBlock(c,id){
-  const r=c.steps[id].rendezvous, b=`steps.${id}.rendezvous`;
+function rdvBlock(c,p,id){
+  const r=p.steps[id].rendezvous, b=`projets.${p.id}.steps.${id}.rendezvous`, key=`${p.id}|${id}`;
   const hist=r.historique||[];
   const histHtml = hist.length ? `<details class="rdv-hist"><summary>Historique des modifications (${hist.length})</summary><ul>
       ${hist.slice().reverse().map(h=>`<li>RDV ${h.valide?`validé le ${fmtDT(h.valide)}`:`prévu le ${fmtDT(h.prevu)}`}${h.lieu?` – ${esc(h.lieu)}`:""}
@@ -800,7 +889,7 @@ function rdvBlock(c,id){
       <div class="rdv-main"><span class="rdv-badge">RDV validé</span>
         <div><b>${fmtDT(r.valide)}</b>${r.lieu?` – ${esc(r.lieu)}`:""}</div>
         ${r.prevu && r.prevu!==r.valide?`<div class="muted">Prévu initialement le ${fmtDT(r.prevu)}</div>`:""}</div>
-      <button class="btn small" data-rdv-mod="${id}">Modifier le RDV</button>
+      <button class="btn small" data-rdv-mod="${key}">Modifier le RDV</button>
     </div>${histHtml}`;
   }
   return `<div class="rdv">
@@ -808,38 +897,61 @@ function rdvBlock(c,id){
       ${fi(c,`${b}.prevu`,"RDV prévu (jour et heure)",{type:"datetime-local"})}
       ${fi(c,`${b}.valide`,"RDV validé (jour et heure)",{type:"datetime-local",hint:"Vide : le RDV prévu est repris"})}
       ${fi(c,`${b}.lieu`,"Lieu du RDV",{cls:"span-2",ph:"Showroom, domicile du client…",
-        hint:`<span class="lieu-q"><button type="button" class="linkbtn" data-rdv-lieu="${id}" data-v="install">Adresse d’installation</button>
-              <button type="button" class="linkbtn" data-rdv-lieu="${id}" data-v="Showroom STLS">Showroom</button></span>`})}
+        hint:`<span class="lieu-q"><button type="button" class="linkbtn" data-rdv-lieu="${key}" data-v="install">Adresse d’installation</button>
+              <button type="button" class="linkbtn" data-rdv-lieu="${key}" data-v="Showroom STLS">Showroom</button></span>`})}
     </div>
-    <div class="rdv-actions"><button class="btn primary small" data-rdv-val="${id}">✓ Valider le RDV</button></div>
+    <div class="rdv-actions"><button class="btn primary small" data-rdv-val="${key}">✓ Valider le RDV</button></div>
   </div>${histHtml}`;
 }
-function stepBody(c,id){
-  const inner=stepBody0(c,id);
-  if(!RDV_STEPS.includes(id)) return inner;
-  return `<h3 class="sub" style="margin-top:14px">Rendez-vous</h3>${rdvBlock(c,id)}${inner}`;
+function devisBlock(c,p,sid){
+  const b=`projets.${p.id}.steps.${sid}`, s=p.steps[sid], d=calcDevis(p,s), mode=s.saisie||"TTC";
+  const nf={type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`};
+  return `<div class="devis">
+    <div class="devis-head">
+      ${seg(c,`${b}.saisie`,"Montants saisis en",["TTC","HT"],{req:true,def:"TTC"})}
+      <div class="muted">TVA du projet : ${pctTxt(p.tva)} – électroménager : ${pctTxt(P.tvaNormal)}</div>
+    </div>
+    <div class="grid-4">
+      ${fi(c,`${b}.mat`,`Fourniture ${mode}`,{...nf,hint:"Meubles, plan de travail, sanitaires, literie…"})}
+      ${fi(c,`${b}.elec`,`Électroménager ${mode}`,{...nf,hint:`Toujours à ${pctTxt(P.tvaNormal)}`})}
+      ${fi(c,`${b}.presta`,`Prestations de services ${mode}`,{...nf,hint:"Livraison, pose, installation…"})}
+    </div>
+    ${d.has?`<div class="dv-wrap"><table class="dv">
+      <thead><tr><th>Poste</th><th>TVA</th><th>HT</th><th>Montant TVA</th><th>TTC</th></tr></thead>
+      <tbody>${d.lines.filter(l=>l.ttc!=null).map(l=>`<tr><td>${l.label}</td><td>${pctTxt(l.rate)}</td><td>${eur(l.ht)}</td><td>${eur(l.tva)}</td><td>${eur(l.ttc)}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td>Total</td><td></td><td>${eur(d.ht)}</td><td>${eur(d.tva)}</td><td>${eur(d.ttc)}</td></tr></tfoot>
+    </table></div>`:""}
+  </div>`;
 }
-function stepBody0(c,id){
-  const s=c.steps[id], r=reglements(c), b=`steps.${id}`;
+function stepBody(c,p,id){
+  if(id==="s3"){
+    const b=`projets.${p.id}.steps.s3`;
+    const sw=seg(c,`${b}.necessaire`,"Visite technique nécessaire pour ce projet",["Oui","Non"],{req:true,def:"Oui",
+      hint:p.steps.s3.necessaire==="Non"?"Étape passée : le projet continue directement à la validation.":""});
+    if(p.steps.s3.necessaire==="Non") return `<div style="margin-top:12px">${sw}</div>`;
+    return `<div style="margin-top:12px">${sw}</div><h3 class="sub" style="margin-top:14px">Rendez-vous</h3>${rdvBlock(c,p,id)}${stepBody0(c,p,id)}`;
+  }
+  const inner=stepBody0(c,p,id);
+  if(!RDV_STEPS.includes(id)) return inner;
+  return `<h3 class="sub" style="margin-top:14px">Rendez-vous</h3>${rdvBlock(c,p,id)}${inner}`;
+}
+function stepBody0(c,p,id){
+  const s=p.steps[id], r=reglements(p), b=`projets.${p.id}.steps.${id}`, pc=`projets.${p.id}.commandes`;
   switch(id){
   case "s1": {
-    const rubs = c.types.map(t=>{
-      const def=P.types.find(x=>x.nom===t);
-      const list=(def?.rubriques?.length?def.rubriques:["Description"]);
-      return list.map(rb=>{ const k=rubKey(t,rb); return `<div class="rub"><div class="rub-t">Projet ${esc(t)}${list.length>1||rb!=="Description"?` – ${esc(rb)}`:""}</div>
-        ${ta(c,`${b}.rub.${k}.texte`,"Description")}${fi(c,`${b}.rub.${k}.comment`,"Commentaires")}</div>`; }).join("");
-    }).join("");
+    const def=P.types.find(x=>x.nom===p.type);
+    const list=def?.rubriques?.length?def.rubriques:["Description"];
+    const rubs=list.map(rb=>`<div class="rub"><div class="rub-t">Projet ${esc(p.type)}${rb!=="Description"?` – ${esc(rb)}`:""}</div>
+        ${ta(c,`${b}.rub.${slug(rb)}.texte`,"Description")}${fi(c,`${b}.rub.${slug(rb)}.comment`,"Commentaires")}</div>`).join("");
     return `<div class="grid-2" style="margin-top:12px">
         ${fi(c,`${b}.datePrevue`,"Date prévue du projet",{type:"date"})}
         ${fi(c,`${b}.budget`,"Budget maximum (TTC)",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`})}
-      </div>
-      <h3 class="sub">Détail du projet</h3>
-      ${rubs || `<p class="journal-empty">Sélectionnez un ou plusieurs types de projet dans la partie « Projet » pour faire apparaître les zones de description.</p>`}`;
+      </div><h3 class="sub">Détail du projet</h3>${rubs}`;
   }
   case "s2":
-    return `<div class="grid-2" style="margin-top:12px">
-        ${fi(c,`${b}.numero`,"N° du devis")}
-        ${fi(c,`${b}.montant`,"Montant TTC du devis (prévu)",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`})}
+    return `<div class="grid-2" style="margin-top:12px">${fi(c,`${b}.numero`,"N° du devis")}</div>
+      <h3 class="sub">Montant du devis (prévu)</h3>${devisBlock(c,p,"s2")}
+      <div class="grid-2" style="margin-top:12px">
         ${contactSel(c,`${b}.contact`)}
         ${seg(c,`${b}.reserveVT`,"Acceptation sous réserve de la visite technique")}
         ${seg(c,`${b}.planValide`,"Plan provisoire validé par le client")}
@@ -848,7 +960,7 @@ function stepBody0(c,id){
       </div>
       ${docs(c,`${b}.docsDevis`,"Devis (photo ou PDF)")}
       <div class="devis-send">
-        <button class="btn primary small" data-send-devis>✉️ Envoyer le devis par mail</button>
+        <button class="btn primary small" data-send-devis="${p.id}">✉️ Envoyer le devis par mail</button>
         ${s.devisEnvoyeLe?`<span class="muted">Dernier envoi le ${fmtDT(s.devisEnvoyeLe)}${s.devisEnvoyeA?` à ${esc(s.devisEnvoyeA)}`:""}</span>`:""}
       </div>
       ${docs(c,`${b}.docsScan`,"Documents scannés du dossier client")}`;
@@ -865,48 +977,54 @@ function stepBody0(c,id){
         ${ta(c,`${b}.modifs`,"Modifications diverses")}
       </div>
       ${docs(c,`${b}.docsPlan`,"Plans cotés et photos du chantier")}`;
-  case "s4":
+  case "s4": {
+    const d2=calcDevis(p,p.steps.s2);
     return `<div class="grid-2" style="margin-top:12px">
-        ${fi(c,`${b}.numero`,"N° du devis définitif",{ph:c.steps.s2.numero||""})}
-        ${fi(c,`${b}.montant`,"Montant TTC définitif",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`,hint:num(c.steps.s2.montant)!=null?`Devis prévu : ${eur(num(c.steps.s2.montant))}`:""})}
-        <div class="calc"><small>Acompte de ${P.pctAcompte} % à encaisser</small><span class="money">${eur(r.a)}</span></div>
+        ${fi(c,`${b}.numero`,"N° du devis définitif",{ph:p.steps.s2.numero||""})}
         ${seg(c,`${b}.methode`,"Méthode de versement",["Chèque","Virement"])}
+      </div>
+      <h3 class="sub">Montant définitif${d2.has?` <span class="muted" style="text-transform:none;letter-spacing:0">(devis prévu : ${eur(d2.ttc)} TTC)</span>`:""}</h3>
+      ${devisBlock(c,p,"s4")}
+      <div class="grid-2" style="margin-top:12px">
+        <div class="calc"><small>Acompte de ${P.pctAcompte} % à encaisser</small><span class="money">${eur(r.a)}</span>
+          <small>Calculé sur ${eur(r.m)} TTC${calcDevis(p,s).has?"":" (devis prévu, faute de montant définitif)"}</small></div>
         ${contactSel(c,`${b}.contact`)}
       </div>
       ${docs(c,`${b}.docsDevis`,"Devis définitif")}
       ${docs(c,`${b}.docsPlan`,"Plan validé (technique OK)")}
       ${docs(c,`${b}.docsAcompte`,"Devis signé et versement de l’acompte")}`;
+  }
   case "s5":
     return `<div class="grid-2" style="margin-top:12px">
         <div class="field"><label for="nbCmd">Nombre de commandes</label>
-          <input id="nbCmd" type="number" min="0" max="20" value="${c.commandes.length}" data-nbcmd></div>
+          <input id="nbCmd" type="number" min="0" max="20" value="${p.commandes.length}" data-nbcmd="${p.id}"></div>
       </div>
-      ${c.commandes.map((x,i)=>`<div class="cmd">
+      ${p.commandes.map((x,i)=>`<div class="cmd">
         <div class="cmd-head">Commande ${i+1}${x.fournisseur?` – ${esc(x.fournisseur)}`:""}
-          <button class="btn ghost danger small" data-delcmd="${i}">Retirer</button></div>
+          <button class="btn ghost danger small" data-delcmd="${p.id}|${i}">Retirer</button></div>
         <div class="grid-4">
-          ${fi(c,`commandes.${i}.fournisseur`,"Fournisseur")}
-          ${fi(c,`commandes.${i}.numero`,"N° de commande")}
-          ${fi(c,`commandes.${i}.dateCommande`,"Date de commande",{type:"date"})}
-          ${fi(c,`commandes.${i}.dateLivPrevue`,"Livraison prévue",{type:"date"})}
-          ${fi(c,`commandes.${i}.dateReception`,"Date de réception",{type:"date"})}
+          ${fi(c,`${pc}.${i}.fournisseur`,"Fournisseur")}
+          ${fi(c,`${pc}.${i}.numero`,"N° de commande")}
+          ${fi(c,`${pc}.${i}.dateCommande`,"Date de commande",{type:"date"})}
+          ${fi(c,`${pc}.${i}.dateLivPrevue`,"Livraison prévue",{type:"date"})}
+          ${fi(c,`${pc}.${i}.dateReception`,"Date de réception",{type:"date"})}
         </div>
-        ${docs(c,`commandes.${i}.docs`,"Bon de commande")}
+        ${docs(c,`${pc}.${i}.docs`,"Bon de commande")}
       </div>`).join("")}
-      <button class="btn small" data-addcmd>+ Ajouter une commande</button>`;
+      <button class="btn small" data-addcmd="${p.id}">+ Ajouter une commande</button>`;
   case "s6":
-    if(!c.commandes.length) return `<p class="journal-empty">Ajoutez d’abord les commandes à l’étape 5.</p>`;
-    return c.commandes.map((x,i)=>`<div class="cmd" style="margin-top:12px">
+    if(!p.commandes.length) return `<p class="journal-empty">Ajoutez d’abord les commandes à l’étape 5.</p>`;
+    return p.commandes.map((x,i)=>`<div class="cmd" style="margin-top:12px">
         <div class="cmd-head">Commande ${i+1}${x.fournisseur?` – ${esc(x.fournisseur)}`:""}${x.numero?` (n° ${esc(x.numero)})`:""}</div>
-        <label class="toggle"><input type="checkbox" data-p="commandes.${i}.arOk" data-kind="bool" ${x.arOk?"checked":""}> AR vérifié et conforme</label>
-        ${x.arOk?"":`${ta(c,`commandes.${i}.arModif`,"Modifications à demander au fournisseur")}
-          <button class="btn small" data-print-ar="${i}">🖨️ Imprimer la demande de modification</button>`}
-        ${docs(c,`commandes.${i}.arDocs`,"Accusé de réception")}
+        <label class="toggle"><input type="checkbox" data-p="${pc}.${i}.arOk" data-kind="bool" ${x.arOk?"checked":""}> AR vérifié et conforme</label>
+        ${x.arOk?"":`${ta(c,`${pc}.${i}.arModif`,"Modifications à demander au fournisseur")}
+          <button class="btn small" data-print-ar="${p.id}|${i}">🖨️ Imprimer la demande de modification</button>`}
+        ${docs(c,`${pc}.${i}.arDocs`,"Accusé de réception")}
       </div>`).join("");
   case "s7":
-    return c.commandes.length ? `<div style="margin-top:12px">${c.commandes.map((x,i)=>`<div class="cmd">
+    return p.commandes.length ? `<div style="margin-top:12px">${p.commandes.map((x,i)=>`<div class="cmd">
         <div class="cmd-head">Commande ${i+1}${x.fournisseur?` – ${esc(x.fournisseur)}`:""}</div>
-        <div class="grid-2">${fi(c,`commandes.${i}.dateReception`,"Date de réception",{type:"date"})}
+        <div class="grid-2">${fi(c,`${pc}.${i}.dateReception`,"Date de réception",{type:"date"})}
         <div class="field"><label>Livraison prévue</label><div style="padding:8px 0">${x.dateLivPrevue?fmtD(x.dateLivPrevue):"–"}</div></div></div>
       </div>`).join("")}</div><p class="route-hint">Cochez l’étape quand toute la marchandise est reçue.</p>`
       : `<p class="journal-empty" style="margin-top:12px">Cochez l’étape et indiquez la date quand la marchandise est reçue.</p>`;
@@ -923,33 +1041,100 @@ function stepBody0(c,id){
         <div class="calc"><small>Solde de ${P.pctSolde} % à l’installation</small><span class="money">${eur(r.s)}</span>
           <small>Calculé sur ${eur(r.m)} TTC</small></div>
       </div>
-      <datalist id="dl-poseurs">${P.poseurs.map(p=>`<option value="${esc(p)}">`).join("")}</datalist>`;
+      <datalist id="dl-poseurs">${P.poseurs.map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
   }
   return "";
 }
-function renderFiche(c){
-  const defs=stepDefs(), cur=currentStep(c), r=reglements(c), com=commission(c);
-  const doneN=STEP_IDS.filter(s=>c.steps[s].done).length;
-  const lastDoneIdx=STEP_IDS.reduce((m,s,i)=>c.steps[s].done?i:m,-1);
+/* ---------- Fiche client ---------- */
+function projetPanel(c,p){
+  const defs=stepDefs(), cur=currentStep(p), r=reglements(p), com=commission(c,p), pb=`projets.${p.id}`;
+  const doneN=STEP_IDS.filter(s=>p.steps[s].done||skipped(p,s)).length;
+  const lastDoneIdx=STEP_IDS.reduce((m,s,i)=>(p.steps[s].done||skipped(p,s))?i:m,-1);
   const progW=lastDoneIdx<0?0:(lastDoneIdx/8)*89;
-  if(openStep===null) openStep = cur===-1 ? null : STEP_IDS[cur];
-  const tels=[c.c1,c.c2].filter(p=>p.tel).map(p=>`<a href="tel:${esc(p.tel.replace(/[^\d+]/g,""))}">${esc(p.tel)}</a>`).join(" ");
+  if(openStep===null) openStep = cur===-1 ? "" : STEP_IDS[cur];
+  const inst=p.installation, d=devisRetenu(p);
+  return `<div class="proj-panel">
+    <div class="grid-4">
+      ${fi(c,`${pb}.libelle`,"Nom du projet",{ph:p.type,hint:`Type : ${esc(p.type)}`})}
+      ${sel(c,`${pb}.tva`,"Taux de TVA du projet",P.tvaRates.map(v=>[v,pctTxt(v)]),{kind:"num",empty:false})}
+      ${fi(c,`${pb}.installation.prevue`,"Installation prévue",{type:"date",attrs:"data-nolive",
+          hint:inst.historique.length?`Décalée ${inst.historique.length} fois`:"Une modification est gardée dans l’historique"})}
+      ${c.parrain?fi(c,`${pb}.commissionPct`,`Commission ${esc(c.parrain)} (%)`,{type:"number",kind:"num",attrs:`step="0.1" min="0" max="100"`,
+          hint:com?`${eur(com.montant)} sur ${eur(com.base)} HT de matériel`:"Calculée sur le matériel HT, hors prestations"}):""}
+    </div>
+    ${inst.historique.length?`<details class="rdv-hist"><summary>Historique des dates d’installation (${inst.historique.length})</summary><ul>
+      ${inst.historique.slice().reverse().map(h=>`<li>${h.de?fmtD(h.de):"non fixée"} → ${h.a?fmtD(h.a):"non fixée"}
+        <span class="muted">le ${fmtDT(h.at)}${h.by?` par ${esc(h.by.split("@")[0])}`:""}${h.motif?` : ${esc(h.motif)}`:""}</span></li>`).join("")}</ul></details>`:""}
+
+    <div class="route-head" style="margin-top:18px">
+      <h3 class="sub" style="margin:0">Avancement</h3>
+      <div class="paid">Encaissé <strong>${eur(r.recu)}</strong>${r.m?` sur ${eur(r.m)}`:""}${d.has&&d.prestaTTC?` <span class="muted">(dont prestations ${eur(d.prestaTTC)})</span>`:""}</div>
+    </div>
+    <div class="paybar" aria-hidden="true">
+      <span class="${p.steps.s4.done?"on":""}" style="width:${P.pctAcompte}%;border-right:2px solid var(--surface)"></span>
+      <span class="${p.steps.s8.done?"on":""}" style="width:${P.pctLivraison}%;border-right:2px solid var(--surface)"></span>
+      <span class="${p.steps.s9.done?"on":""}" style="width:${P.pctSolde}%"></span>
+    </div>
+    <ol class="route">
+      <li class="progress" aria-hidden="true" style="width:${progW}%"></li>
+      ${defs.map((df,i)=>{ const st=p.steps[df.id], sk=skipped(p,df.id);
+        const cls=["stop",df.pay?"pay":"",st.done?"done":"",sk?"skip":"",i===cur?"current":""].join(" ");
+        return `<li class="${cls}"><button data-goto="${df.id}" aria-label="Étape ${i+1}, ${esc(df.t)}${sk?", sans objet":st.done?", faite le "+fmtD(st.date):""}">
+          <span class="dot">${sk?"–":st.done?"✓":i+1}</span>
+          <span class="stop-txt"><span class="stop-t">${esc(df.t)}</span>
+          ${sk?`<span class="stop-s">Sans objet</span>`:df.s?`<span class="stop-s">${esc(df.s)}</span>`:""}
+          ${st.done&&st.date&&!sk?`<span class="stop-d">${fmtD(st.date)}</span>`:""}</span></button></li>`; }).join("")}
+    </ol>
+    <p class="route-hint">${cur===-1?"Toutes les étapes sont faites.":`${doneN} étape${doneN>1?"s":""} sur 9. Cliquez sur une étape pour l’ouvrir.`}</p>
+
+    <div class="steps-acc">
+      ${defs.map((df,i)=>{ const st=p.steps[df.id], open=openStep===df.id, sk=skipped(p,df.id), sum=stepSummary(c,p,df.id);
+        return `<div class="st ${st.done?"done":""} ${sk?"skip":""}" id="st-${df.id}" data-open="${open}">
+          <div class="st-head">
+            <span class="num">${sk?"–":st.done?"✓":i+1}</span>
+            <button class="st-open" data-open-step="${df.id}" aria-expanded="${open}">
+              <div class="st-title">${esc(df.t)}${df.s?` <span style="font-weight:400;color:var(--ink-3)">(${esc(df.s)})</span>`:""}</div>
+              ${sum?`<div class="st-sum">${esc(sum)}</div>`:""}
+            </button>
+            ${sk?"":`<span class="st-done">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-done="${df.id}" ${st.done?"checked":""}> Réalisé</label>
+              ${st.done?`<input type="date" data-p="${pb}.steps.${df.id}.date" value="${esc(st.date)}" aria-label="Date de réalisation">`:""}
+            </span>`}
+            <span class="chev" aria-hidden="true">›</span>
+          </div>
+          ${open?`<div class="st-body">${stepBody(c,p,df.id)}</div>`:""}
+        </div>`; }).join("")}
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+      <button class="btn ghost danger small" data-delproj="${p.id}">Supprimer ce projet</button>
+    </div>
+  </div>`;
+}
+function suiviLabel(c,s){
+  if(s.etape==="g" && !s.projet) return "Général";
+  const p=c.projets[s.projet]; const i=STEP_IDS.indexOf(s.etape);
+  return [p?projLabel(c,p):"", i>=0?`Étape ${i+1}`:""].filter(Boolean).join(" – ") || "Général";
+}
+function renderFiche(c){
+  const ps=projList(c);
+  if(selProj && !c.projets[selProj]) selProj=null;
+  if(!selProj && ps.length) selProj=ps[0].id;
+  const p=curProj(c);
+  const tels=[c.c1,c.c2].filter(x=>x.tel).map(x=>`<a href="tel:${esc(x.tel.replace(/[^\d+]/g,""))}">${esc(x.tel)}</a>`).join(" ");
   const ed = editingEntry ? c.suivis.find(s=>s.id===editingEntry) : null;
-  const suivis=[...c.suivis].filter(s=>suiviFilter==="all"||s.etape===suiviFilter).sort((a,b)=>b.date.localeCompare(a.date));
-  const stepName = id => id==="g" ? "Général" : `Étape ${STEP_IDS.indexOf(id)+1}`;
-  const countBy = id => c.suivis.filter(s=>s.etape===id).length;
+  const matchF = s => suiviFilter==="all" || (suiviFilter==="g" ? !s.projet : (suiviFilter.includes("|") ? `${s.projet}|${s.etape}`===suiviFilter : s.projet===suiviFilter));
+  const suivis=c.suivis.filter(matchF).sort((a,b)=>b.date.localeCompare(a.date));
+  const fp = suiviFilter!=="all" && suiviFilter!=="g" ? suiviFilter.split("|")[0] : null;
+  const defs=stepDefs();
+  const cible = ed ? `${ed.projet||""}|${ed.etape}` : (p ? `${p.id}|${STEP_IDS[Math.max(0,currentStep(p))]}` : "|g");
+  const planning=ps.filter(x=>x.installation.prevue).sort((a,b)=>a.installation.prevue.localeCompare(b.installation.prevue));
 
   return `<div class="sheet">
     <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
     <div class="top">
       <div class="top-left">
         <h1 style="font-size:32px">${esc(nomFiche(c)||c.raisonSociale||"Nouvelle fiche")}</h1>
-        <div class="quick">
-          ${tels}
-          ${c.types.length?`<span>${esc(c.types.join(", "))}</span>`:""}
-          ${c.install.ville?`<span>${esc(c.install.ville)}</span>`:""}
-          <span class="saved" id="saved"></span>
-        </div>
+        <div class="quick">${tels}${c.install.ville?`<span>${esc(c.install.ville)}</span>`:""}<span class="saved" id="saved"></span></div>
       </div>
       <div class="top-actions">
         <button class="btn primary" id="mailBtn">Envoyer par mail</button>
@@ -965,30 +1150,14 @@ function renderFiche(c){
     </section>
 
     <section class="block">
-      <h2>Projet</h2>
-      <div class="field"><label>Type(s) de projet</label>
-        <div class="chips">${P.types.map(t=>`<button type="button" class="chip" data-type="${esc(t.nom)}" aria-pressed="${c.types.includes(t.nom)}">${esc(t.nom)}</button>`).join("")}
-          ${c.types.filter(t=>!P.types.some(x=>x.nom===t)).map(t=>`<button type="button" class="chip" data-type="${esc(t)}" aria-pressed="true">${esc(t)}</button>`).join("")}
-          <button type="button" class="chip chip-add" data-addtype>+ Ajouter un type</button></div></div>
+      <h2>Adresse et facturation</h2>
       <h3 class="sub">Localisation de l’installation</h3>
       ${addrBlock(c,"install")}
-      <h3 class="sub">Bien et conditions</h3>
-      <div class="grid-4">
+      <div class="grid-4" style="margin-top:12px">
         ${sel(c,"typeBien","Type de bien",[...new Set([...P.biens, c.typeBien].filter(Boolean))].map(v=>[v,v]),{add:true})}
-        ${sel(c,"tva","Taux de TVA applicable",P.tvaRates.map(v=>[v,`${String(v).replace(".",",")} %`]),{kind:"num",empty:false})}
-        ${sel(c,"parrain","Parrain",[...new Set([...P.parrains.map(p=>p.nom), c.parrain].filter(Boolean))].map(v=>[v,v]),{add:true,empty:"Aucun"})}
-        ${c.parrain?fi(c,"commissionPct","Commission parrain (%)",{type:"number",kind:"num",attrs:`step="0.1" min="0" max="100"`}):""}
+        ${sel(c,"parrain","Parrain",[...new Set([...P.parrains.map(x=>x.nom), c.parrain].filter(Boolean))].map(v=>[v,v]),{add:true,empty:"Aucun"})}
       </div>
-      ${c.parrain?`<div class="grid-4" style="margin-top:12px">
-        ${fi(c,"baseMaterielHT","Montant matériel HT (base commission)",{type:"number",kind:"num",cls:"span-2",attrs:`step="0.01" min="0"`,hint:"Vide : calcul sur le montant HT du devis"})}
-        <div class="calc span-2"><small>Commission due à ${esc(c.parrain)}</small><span class="money">${com?eur(com.montant):"–"}</span>
-          ${com?`<small>${String(com.pct).replace(".",",")} % de ${eur(com.base)} HT</small>`:""}</div></div>`:""}
-      <div class="field" style="margin-top:14px"><label for="f-notes">Notes</label>
-        <textarea id="f-notes" data-p="notes" placeholder="Informations générales…">${esc(c.notes)}</textarea></div>
-    </section>
-
-    <section class="block">
-      <h2>Facturation</h2>
+      <h3 class="sub">Facturation</h3>
       <label class="toggle"><input type="checkbox" data-p="factDiff" data-kind="bool" ${c.factDiff?"checked":""}> Adresse de facturation différente de l’installation</label>
       ${c.factDiff?addrBlock(c,"fact"):""}
       <label class="toggle" style="margin-top:12px"><input type="checkbox" data-p="entreprise" data-kind="bool" ${c.entreprise?"checked":""}> Le client est une entreprise</label>
@@ -998,48 +1167,24 @@ function renderFiche(c){
         ${fi(c,"tvaIntra","N° de TVA intracommunautaire",{ph:"FR 12345678901",attrs:`data-fmt="tva"`,
           hint:!c.tvaIntra&&tvaFromSiret(c.siret)?`<button type="button" class="linkbtn" style="margin:0" data-tvasug>Proposer ${tvaFromSiret(c.siret)}</button>`:""})}
       </div>`:""}
+      <div class="field" style="margin-top:14px"><label for="f-notes">Notes</label>
+        <textarea id="f-notes" data-p="notes" placeholder="Informations générales…">${esc(c.notes)}</textarea></div>
     </section>
 
     <section class="block">
-      <div class="route-head">
-        <h2>Étapes du projet</h2>
-        <div class="paid">Encaissé <strong>${eur(r.recu)}</strong>${r.m?` sur ${eur(r.m)}`:""}</div>
+      <div class="route-head"><h2 style="margin:0">Projets</h2>
+        ${planning.length>1?`<div class="muted">Installations : ${planning.map(x=>`${esc(projLabel(c,x))} le ${fmtD(x.installation.prevue)}`).join(", puis ")}</div>`:""}</div>
+      <div class="tabs" role="tablist" style="margin-top:12px">
+        ${ps.map(x=>{ const i=currentStep(x); return `<button class="tab" role="tab" data-proj="${x.id}" aria-selected="${p&&x.id===p.id}">
+          <span class="tab-t">${esc(projLabel(c,x))}</span>
+          <span class="tab-s">${i===-1?"Terminé":`Étape ${i+1}`}${x.installation.prevue?` – pose ${fmtD(x.installation.prevue)}`:""}</span></button>`; }).join("")}
+        <button class="tab tab-add" data-addproj aria-expanded="${addingProject}">+ Nouveau projet</button>
       </div>
-      <div class="paybar" aria-hidden="true">
-        <span class="${c.steps.s4.done?"on":""}" style="width:${P.pctAcompte}%;border-right:2px solid var(--surface)"></span>
-        <span class="${c.steps.s8.done?"on":""}" style="width:${P.pctLivraison}%;border-right:2px solid var(--surface)"></span>
-        <span class="${c.steps.s9.done?"on":""}" style="width:${P.pctSolde}%"></span>
-      </div>
-      <ol class="route">
-        <li class="progress" aria-hidden="true" style="width:${progW}%"></li>
-        ${defs.map((d,i)=>{ const st=c.steps[d.id];
-          const cls=["stop",d.pay?"pay":"",st.done?"done":"",i===cur?"current":""].join(" ");
-          return `<li class="${cls}"><button data-goto="${d.id}" aria-label="Étape ${i+1}, ${esc(d.t)}${st.done?", faite le "+fmtD(st.date):""}">
-            <span class="dot">${st.done?"✓":i+1}</span>
-            <span class="stop-txt"><span class="stop-t">${esc(d.t)}</span>
-            ${d.s?`<span class="stop-s">${esc(d.s)}</span>`:""}
-            ${st.done&&st.date?`<span class="stop-d">${fmtD(st.date)}</span>`:""}</span></button></li>`; }).join("")}
-      </ol>
-      <p class="route-hint">${cur===-1?"Toutes les étapes sont faites.":`${doneN} étape${doneN>1?"s":""} sur 9. Cliquez sur une étape pour l’ouvrir.`}</p>
-
-      <div class="steps-acc">
-        ${defs.map((d,i)=>{ const st=c.steps[d.id], open=openStep===d.id, sum=stepSummary(c,d.id);
-          return `<div class="st ${st.done?"done":""}" id="st-${d.id}" data-open="${open}">
-            <div class="st-head">
-              <span class="num">${st.done?"✓":i+1}</span>
-              <button class="st-open" data-open-step="${d.id}" aria-expanded="${open}">
-                <div class="st-title">${esc(d.t)}${d.s?` <span style="font-weight:400;color:var(--ink-3)">(${esc(d.s)})</span>`:""}</div>
-                ${sum?`<div class="st-sum">${esc(sum)}</div>`:""}
-              </button>
-              <span class="st-done">
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-done="${d.id}" ${st.done?"checked":""}> Réalisé</label>
-                ${st.done?`<input type="date" data-p="steps.${d.id}.date" value="${esc(st.date)}" aria-label="Date de réalisation">`:""}
-              </span>
-              <span class="chev" aria-hidden="true">›</span>
-            </div>
-            ${open?`<div class="st-body">${stepBody(c,d.id)}</div>`:""}
-          </div>`; }).join("")}
-      </div>
+      ${addingProject||!ps.length?`<div class="newproj">
+        <div class="field"><label>${ps.length?"Type du nouveau projet":"Choisissez le type du premier projet"}</label>
+        <div class="chips">${P.types.map(t=>`<button class="chip" data-newproj="${esc(t.nom)}">${esc(t.nom)}</button>`).join("")}
+          <button class="chip chip-add" data-newproj-other>+ Autre type</button></div></div></div>`:""}
+      ${p?projetPanel(c,p):""}
     </section>
 
     <section class="block">
@@ -1048,8 +1193,11 @@ function renderFiche(c){
         <div class="field"><label for="s-date">Date et heure</label><input id="s-date" type="datetime-local" value="${ed?ed.date:nowLocal()}"></div>
         <div class="field"><label for="s-type">Type de contact</label>
           <select id="s-type">${SUIVI_TYPES.map(t=>`<option ${ed&&ed.type===t?"selected":""}>${t}</option>`).join("")}</select></div>
-        <div class="field"><label for="s-etape">Étape concernée</label>
-          <select id="s-etape"><option value="g">Général</option>${defs.map((d,i)=>`<option value="${d.id}" ${(ed?ed.etape===d.id:(cur>=0&&STEP_IDS[cur]===d.id))?"selected":""}>${i+1}. ${esc(d.t)}</option>`).join("")}</select></div>
+        <div class="field"><label for="s-cible">Projet et étape</label>
+          <select id="s-cible"><option value="|g">Général</option>
+            ${ps.map(x=>`<optgroup label="${esc(projLabel(c,x))}"><option value="${x.id}|g" ${cible===`${x.id}|g`?"selected":""}>${esc(projLabel(c,x))} – général</option>
+              ${defs.map((df,i)=>`<option value="${x.id}|${df.id}" ${cible===`${x.id}|${df.id}`?"selected":""}>${i+1}. ${esc(df.t)}</option>`).join("")}</optgroup>`).join("")}
+          </select></div>
         <div class="field note-wrap"><label for="s-note">Compte rendu</label>
           <textarea id="s-note" placeholder="Ce qui a été dit, la prochaine action…">${esc(ed?ed.note:"")}</textarea></div>
         <div class="add-actions">
@@ -1057,16 +1205,19 @@ function renderFiche(c){
           <button class="btn primary" id="addEntry">${ed?"Enregistrer la modification":"Ajouter au suivi"}</button>
         </div>
       </div>
-      <div class="filters" role="group" aria-label="Filtrer le suivi par étape">
+      <div class="filters" role="group" aria-label="Filtrer le suivi">
         <button class="chip" data-filter="all" aria-pressed="${suiviFilter==="all"}">Tout (${c.suivis.length})</button>
-        ${countBy("g")?`<button class="chip" data-filter="g" aria-pressed="${suiviFilter==="g"}">Général (${countBy("g")})</button>`:""}
-        ${STEP_IDS.filter(id=>countBy(id)).map(id=>`<button class="chip" data-filter="${id}" aria-pressed="${suiviFilter===id}">${stepName(id)} (${countBy(id)})</button>`).join("")}
+        ${c.suivis.some(s=>!s.projet)?`<button class="chip" data-filter="g" aria-pressed="${suiviFilter==="g"}">Général (${c.suivis.filter(s=>!s.projet).length})</button>`:""}
+        ${ps.filter(x=>c.suivis.some(s=>s.projet===x.id)).map(x=>`<button class="chip" data-filter="${x.id}" aria-pressed="${fp===x.id}">${esc(projLabel(c,x))} (${c.suivis.filter(s=>s.projet===x.id).length})</button>`).join("")}
       </div>
+      ${fp?`<div class="filters" role="group" aria-label="Filtrer par étape">
+        ${STEP_IDS.filter(id=>c.suivis.some(s=>s.projet===fp&&s.etape===id)).map(id=>`<button class="chip" data-filter="${fp}|${id}" aria-pressed="${suiviFilter===`${fp}|${id}`}">Étape ${STEP_IDS.indexOf(id)+1} (${c.suivis.filter(s=>s.projet===fp&&s.etape===id).length})</button>`).join("")}
+      </div>`:""}
       ${suivis.length?`<ol class="journal">${suivis.map(s=>`<li class="entry">
           <div class="entry-head">
             <span class="entry-date">${fmtDT(s.date)}</span>
             <span class="tag">${esc(s.type)}</span>
-            <span class="tag">${stepName(s.etape)}</span>
+            <span class="tag">${esc(suiviLabel(c,s))}</span>
             ${s.by?`<span class="tag">${esc(s.by.split("@")[0])}</span>`:""}
             <span class="entry-actions">
               <button class="btn ghost" data-edit="${s.id}">Modifier</button>
@@ -1074,11 +1225,27 @@ function renderFiche(c){
             </span>
           </div>
           ${s.note?`<div class="entry-note">${esc(s.note)}</div>`:""}</li>`).join("")}</ol>`
-        : `<p class="journal-empty">${c.suivis.length?"Aucun contact pour cette étape.":"Aucun contact noté. Ajoutez le premier ci-dessus."}</p>`}
+        : `<p class="journal-empty">${c.suivis.length?"Aucun contact pour ce filtre.":"Aucun contact noté. Ajoutez le premier ci-dessus."}</p>`}
     </section>
   </div>`;
 }
 
+/* ---------- Rendu ---------- */
+function renderMain(){
+  const app=$("#app"), main=$("#main");
+  if(selId==="__params"){ app.classList.add("has-sel"); main.innerHTML=renderParams(); return; }
+  const c=current();
+  app.classList.toggle("has-sel", !!c);
+  if(!c){ main.innerHTML=`<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`; return; }
+  main.innerHTML=renderFiche(c);
+}
+function rerenderKeep(){
+  needRefresh=false;
+  const a=document.activeElement, id=a?.id, pos=a?.selectionStart, top=$("#main").scrollTop;
+  renderMain(); $("#main").scrollTop=top;
+  if(id){ const el=document.getElementById(id); if(el){ el.focus({preventScroll:true}); try{ if(pos!=null) el.setSelectionRange(pos,pos);}catch(_){} } }
+}
+function select(id){ flushPending(); selId=id; selProj=null; addingProject=false; editingEntry=null; openStep=null; suiviFilter="all"; renderList(); renderMain(); $("#main").scrollTop=0; }
 /* ---------- Paramètres ---------- */
 function renderParams(){
   const sum=P.pctAcompte+P.pctLivraison+P.pctSolde;
@@ -1091,7 +1258,9 @@ function renderParams(){
       <div class="chips">${P.tvaRates.map((v,i)=>`<button class="chip" data-pdel="tvaRates" data-i="${i}" aria-pressed="${v===P.tvaDefaut}" title="Retirer">${String(v).replace(".",",")} %<span class="x">✕</span></button>`).join("")}
         <button class="chip chip-add" data-padd="tvaRates">+ Ajouter un taux</button></div>
       <div class="grid-4" style="margin-top:14px">
-        <div class="field"><label for="p-tvaDefaut">Taux par défaut des nouvelles fiches</label>
+        <div class="field"><label for="p-tvaNormal">Taux normal (toujours appliqué à l’électroménager)</label>
+          <input id="p-tvaNormal" type="number" min="0" max="100" step="0.1" data-pp="tvaNormal" value="${P.tvaNormal}"></div>
+        <div class="field"><label for="p-tvaDefaut">Taux par défaut des nouveaux projets</label>
           <select id="p-tvaDefaut" data-pp="tvaDefaut">${P.tvaRates.map(v=>`<option value="${v}" ${v===P.tvaDefaut?"selected":""}>${String(v).replace(".",",")} %</option>`).join("")}</select></div>
       </div>
     </section>
@@ -1106,10 +1275,11 @@ function renderParams(){
     </section>
 
     <section class="block"><h2>Types de projet</h2>
-      <p class="route-hint" style="margin:0 0 12px">Les rubriques, séparées par des virgules, créent les zones de description à l’étape « Découverte ».</p>
-      ${P.types.map((t,i)=>`<div class="prow">
+      <p class="route-hint" style="margin:0 0 12px">Les rubriques, séparées par des virgules, créent les zones de description à l’étape « Découverte ». « Visite technique » indique si elle est prévue par défaut pour ce type (modifiable dans chaque projet).</p>
+      ${P.types.map((t,i)=>`<div class="prow prow3">
         <input value="${esc(t.nom)}" data-ptype="${i}" data-k="nom" aria-label="Nom du type">
         <input value="${esc(t.rubriques.join(", "))}" data-ptype="${i}" data-k="rubriques" aria-label="Rubriques de ${esc(t.nom)}">
+        <label class="toggle" style="margin:0;font-weight:400;font-size:13px"><input type="checkbox" data-ptype="${i}" data-k="visite" ${t.visite!==false?"checked":""}> Visite technique</label>
         <button class="btn ghost danger small" data-pdel="types" data-i="${i}">Retirer</button></div>`).join("")}
       <button class="btn small" data-padd="types">+ Ajouter un type de projet</button>
     </section>
@@ -1136,23 +1306,6 @@ function renderParams(){
   </div>`;
 }
 
-/* ---------- Rendu ---------- */
-function renderMain(){
-  const app=$("#app"), main=$("#main");
-  if(selId==="__params"){ app.classList.add("has-sel"); main.innerHTML=renderParams(); return; }
-  const c=current();
-  app.classList.toggle("has-sel", !!c);
-  if(!c){ main.innerHTML=`<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`; return; }
-  main.innerHTML=renderFiche(c);
-}
-function rerenderKeep(){
-  needRefresh=false;
-  const a=document.activeElement, id=a?.id, pos=a?.selectionStart, top=$("#main").scrollTop;
-  renderMain(); $("#main").scrollTop=top;
-  if(id){ const el=document.getElementById(id); if(el){ el.focus({preventScroll:true}); try{ if(pos!=null) el.setSelectionRange(pos,pos);}catch(_){} } }
-}
-function select(id){ flushPending(); selId=id; editingEntry=null; openStep=null; suiviFilter="all"; renderList(); renderMain(); $("#main").scrollTop=0; }
-
 /* ---------- Événements : liste ---------- */
 $("#list").addEventListener("click", e=>{ const b=e.target.closest("button[data-id]"); if(b) select(b.dataset.id); });
 $("#search").addEventListener("input", e=>{ query=e.target.value; renderList(); });
@@ -1160,7 +1313,7 @@ $("#paramsBtn").addEventListener("click", ()=>select("__params"));
 $("#newBtn").addEventListener("click", ()=>{
   flushPending();
   const c=blankClient(); clients.push(c); createClient(c);
-  select(c.id); openStep="s1"; renderMain();
+  select(c.id); addingProject=true; renderMain();
   setTimeout(()=>$("#f-c1-nom")?.focus(),0);
 });
 
@@ -1176,8 +1329,7 @@ $("#main").addEventListener("input", e=>{
   const c=current(); if(!c) return;
   if(el.dataset.fmt==="siret"){ const p=el.selectionStart, before=el.value.length; el.value=fmtSiret(el.value); try{ el.setSelectionRange(p+(el.value.length-before),p+(el.value.length-before)); }catch(_){} }
   if(el.dataset.fmt==="tva"){ el.value=fmtTva(el.value); }
-  const p=el.dataset.p; if(!p || el.tagName==="SELECT") return;
-  if(el.type==="checkbox") return;
+  const p=el.dataset.p; if(!p || el.tagName==="SELECT" || el.type==="checkbox" || el.dataset.nolive!==undefined) return;
   const v=readVal(el); setP(c,p,v); queue(c,p,v);
   if(/^c[12]\./.test(p)) renderList();
 });
@@ -1185,20 +1337,33 @@ $("#main").addEventListener("change", e=>{
   const el=e.target;
   if(selId==="__params"){ paramChange(el); return; }
   const c=current(); if(!c) return;
+  const p0=curProj(c);
   if(el.dataset.up){ uploadDocs(c, el.dataset.up, [...el.files]); el.value=""; return; }
-  if(el.dataset.nbcmd!==undefined){ setCmdCount(c, Math.max(0,Math.min(20,parseInt(el.value)||0))); return; }
-  if(el.dataset.done){
-    const s=c.steps[el.dataset.done]; s.done=el.checked; s.date=el.checked?(s.date||today()):"";
-    flushPending(); updateFields(c.id,{[`steps.${el.dataset.done}.done`]:s.done,[`steps.${el.dataset.done}.date`]:s.date});
+  if(el.dataset.nbcmd!==undefined){ setCmdCount(c, c.projets[el.dataset.nbcmd], Math.max(0,Math.min(20,parseInt(el.value)||0))); return; }
+  if(el.dataset.done && p0){
+    const sid=el.dataset.done, s=p0.steps[sid]; s.done=el.checked; s.date=el.checked?(s.date||today()):"";
+    flushPending(); updateFields(c.id,{[`projets.${p0.id}.steps.${sid}.done`]:s.done,[`projets.${p0.id}.steps.${sid}.date`]:s.date});
     rerenderKeep(); renderList(); return;
   }
   const p=el.dataset.p; if(!p) return;
   if(el.tagName==="SELECT" && el.value==="__add"){ addFromSelect(c,p,el); return; }
-  const v=readVal(el); setP(c,p,v);
+  const v=readVal(el);
+  // décalage de la date d'installation : on garde l'ancienne date
+  if(/^projets\.[^.]+\.installation\.prevue$/.test(p)){
+    const pr=c.projets[p.split(".")[1]], old=pr.installation.prevue||"";
+    if(old===v) return;
+    let motif="";
+    if(old){ const m=prompt(`Installation décalée du ${fmtD(old)} au ${v?fmtD(v):"(non fixée)"}.\nMotif (facultatif) :`,""); if(m===null){ el.value=old; return; } motif=m.trim(); }
+    pr.installation.prevue=v;
+    if(old) pr.installation.historique=[...pr.installation.historique,{de:old,a:v,motif,at:nowLocal(),by:me?.email||""}];
+    flushPending(); updateFields(c.id,{[`projets.${pr.id}.installation`]:clone(pr.installation)});
+    logSuivi(c,pr.id,"g", old?`Installation décalée du ${fmtD(old)} au ${v?fmtD(v):"(non fixée)"}${motif?` : ${motif}`:""}.`:`Installation prévue le ${fmtD(v)}.`, "Autre");
+    rerenderKeep(); renderList(); return;
+  }
+  setP(c,p,v);
   if(p==="parrain"){
     const def=P.parrains.find(x=>x.nom===v);
-    if(def && def.pct!=null){ c.commissionPct=def.pct; queue(c,"commissionPct",def.pct); }
-    if(!v){ c.commissionPct=null; queue(c,"commissionPct",null); }
+    projList(c).forEach(pr=>{ if(!v) pr.commissionPct=null; else if(def?.pct!=null && pr.commissionPct==null) pr.commissionPct=def.pct; queue(c,`projets.${pr.id}.commissionPct`,pr.commissionPct); });
   }
   if(/^(install|fact)\.cp$/.test(p) && geoList(c[p.split(".")[0]].dep)){
     const blk=p.split(".")[0], vs=villesOf(c[blk].dep, v);
@@ -1207,11 +1372,10 @@ $("#main").addEventListener("change", e=>{
   }
   if(/^(install|fact)\.ville$/.test(p) && geoList(c[p.split(".")[0]].dep)){
     const blk=p.split(".")[0];
-    const com=(geoList(c[blk].dep)||[]).filter(x=>x.nom===v);
-    const cps=[...new Set(com.flatMap(x=>x.codesPostaux||[]))];
+    const cps=[...new Set((geoList(c[blk].dep)||[]).filter(x=>x.nom===v).flatMap(x=>x.codesPostaux||[]))];
     if(cps.length===1 && c[blk].cp!==cps[0]){ c[blk].cp=cps[0]; queue(c,`${blk}.cp`,cps[0]); }
   }
-  if(/\.(pays|dep)$/.test(p)){
+  if(/^(install|fact)\.(pays|dep)$/.test(p)){
     const blk=p.split(".")[0];
     if(p.endsWith("pays")){ c[blk].dep = v==="FR" ? "83" : ""; queue(c,`${blk}.dep`,c[blk].dep); }
     c[blk].cp=""; c[blk].ville=""; queue(c,`${blk}.cp`,""); queue(c,`${blk}.ville`,"");
@@ -1230,25 +1394,33 @@ function refreshAfter(el){
 }
 function tryRefresh(){ if(needRefresh && !fieldFocused() && !dlg.open){ needRefresh=false; rerenderKeep(); } }
 $("#main").addEventListener("focusout", ()=>setTimeout(tryRefresh,60));
+
 function addFromSelect(c,p,el){
   const label = p==="typeBien" ? "Nouveau type de bien :" : "Nom du parrain :";
   const v=(prompt(label)||"").trim();
   if(!v){ el.value=getP(c,p)||""; return; }
   if(p==="typeBien"){ if(!P.biens.includes(v)) P.biens.push(v); }
-  else { if(!P.parrains.some(x=>x.nom===v)){ const pct=num((prompt(`Commission par défaut de ${v} (%) :`, "")||"").replace(",", ".")); P.parrains.push({nom:v,pct}); } }
+  else if(!P.parrains.some(x=>x.nom===v)){ const pct=num((prompt(`Commission par défaut de ${v} (%) :`, "")||"").replace(",", ".")); P.parrains.push({nom:v,pct}); }
   saveParams(true);
   setP(c,p,v); queue(c,p,v);
-  if(p==="parrain"){ const def=P.parrains.find(x=>x.nom===v); if(def?.pct!=null){ c.commissionPct=def.pct; queue(c,"commissionPct",def.pct); } }
+  if(p==="parrain"){ const def=P.parrains.find(x=>x.nom===v);
+    projList(c).forEach(pr=>{ if(def?.pct!=null && pr.commissionPct==null){ pr.commissionPct=def.pct; queue(c,`projets.${pr.id}.commissionPct`,def.pct); } }); }
   flushPending(); rerenderKeep();
 }
-function setCmdCount(c,n){
-  const cur=c.commandes.length;
+function setCmdCount(c,p,n){
+  const cur=p.commandes.length;
   if(n<cur){
-    const lost=c.commandes.slice(n).some(x=>x.fournisseur||x.numero||x.docs?.length||x.arDocs?.length);
+    const lost=p.commandes.slice(n).some(x=>x.fournisseur||x.numero||x.docs?.length||x.arDocs?.length);
     if(lost && !confirm(`Retirer ${cur-n} commande(s) déjà renseignée(s) ?`)){ rerenderKeep(); return; }
-    c.commandes=c.commandes.slice(0,n);
-  } else { for(let i=cur;i<n;i++) c.commandes.push({id:uid(),fournisseur:"",numero:"",dateCommande:"",dateLivPrevue:"",dateReception:"",docs:[],arOk:false,arModif:"",arDocs:[]}); }
-  flushPending(); updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))}); rerenderKeep();
+    p.commandes=p.commandes.slice(0,n);
+  } else { for(let i=cur;i<n;i++) p.commandes.push({id:uid(),fournisseur:"",numero:"",dateCommande:"",dateLivPrevue:"",dateReception:"",docs:[],arOk:false,arModif:"",arDocs:[]}); }
+  flushPending(); updateFields(c.id,{[`projets.${p.id}.commandes`]:clone(p.commandes)}); rerenderKeep();
+}
+async function addProjet(c,type){
+  const p=blankProjet(c,type); c.projets[p.id]=p;
+  flushPending(); await updateFields(c.id,{[`projets.${p.id}`]:clone(p)});
+  logSuivi(c,p.id,"g",`Nouveau projet : ${type}.`,"Autre");
+  selProj=p.id; addingProject=false; openStep=null; rerenderKeep(); renderList();
 }
 
 /* ---------- Événements : clics ---------- */
@@ -1257,9 +1429,10 @@ $("#main").addEventListener("click", async e=>{
   if(t.closest("#backBtn")){ select(null); return; }
   if(selId==="__params"){ paramClick(t); return; }
   const c=current(); if(!c) return;
+  const p=curProj(c);
 
   if(t.closest("#delBtn")){
-    if(confirm(`Supprimer la fiche de ${nomFiche(c)||"ce client"} et tout son suivi ?`)){
+    if(confirm(`Supprimer la fiche de ${nomFiche(c)||"ce client"}, tous ses projets et tout son suivi ?`)){
       try{ await deleteDoc(ref(c.id)); const id=c.id; pendingFields.clear(); clients=clients.filter(x=>x.id!==id); select(null); toast("Fiche supprimée"); }
       catch(err){ toast(err?.code==="permission-denied"?"Seul un administrateur peut supprimer une fiche.":"Suppression impossible."); }
     }
@@ -1268,51 +1441,71 @@ $("#main").addEventListener("click", async e=>{
   if(t.closest("#exportBtn")){ exportTxt(c); return; }
   if(t.closest("#mailBtn")){ flushPending(); openMail(c); return; }
 
+  // projets
+  const tb=t.closest("[data-proj]");
+  if(tb){ flushPending(); selProj=tb.dataset.proj; addingProject=false; openStep=null; suiviFilter="all"; rerenderKeep(); return; }
+  if(t.closest("[data-addproj]")){ addingProject=!addingProject; rerenderKeep(); return; }
+  const np=t.closest("[data-newproj]");
+  if(np){ addProjet(c, np.dataset.newproj); return; }
+  if(t.closest("[data-newproj-other]")){
+    const v=(prompt("Type du nouveau projet :")||"").trim(); if(!v) return;
+    if(!P.types.some(x=>x.nom===v)){ P.types.push({nom:v,rubriques:["Description"],visite:true}); saveParams(true); }
+    addProjet(c,v); return;
+  }
+  const dp=t.closest("[data-delproj]");
+  if(dp){ const pr=c.projets[dp.dataset.delproj];
+    if(!confirm(`Supprimer le projet « ${projLabel(c,pr)} » et toutes ses étapes ? Le suivi déjà noté est conservé.`)) return;
+    flushPending(); delete c.projets[pr.id];
+    await updateFields(c.id,{[`projets.${pr.id}`]:deleteField()});
+    selProj=null; openStep=null; rerenderKeep(); renderList(); toast("Projet supprimé"); return; }
+
+  if(!p && !t.closest("[data-filter],#addEntry,#cancelEdit,[data-edit],[data-del],[data-set],[data-tvasug]")) return;
+
   const g=t.closest("[data-goto]");
   if(g){ openStep=g.dataset.goto; renderMain(); document.getElementById("st-"+openStep)?.scrollIntoView({behavior:"smooth",block:"start"}); return; }
   const os=t.closest("[data-open-step]");
   if(os){ openStep = openStep===os.dataset.openStep ? "" : os.dataset.openStep; rerenderKeep(); return; }
 
-  const ty=t.closest("[data-type]");
-  if(ty){ const v=ty.dataset.type; c.types = c.types.includes(v) ? c.types.filter(x=>x!==v) : [...c.types, v]; queue(c,"types"); flushPending(); rerenderKeep(); renderList(); return; }
-  if(t.closest("[data-addtype]")){
-    const v=(prompt("Nouveau type de projet :")||"").trim(); if(!v) return;
-    if(!P.types.some(x=>x.nom===v)){ P.types.push({nom:v,rubriques:["Description"]}); saveParams(true); }
-    if(!c.types.includes(v)){ c.types.push(v); queue(c,"types"); flushPending(); }
-    rerenderKeep(); return;
-  }
   const sg=t.closest("[data-set]");
-  if(sg){ const p=sg.dataset.set, cur=getP(c,p), v= cur===sg.dataset.v ? "" : sg.dataset.v; setP(c,p,v); queue(c,p,v); flushPending(); rerenderKeep(); return; }
+  if(sg){ const path=sg.dataset.set, cur=getP(c,path)||"";
+    const v = (cur===sg.dataset.v && sg.dataset.req===undefined) ? "" : sg.dataset.v;
+    setP(c,path,v); queue(c,path,v); flushPending();
+    if(/\.steps\.s3\.necessaire$/.test(path)){ const pr=c.projets[path.split(".")[1]];
+      logSuivi(c,pr.id,"s3", v==="Non"?"Visite technique non nécessaire pour ce projet.":"Visite technique nécessaire pour ce projet.","Autre"); }
+    rerenderKeep(); renderList(); return; }
   if(t.closest("[data-tvasug]")){ c.tvaIntra=tvaFromSiret(c.siret); queue(c,"tvaIntra",c.tvaIntra); flushPending(); rerenderKeep(); return; }
   const dd=t.closest("[data-deldoc]");
   if(dd){ removeDoc(c, dd.dataset.deldoc, +dd.dataset.i); return; }
-  if(t.closest("[data-addcmd]")){ setCmdCount(c, c.commandes.length+1); return; }
+  const ac=t.closest("[data-addcmd]");
+  if(ac){ const pr=c.projets[ac.dataset.addcmd]; setCmdCount(c, pr, pr.commandes.length+1); return; }
   const dc=t.closest("[data-delcmd]");
-  if(dc){ const i=+dc.dataset.delcmd; const x=c.commandes[i];
+  if(dc){ const [pid,i]=dc.dataset.delcmd.split("|"); const pr=c.projets[pid]; const x=pr.commandes[+i];
     if((x.fournisseur||x.docs?.length) && !confirm("Retirer cette commande ?")) return;
-    c.commandes.splice(i,1); flushPending(); updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))}); rerenderKeep(); return; }
+    pr.commandes.splice(+i,1); flushPending(); updateFields(c.id,{[`projets.${pid}.commandes`]:clone(pr.commandes)}); rerenderKeep(); return; }
   const rv=t.closest("[data-rdv-val]");
-  if(rv){ flushPending(); validerRdv(c, rv.dataset.rdvVal); return; }
+  if(rv){ flushPending(); const [pid,sid]=rv.dataset.rdvVal.split("|"); validerRdv(c, c.projets[pid], sid); return; }
   const rm=t.closest("[data-rdv-mod]");
-  if(rm){ flushPending(); modifierRdv(c, rm.dataset.rdvMod); return; }
+  if(rm){ flushPending(); const [pid,sid]=rm.dataset.rdvMod.split("|"); modifierRdv(c, c.projets[pid], sid); return; }
   const rl=t.closest("[data-rdv-lieu]");
-  if(rl){ const id=rl.dataset.rdvLieu, v = rl.dataset.v==="install" ? addrText(c.install) : rl.dataset.v;
+  if(rl){ const [pid,sid]=rl.dataset.rdvLieu.split("|"), v = rl.dataset.v==="install" ? addrText(c.install) : rl.dataset.v;
     if(!v){ toast("Renseignez d’abord l’adresse d’installation."); return; }
-    c.steps[id].rendezvous.lieu=v; queue(c,`steps.${id}.rendezvous.lieu`,v); flushPending(); rerenderKeep(); return; }
-  if(t.closest("[data-send-devis]")){ flushPending(); openMail(c,"devis"); return; }
+    c.projets[pid].steps[sid].rendezvous.lieu=v; queue(c,`projets.${pid}.steps.${sid}.rendezvous.lieu`,v); flushPending(); rerenderKeep(); return; }
+  const sd=t.closest("[data-send-devis]");
+  if(sd){ flushPending(); openMail(c,"devis",c.projets[sd.dataset.sendDevis]); return; }
   const pa=t.closest("[data-print-ar]");
-  if(pa){ flushPending(); printAR(c, +pa.dataset.printAr); return; }
+  if(pa){ flushPending(); const [pid,i]=pa.dataset.printAr.split("|"); printAR(c, c.projets[pid], +i); return; }
 
   const fl=t.closest("[data-filter]");
   if(fl){ suiviFilter=fl.dataset.filter; rerenderKeep(); return; }
   if(t.closest("#addEntry")){
-    const date=$("#s-date").value||nowLocal(), type=$("#s-type").value, etape=$("#s-etape").value, note=$("#s-note").value.trim();
+    const date=$("#s-date").value||nowLocal(), type=$("#s-type").value, note=$("#s-note").value.trim();
+    const [projet,etape]=$("#s-cible").value.split("|");
     flushPending();
     if(editingEntry){
-      const s=c.suivis.find(x=>x.id===editingEntry); if(s){ Object.assign(s,{date,type,etape,note}); }
-      editingEntry=null; updateFields(c.id,{suivis:c.suivis}); toast("Contact modifié");
+      const s=c.suivis.find(x=>x.id===editingEntry); if(s) Object.assign(s,{date,type,projet,etape,note});
+      editingEntry=null; updateFields(c.id,{suivis:clone(c.suivis)}); toast("Contact modifié");
     } else {
-      const entry={id:uid(),date,type,etape,note,by:me?.email||""};
+      const entry={id:uid(),date,type,projet,etape,note,by:me?.email||""};
       c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)}); toast("Contact ajouté au suivi");
     }
     rerenderKeep(); renderList(); return;
@@ -1330,10 +1523,196 @@ $("#main").addEventListener("click", async e=>{
   }
 });
 
+/* ---------- Rendez-vous ---------- */
+function logSuivi(c, projet, etape, note, type="Rendez-vous"){
+  const entry={id:uid(),date:nowLocal(),type,projet:projet||"",etape,note,by:me?.email||""};
+  c.suivis.push(entry); return updateFields(c.id,{suivis:arrayUnion(entry)});
+}
+function stepLabel(c,p,id){ const i=STEP_IDS.indexOf(id); return `${projLabel(c,p)}, étape ${i+1} (${stepDefs()[i].t})`; }
+async function validerRdv(c,p,id){
+  const r=p.steps[id].rendezvous, b=`projets.${p.id}.steps.${id}.rendezvous`;
+  const v=r.valide||r.prevu;
+  if(!v){ toast("Indiquez le jour et l’heure du RDV."); return; }
+  r.valide=v; if(!r.prevu) r.prevu=v;
+  await updateFields(c.id,{[`${b}.valide`]:r.valide,[`${b}.prevu`]:r.prevu,[`${b}.lieu`]:r.lieu||""});
+  logSuivi(c,p.id,id,`RDV validé (${stepLabel(c,p,id)}) : ${fmtDT(r.valide)}${r.lieu?`, ${r.lieu}`:""}.`);
+  rerenderKeep(); renderList();
+}
+async function modifierRdv(c,p,id){
+  const r=p.steps[id].rendezvous;
+  const motif=prompt("Motif de la modification (facultatif) :","");
+  if(motif===null) return;
+  const h={prevu:r.prevu||"",valide:r.valide||"",lieu:r.lieu||"",motif:motif.trim(),at:nowLocal(),by:me?.email||""};
+  r.historique=[...(r.historique||[]),h];
+  r.prevu=r.valide||r.prevu; r.valide="";
+  await updateFields(c.id,{[`projets.${p.id}.steps.${id}.rendezvous`]:clone(r)});
+  logSuivi(c,p.id,id,`RDV à modifier (${stepLabel(c,p,id)}), était le ${fmtDT(h.valide||h.prevu)}${h.motif?` : ${h.motif}`:""}.`);
+  openStep=id; rerenderKeep(); renderList();
+  setTimeout(()=>document.getElementById(`f-projets-${p.id}-steps-${id}-rendezvous-prevu`)?.focus(),0);
+}
+
+/* ---------- Demande de modification d'AR ---------- */
+function printAR(c,p,i){
+  const x=p.commandes[i]; if(!x) return;
+  const w=window.open("","_blank"); if(!w){ toast("Autorisez les fenêtres pour imprimer."); return; }
+  const lieu=[c.install.cp,c.install.ville].filter(Boolean).join(" ");
+  w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Demande de modification – ${esc(x.fournisseur||"Fournisseur")}</title>
+  <style>body{font:14px/1.55 Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px}
+  .h{display:flex;justify-content:space-between;gap:20px;margin-bottom:40px}.h b{font-size:18px}
+  h1{font-size:18px;margin:30px 0 16px}.box{border:1px solid #999;border-radius:6px;padding:14px;white-space:pre-wrap;min-height:120px}
+  table{border-collapse:collapse;margin:10px 0}td{padding:3px 14px 3px 0;vertical-align:top}.sig{margin-top:50px;display:flex;justify-content:space-between}</style></head><body>
+  <div class="h"><div><b>${STLS.nom}</b><br>${esc(STLS.adresse)}<br>Tél. ${STLS.tel}<br>${STLS.mail}<br>SIRET ${STLS.siret}</div>
+  <div style="text-align:right">À l’attention de<br><b>${esc(x.fournisseur||"…")}</b><br><br>Le ${fmtD(today())}</div></div>
+  <h1>Demande de modification d’accusé de réception</h1>
+  <table><tr><td>Commande n°</td><td><b>${esc(x.numero||"…")}</b></td></tr>
+  <tr><td>Date de commande</td><td>${fmtD(x.dateCommande)||"…"}</td></tr>
+  <tr><td>Livraison prévue</td><td>${fmtD(x.dateLivPrevue)||"…"}</td></tr>
+  <tr><td>Client final</td><td>${esc(nomFiche(c)||"…")}${lieu?` – ${esc(lieu)}`:""} (projet ${esc(projLabel(c,p))})</td></tr></table>
+  <p>Après vérification de votre accusé de réception, nous vous demandons d’apporter les modifications suivantes :</p>
+  <div class="box">${esc(x.arModif||"")}</div>
+  <p>Merci de nous retourner un accusé de réception corrigé dans les meilleurs délais.</p>
+  <div class="sig"><div>Pour ${STLS.nom}<br><br><br>Signature</div><div>Bon pour accord fournisseur<br><br><br>Date et signature</div></div>
+  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+  logSuivi(c,p.id,"s6",`Demande de modification d’AR imprimée pour ${x.fournisseur||"le fournisseur"}${x.numero?` (commande ${x.numero})`:""}.`,"Autre");
+}
+
+/* ---------- Textes : mail et export ---------- */
+function addrText(a){ return [a.adresse, [a.cp,a.ville].filter(Boolean).join(" "), a.pays&&a.pays!=="FR"?(PAYS.find(p=>p[0]===a.pays)?.[1]||a.pays):""].filter(Boolean).join(", "); }
+function devisLines(p,st,L){
+  const d=calcDevis(p,st); if(!d.has) return;
+  d.lines.filter(l=>l.ttc!=null).forEach(l=>L.push(`   ${l.label} (TVA ${pctTxt(l.rate)}) : ${eur(l.ht)} HT – ${eur(l.ttc)} TTC`));
+  L.push(`   Total : ${eur(d.ht)} HT – TVA ${eur(d.tva)} – ${eur(d.ttc)} TTC`);
+}
+function toText(c, what="full"){
+  const L=[], defs=stepDefs();
+  L.push(`FICHE CLIENT – ${nomFiche(c)||c.raisonSociale||"Sans nom"}`,"");
+  if(what!=="suivi"){
+    L.push("COORDONNÉES");
+    [c.c1,c.c2].filter(p=>p.nom||p.prenom).forEach(p=>L.push(`${personne(p)}${p.tel?` – ${p.tel}`:""}${p.mail?` – ${p.mail}`:""}`));
+    if(addrText(c.install)) L.push(`Installation : ${addrText(c.install)}`);
+    if(c.typeBien) L.push(`Type de bien : ${c.typeBien}`);
+    if(c.factDiff && addrText(c.fact)) L.push(`Facturation : ${addrText(c.fact)}`);
+    if(c.entreprise) L.push(`Entreprise : ${c.raisonSociale||""}${c.siret?` – SIRET ${c.siret}`:""}${c.tvaIntra?` – TVA ${c.tvaIntra}`:""}`);
+    if(what==="full"){ if(c.parrain) L.push(`Parrain : ${c.parrain}`); if(c.notes) L.push(`Notes : ${c.notes}`); }
+    projList(c).forEach(p=>{
+      const r=reglements(p), com=commission(c,p), s1=p.steps.s1;
+      L.push("",`PROJET ${projLabel(c,p).toUpperCase()}${p.libelle?` (${p.type})`:""} – TVA ${pctTxt(p.tva)}`);
+      if(p.installation.prevue) L.push(`Installation prévue le ${fmtD(p.installation.prevue)}${p.installation.historique.length?` (décalée ${p.installation.historique.length} fois)`:""}`);
+      if(s1.datePrevue) L.push(`Date prévue du projet : ${fmtD(s1.datePrevue)}`);
+      if(num(s1.budget)!=null) L.push(`Budget maximum : ${eur(num(s1.budget))} TTC`);
+      const def=P.types.find(x=>x.nom===p.type);
+      (def?.rubriques||["Description"]).forEach(rb=>{ const v=s1.rub?.[slug(rb)]; if(v?.texte||v?.comment) L.push(`– ${rb} : ${[v.texte,v.comment].filter(Boolean).join(" / ")}`); });
+      const st4=calcDevis(p,p.steps.s4).has?p.steps.s4:p.steps.s2;
+      if(calcDevis(p,st4).has){ L.push(`Devis ${st4===p.steps.s4?"définitif":"prévu"}${st4.numero?` n° ${st4.numero}`:""} :`); devisLines(p,st4,L); }
+      if(what==="full" && com) L.push(`Commission parrain : ${pctTxt(com.pct)} de ${eur(com.base)} HT, soit ${eur(com.montant)}`);
+      defs.forEach((d,i)=>{ const st=p.steps[d.id], sm=stepSummary(c,p,d.id), sk=skipped(p,d.id);
+        L.push(`${sk?"[-]":st.done?"[x]":"[ ]"} ${i+1}. ${d.t}${d.s&&!sk?` (${d.s})`:""}${st.done&&st.date&&!sk?` – fait le ${fmtD(st.date)}`:""}${sm?` – ${sm}`:""}`); });
+      if(r.m) L.push(`Encaissé : ${eur(r.recu)} sur ${eur(r.m)} – reste : ${eur(r.reste)}`);
+      if(what==="full" && p.commandes.length){
+        L.push("Commandes fournisseurs :");
+        p.commandes.forEach((x,i)=>L.push(`  ${i+1}. ${x.fournisseur||"?"}${x.numero?` n° ${x.numero}`:""}${x.dateCommande?`, commandée le ${fmtD(x.dateCommande)}`:""}${x.dateLivPrevue?`, prévue le ${fmtD(x.dateLivPrevue)}`:""}${x.dateReception?`, reçue le ${fmtD(x.dateReception)}`:""}${x.arOk?", AR conforme":""}`));
+      }
+    });
+    L.push("");
+  }
+  if(what!=="client"){
+    L.push("SUIVI");
+    const s=[...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
+    if(!s.length) L.push("Aucun contact noté.");
+    s.forEach(x=>{ L.push(`– ${fmtDT(x.date)} – ${x.type} – ${suiviLabel(c,x)}${x.by?` (${x.by.split("@")[0]})`:""}`); if(x.note) L.push(`  ${x.note.replace(/\n/g,"\n  ")}`); });
+    L.push("");
+  }
+  L.push("—",STLS.nom);
+  return L.join("\n");
+}
+function exportTxt(c){
+  const blob=new Blob([toText(c,"full")],{type:"text/plain;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`fiche-client-${slug(nomFiche(c)||"client")}.txt`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+/* ---------- Fenêtre d'envoi ---------- */
+const dlg=$("#mailDlg");
+let mailMode="fiche", mailProj=null;
+const whatField=()=>document.querySelector('#mailDlg .radios').closest(".field");
+function fillMailBody(){
+  const c=current(); if(!c) return;
+  $("#m-body").value=toText(c, document.querySelector('input[name="m-what"]:checked').value); checkLen();
+}
+function checkLen(){ $("#m-warn").hidden = encodeURIComponent($("#m-body").value).length < 1800; }
+function setNote(msg){
+  let n=$("#m-note");
+  if(!n){ n=document.createElement("div"); n.id="m-note"; n.className="dlg-warn"; $("#m-warn").before(n); }
+  n.hidden=!msg; n.textContent=msg||"";
+}
+function devisMail(c,p){
+  const s2=p.steps.s2, k=s2.contact;
+  const who = k==="c1"?[c.c1]: k==="c2"?[c.c2]: [c.c1,c.c2].filter(x=>x.nom||x.prenom);
+  const to=who.map(x=>x.mail).filter(Boolean).join(", ");
+  let hello="Bonjour";
+  if(who.length===1 && who[0].nom) hello=`Bonjour ${who[0].civ} ${who[0].nom}`;
+  else if(who.length===2) hello=`Bonjour ${who[0].civ}, ${who[1].civ}`;
+  const rdv=s2.rendezvous?.valide, d=calcDevis(p,s2);
+  const docsDevis=s2.docsDevis||[];
+  const L=[`${hello},`,"",
+    `Suite à notre rendez-vous${rdv?` du ${fmtD(rdv)}`:""}, vous trouverez ci-dessous ${s2.numero?`notre devis n° ${s2.numero}`:"notre devis"} pour votre projet ${(p.libelle||p.type).toLowerCase()}.`,""];
+  if(d.has){
+    L.push("Récapitulatif :");
+    d.lines.filter(l=>l.ttc!=null).forEach(l=>L.push(`– ${l.label} : ${eur(l.ttc)} TTC (TVA ${pctTxt(l.rate)})`));
+    L.push(`Total : ${eur(d.ttc)} TTC, soit ${eur(d.ht)} HT`,"");
+  }
+  if(docsDevis.length){ L.push(docsDevis.length>1?"Documents :":"Devis :"); docsDevis.forEach(x=>L.push(`${x.name} : ${x.url}`)); L.push(""); }
+  L.push("Nous restons à votre disposition pour toute question ou modification.","","Bien cordialement,","",
+    STLS.nom, `Tél. ${STLS.tel}`, STLS.mail);
+  return {to, subject:`Votre devis${s2.numero?` n° ${s2.numero}`:""} – ${STLS.nom}`, body:L.join("\n"), hasDoc:docsDevis.length>0};
+}
+function openMail(c, mode="fiche", p=null){
+  mailMode=mode; mailProj=p;
+  if(mode==="devis"){
+    const m=devisMail(c,p);
+    dlg.querySelector("h2").textContent=`Envoyer le devis par mail – ${projLabel(c,p)}`;
+    whatField().hidden=true;
+    $("#m-to").value=m.to; $("#m-subject").value=m.subject; $("#m-body").value=m.body;
+    setNote(m.hasDoc?"Le client recevra un lien pour ouvrir le devis archivé. Vous pouvez aussi joindre le PDF vous-même dans votre messagerie."
+                    :"Aucun devis n’est archivé à l’étape 2 de ce projet : joignez le PDF vous-même dans votre messagerie, ou ajoutez-le d’abord à la fiche.");
+    checkLen();
+  } else {
+    dlg.querySelector("h2").textContent="Envoyer la fiche par mail";
+    whatField().hidden=false; setNote("");
+    $("#m-to").value=[c.c1.mail,c.c2.mail].filter(Boolean).join(", ");
+    $("#m-subject").value=`Fiche client – ${nomFiche(c)||"Sans nom"}`;
+    document.querySelector('input[name="m-what"][value="full"]').checked=true;
+    fillMailBody();
+  }
+  dlg.showModal(); $("#m-to").focus();
+}
+document.querySelectorAll('input[name="m-what"]').forEach(r=>r.addEventListener("change", fillMailBody));
+$("#m-body").addEventListener("input", checkLen);
+$("#m-cancel").addEventListener("click", ()=>dlg.close());
+$("#m-copy").addEventListener("click", async ()=>{
+  try{ await navigator.clipboard.writeText($("#m-body").value); toast("Texte copié"); }
+  catch(e){ $("#m-body").select(); toast("Sélectionnez le texte puis copiez-le (Ctrl+C)."); }
+});
+$("#m-send").addEventListener("click", ()=>{
+  const to=$("#m-to").value.split(/[,;]/).map(s=>s.trim()).filter(Boolean).join(",");
+  const url=`mailto:${to}?subject=${encodeURIComponent($("#m-subject").value)}&body=${encodeURIComponent($("#m-body").value)}`;
+  const c=current();
+  if(c){
+    if(mailMode==="devis" && mailProj){
+      const p=mailProj, s2=p.steps.s2, now=nowLocal(); s2.devisEnvoyeLe=now; s2.devisEnvoyeA=to;
+      updateFields(c.id,{[`projets.${p.id}.steps.s2.devisEnvoyeLe`]:now,[`projets.${p.id}.steps.s2.devisEnvoyeA`]:to});
+      logSuivi(c,p.id,"s2",`Devis${s2.numero?` n° ${s2.numero}`:""} envoyé par mail${to?` à ${to}`:""}.`,"Email");
+    } else logSuivi(c,"","g",`Fiche envoyée par mail${to?` à ${to}`:""}.`,"Email");
+  }
+  window.location.href=url; dlg.close(); rerenderKeep(); renderList();
+});
+
 /* ---------- Événements : paramètres ---------- */
 function paramInput(el){
   if(el.dataset.ptype!==undefined){
     const t=P.types[+el.dataset.ptype];
+    if(el.dataset.k==="visite"){ return; }
     if(el.dataset.k==="nom") t.nom=el.value.trim();
     else t.rubriques=el.value.split(",").map(s=>s.trim()).filter(Boolean);
     saveParams(); return;
@@ -1346,6 +1725,7 @@ function paramInput(el){
   if(el.dataset.pp && el.type==="number"){ P[el.dataset.pp]=num(el.value)??0; saveParams(); }
 }
 function paramChange(el){
+  if(el.dataset.ptype!==undefined && el.dataset.k==="visite"){ P.types[+el.dataset.ptype].visite=el.checked; saveParams(true); return; }
   if(el.dataset.pp==="tvaDefaut"){ P.tvaDefaut=num(el.value); saveParams(true); rerenderKeep(); return; }
   if(el.dataset.pp){ refreshAfter(el); }
 }
@@ -1370,185 +1750,6 @@ function paramClick(t){
     saveParams(true); rerenderKeep();
   }
 }
-
-/* ---------- Rendez-vous ---------- */
-function logSuivi(c, etape, note, type="Rendez-vous"){
-  const entry={id:uid(),date:nowLocal(),type,etape,note,by:me?.email||""};
-  c.suivis.push(entry); return updateFields(c.id,{suivis:arrayUnion(entry)});
-}
-function stepLabel(id){ const i=STEP_IDS.indexOf(id); return `étape ${i+1} (${stepDefs()[i].t})`; }
-async function validerRdv(c,id){
-  const r=c.steps[id].rendezvous;
-  const v=r.valide||r.prevu;
-  if(!v){ toast("Indiquez le jour et l’heure du RDV."); return; }
-  r.valide=v; if(!r.prevu) r.prevu=v;
-  await updateFields(c.id,{[`steps.${id}.rendezvous.valide`]:r.valide,[`steps.${id}.rendezvous.prevu`]:r.prevu,[`steps.${id}.rendezvous.lieu`]:r.lieu||""});
-  logSuivi(c,id,`RDV validé pour l’${stepLabel(id)} : ${fmtDT(r.valide)}${r.lieu?`, ${r.lieu}`:""}.`);
-  rerenderKeep(); renderList();
-}
-async function modifierRdv(c,id){
-  const r=c.steps[id].rendezvous;
-  const motif=prompt("Motif de la modification (facultatif) :","");
-  if(motif===null) return;
-  const h={prevu:r.prevu||"",valide:r.valide||"",lieu:r.lieu||"",motif:motif.trim(),at:nowLocal(),by:me?.email||""};
-  r.historique=[...(r.historique||[]),h];
-  r.prevu=r.valide||r.prevu; r.valide="";
-  await updateFields(c.id,{[`steps.${id}.rendezvous`]:JSON.parse(JSON.stringify(r))});
-  logSuivi(c,id,`RDV de l’${stepLabel(id)} à modifier (était le ${fmtDT(h.valide||h.prevu)})${h.motif?` : ${h.motif}`:""}.`);
-  openStep=id; rerenderKeep(); renderList();
-  setTimeout(()=>document.getElementById(`f-steps-${id}-rendezvous-prevu`)?.focus(),0);
-}
-
-/* ---------- Demande de modification d'AR ---------- */
-function printAR(c,i){
-  const x=c.commandes[i]; if(!x) return;
-  const w=window.open("","_blank"); if(!w){ toast("Autorisez les fenêtres pour imprimer."); return; }
-  const lieu=[c.install.cp,c.install.ville].filter(Boolean).join(" ");
-  w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Demande de modification – ${esc(x.fournisseur||"Fournisseur")}</title>
-  <style>body{font:14px/1.55 Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px}
-  .h{display:flex;justify-content:space-between;gap:20px;margin-bottom:40px}.h b{font-size:18px}
-  h1{font-size:18px;margin:30px 0 16px}.box{border:1px solid #999;border-radius:6px;padding:14px;white-space:pre-wrap;min-height:120px}
-  table{border-collapse:collapse;margin:10px 0}td{padding:3px 14px 3px 0;vertical-align:top}.sig{margin-top:50px;display:flex;justify-content:space-between}
-  @media print{body{margin:0 auto}}</style></head><body>
-  <div class="h"><div><b>${STLS.nom}</b><br>${esc(STLS.adresse)}<br>Tél. ${STLS.tel}<br>${STLS.mail}<br>SIRET ${STLS.siret}</div>
-  <div style="text-align:right">À l’attention de<br><b>${esc(x.fournisseur||"…")}</b><br><br>Le ${fmtD(today())}</div></div>
-  <h1>Demande de modification d’accusé de réception</h1>
-  <table><tr><td>Commande n°</td><td><b>${esc(x.numero||"…")}</b></td></tr>
-  <tr><td>Date de commande</td><td>${fmtD(x.dateCommande)||"…"}</td></tr>
-  <tr><td>Livraison prévue</td><td>${fmtD(x.dateLivPrevue)||"…"}</td></tr>
-  <tr><td>Client final</td><td>${esc(nomFiche(c)||"…")}${lieu?` – ${esc(lieu)}`:""}</td></tr></table>
-  <p>Après vérification de votre accusé de réception, nous vous demandons d’apporter les modifications suivantes :</p>
-  <div class="box">${esc(x.arModif||"")}</div>
-  <p>Merci de nous retourner un accusé de réception corrigé dans les meilleurs délais.</p>
-  <div class="sig"><div>Pour ${STLS.nom}<br><br><br>Signature</div><div>Bon pour accord fournisseur<br><br><br>Date et signature</div></div>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
-  w.document.close();
-  const entry={id:uid(),date:nowLocal(),type:"Autre",etape:"s6",note:`Demande de modification d’AR imprimée pour ${x.fournisseur||"le fournisseur"}${x.numero?` (commande ${x.numero})`:""}.`,by:me?.email||""};
-  c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)});
-}
-
-/* ---------- Textes : mail et export ---------- */
-function addrText(a){ return [a.adresse, [a.cp,a.ville].filter(Boolean).join(" "), a.pays&&a.pays!=="FR"?(PAYS.find(p=>p[0]===a.pays)?.[1]||a.pays):""].filter(Boolean).join(", "); }
-function toText(c, what="full"){
-  const L=[], r=reglements(c), defs=stepDefs(), com=commission(c);
-  L.push(`FICHE CLIENT – ${nomFiche(c)||c.raisonSociale||"Sans nom"}`,"");
-  if(what!=="suivi"){
-    L.push("COORDONNÉES");
-    [c.c1,c.c2].filter(p=>p.nom||p.prenom).forEach(p=>L.push(`${personne(p)}${p.tel?` – ${p.tel}`:""}${p.mail?` – ${p.mail}`:""}`));
-    if(c.entreprise){ L.push(`Entreprise : ${c.raisonSociale||""}${c.siret?` – SIRET ${c.siret}`:""}${c.tvaIntra?` – TVA ${c.tvaIntra}`:""}`); }
-    L.push("","PROJET");
-    if(c.types.length) L.push(`Type(s) : ${c.types.join(", ")}`);
-    if(addrText(c.install)) L.push(`Installation : ${addrText(c.install)}`);
-    if(c.typeBien) L.push(`Type de bien : ${c.typeBien}`);
-    L.push(`TVA applicable : ${String(c.tva).replace(".",",")} %`);
-    if(c.factDiff && addrText(c.fact)) L.push(`Facturation : ${addrText(c.fact)}`);
-    if(what==="full"){
-      if(c.parrain) L.push(`Parrain : ${c.parrain}${com?` – commission ${String(com.pct).replace(".",",")} % soit ${eur(com.montant)}`:""}`);
-      if(c.notes) L.push(`Notes : ${c.notes}`);
-    }
-    const s1=c.steps.s1;
-    if(s1.datePrevue) L.push(`Date prévue du projet : ${fmtD(s1.datePrevue)}`);
-    if(num(s1.budget)!=null) L.push(`Budget maximum : ${eur(num(s1.budget))} TTC`);
-    c.types.forEach(t=>{ const def=P.types.find(x=>x.nom===t); (def?.rubriques||["Description"]).forEach(rb=>{
-      const v=s1.rub?.[rubKey(t,rb)]; if(v?.texte||v?.comment) L.push(`– ${t} ${rb==="Description"?"":rb} : ${[v.texte,v.comment].filter(Boolean).join(" / ")}`.replace(/\s+:/," :")); }); });
-    L.push("","ÉTAPES DU PROJET");
-    defs.forEach((d,i)=>{ const st=c.steps[d.id], sm=stepSummary(c,d.id);
-      L.push(`${st.done?"[x]":"[ ]"} ${i+1}. ${d.t}${d.s?` (${d.s})`:""}${st.done&&st.date?` – fait le ${fmtD(st.date)}`:""}${sm?` – ${sm}`:""}`); });
-    if(r.m){ L.push(`Montant TTC : ${eur(r.m)} – encaissé : ${eur(r.recu)} – reste : ${eur(r.reste)}`); }
-    if(what==="full" && c.commandes.length){
-      L.push("","COMMANDES FOURNISSEURS");
-      c.commandes.forEach((x,i)=>L.push(`${i+1}. ${x.fournisseur||"?"}${x.numero?` n° ${x.numero}`:""}${x.dateCommande?`, commandée le ${fmtD(x.dateCommande)}`:""}${x.dateLivPrevue?`, prévue le ${fmtD(x.dateLivPrevue)}`:""}${x.dateReception?`, reçue le ${fmtD(x.dateReception)}`:""}${x.arOk?", AR conforme":""}`));
-    }
-    L.push("");
-  }
-  if(what!=="client"){
-    L.push("SUIVI");
-    const s=[...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
-    if(!s.length) L.push("Aucun contact noté.");
-    s.forEach(x=>{ const n=x.etape==="g"?"Général":`Étape ${STEP_IDS.indexOf(x.etape)+1}`;
-      L.push(`– ${fmtDT(x.date)} – ${x.type} – ${n}${x.by?` (${x.by.split("@")[0]})`:""}`); if(x.note) L.push(`  ${x.note.replace(/\n/g,"\n  ")}`); });
-    L.push("");
-  }
-  L.push("—",STLS.nom);
-  return L.join("\n");
-}
-function exportTxt(c){
-  const blob=new Blob([toText(c,"full")],{type:"text/plain;charset=utf-8"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`fiche-client-${slug(nomFiche(c)||"client")}.txt`;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-}
-
-/* ---------- Fenêtre d'envoi ---------- */
-const dlg=$("#mailDlg");
-let mailMode="fiche";
-const whatField=()=>document.querySelector('#mailDlg .radios').closest(".field");
-function fillMailBody(){
-  const c=current(); if(!c) return;
-  $("#m-body").value=toText(c, document.querySelector('input[name="m-what"]:checked').value); checkLen();
-}
-function checkLen(){ $("#m-warn").hidden = encodeURIComponent($("#m-body").value).length < 1800; }
-function setNote(msg){
-  let n=$("#m-note");
-  if(!n){ n=document.createElement("div"); n.id="m-note"; n.className="dlg-warn"; $("#m-warn").before(n); }
-  n.hidden=!msg; n.textContent=msg||"";
-}
-function devisMail(c){
-  const s2=c.steps.s2, k=s2.contact;
-  const who = k==="c1"?[c.c1]: k==="c2"?[c.c2]: [c.c1,c.c2].filter(p=>p.nom||p.prenom);
-  const to=who.map(p=>p.mail).filter(Boolean).join(", ");
-  let hello="Bonjour";
-  if(who.length===1 && who[0].nom) hello=`Bonjour ${who[0].civ} ${who[0].nom}`;
-  else if(who.length===2) hello=`Bonjour ${who[0].civ}, ${who[1].civ}`;
-  const rdv=c.steps.s2.rendezvous?.valide;
-  const projet=c.types.length?` de ${c.types.map(t=>t.toLowerCase()).join(", ")}`:"";
-  const docsDevis=s2.docsDevis||[];
-  const L=[`${hello},`,"",
-    `Suite à notre rendez-vous${rdv?` du ${fmtD(rdv)}`:""}, vous trouverez ci-dessous ${s2.numero?`notre devis n° ${s2.numero}`:"notre devis"} pour votre projet${projet}${num(s2.montant)!=null?`, d’un montant de ${eur(num(s2.montant))} TTC`:""}.`,""];
-  if(docsDevis.length){ L.push(docsDevis.length>1?"Documents :":"Devis :"); docsDevis.forEach(d=>L.push(`${d.name} : ${d.url}`)); L.push(""); }
-  L.push("Nous restons à votre disposition pour toute question ou modification.","","Bien cordialement,","",
-    STLS.nom, `Tél. ${STLS.tel}`, STLS.mail);
-  return {to, subject:`Votre devis${s2.numero?` n° ${s2.numero}`:""} – ${STLS.nom}`, body:L.join("\n"), hasDoc:docsDevis.length>0};
-}
-function openMail(c, mode="fiche"){
-  mailMode=mode;
-  if(mode==="devis"){
-    const m=devisMail(c);
-    dlg.querySelector("h2").textContent="Envoyer le devis par mail";
-    whatField().hidden=true;
-    $("#m-to").value=m.to; $("#m-subject").value=m.subject; $("#m-body").value=m.body;
-    setNote(m.hasDoc?"Le client recevra un lien pour ouvrir le devis archivé. Vous pouvez aussi joindre le PDF vous-même dans votre messagerie."
-                    :"Aucun devis n’est archivé à l’étape 2 : joignez le PDF vous-même dans votre messagerie, ou ajoutez-le d’abord à la fiche.");
-    checkLen();
-  } else {
-    dlg.querySelector("h2").textContent="Envoyer la fiche par mail";
-    whatField().hidden=false; setNote("");
-    $("#m-to").value=[c.c1.mail,c.c2.mail].filter(Boolean).join(", ");
-    $("#m-subject").value=`Fiche client – ${nomFiche(c)||"Sans nom"}`;
-    document.querySelector('input[name="m-what"][value="full"]').checked=true;
-    fillMailBody();
-  }
-  dlg.showModal(); $("#m-to").focus();
-}
-document.querySelectorAll('input[name="m-what"]').forEach(r=>r.addEventListener("change", fillMailBody));
-$("#m-body").addEventListener("input", checkLen);
-$("#m-cancel").addEventListener("click", ()=>dlg.close());
-$("#m-copy").addEventListener("click", async ()=>{
-  try{ await navigator.clipboard.writeText($("#m-body").value); toast("Texte copié"); }
-  catch(e){ $("#m-body").select(); toast("Sélectionnez le texte puis copiez-le (Ctrl+C)."); }
-});
-$("#m-send").addEventListener("click", ()=>{
-  const to=$("#m-to").value.split(/[,;]/).map(s=>s.trim()).filter(Boolean).join(",");
-  const url=`mailto:${to}?subject=${encodeURIComponent($("#m-subject").value)}&body=${encodeURIComponent($("#m-body").value)}`;
-  const c=current();
-  if(c){
-    if(mailMode==="devis"){
-      const now=nowLocal(); c.steps.s2.devisEnvoyeLe=now; c.steps.s2.devisEnvoyeA=to;
-      updateFields(c.id,{"steps.s2.devisEnvoyeLe":now,"steps.s2.devisEnvoyeA":to});
-      logSuivi(c,"s2",`Devis${c.steps.s2.numero?` n° ${c.steps.s2.numero}`:""} envoyé par mail${to?` à ${to}`:""}.`,"Email");
-    } else logSuivi(c,"g",`Fiche envoyée par mail${to?` à ${to}`:""}.`,"Email");
-  }
-  window.location.href=url; dlg.close(); rerenderKeep(); renderList();
-});
 
 /* ---------- Connexion ---------- */
 const errMsg = code => ({
@@ -1575,7 +1776,7 @@ $("#logoutBtn").addEventListener("click", ()=>{ flushPending(); signOut(auth); }
 onAuthStateChanged(auth, user=>{
   me=user;
   if(unsub){ unsub(); unsub=null; } if(unsubP){ unsubP(); unsubP=null; }
-  if(!user){ clients=[]; selId=null; $("#login").hidden=false; $("#app").hidden=true; setTimeout(()=>$("#lg-email").focus(),0); return; }
+  if(!user){ clients=[]; selId=null; selProj=null; $("#login").hidden=false; $("#app").hidden=true; setTimeout(()=>$("#lg-email").focus(),0); return; }
   $("#login").hidden=true; $("#app").hidden=false; $("#whoEmail").textContent=user.email;
   renderMain();
   unsubP = onSnapshot(doc(db,PARAMS_COL,"config"), snap=>{
@@ -1590,6 +1791,9 @@ onAuthStateChanged(auth, user=>{
     const local=current();
     const keepLocal = local && (typing || saveTimer!==null);
     clients = snap.docs.map(d=> (keepLocal && d.id===local.id) ? local : normalize({id:d.id, ...d.data()}));
+    // enregistre une seule fois la conversion des anciennes fiches au format « plusieurs projets »
+    clients.filter(c=>c._migrate).forEach(c=>{ delete c._migrate;
+      updateFields(c.id,{projets:JSON.parse(JSON.stringify(c.projets)), suivis:JSON.parse(JSON.stringify(c.suivis))}); });
     if(selId && selId!=="__params" && !clients.some(c=>c.id===selId)) selId=null;
     renderList();
     if(!typing && !dlg.open){ const top=$("#main").scrollTop; renderMain(); $("#main").scrollTop=top; }
