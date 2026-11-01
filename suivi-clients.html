@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Suivi clients – STLS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E9ECEF; --surface:#FFFFFF; --surface-2:#F4F6F8; --line:#CDD3D9;
+  --ink:#18212C; --ink-2:#4F5B67; --ink-3:#7B8692;
+  --ochre:#D9971C; --ochre-soft:#FBEFD6; --ochre-ink:#7A4E00;
+  --olive:#4E6B2F; --olive-soft:#E3ECD8;
+  --danger:#B3261E; --focus:#2F6FD6;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#11161C; --surface:#1A2129; --surface-2:#222A33; --line:#323C47;
+    --ink:#E8ECF0; --ink-2:#A9B3BD; --ink-3:#7E8994;
+    --ochre:#EBB043; --ochre-soft:#3A2E16; --ochre-ink:#F3C978;
+    --olive:#9CC06F; --olive-soft:#26321B;
+    --danger:#F2867E; --focus:#7FA9F0;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11161C; --surface:#1A2129; --surface-2:#222A33; --line:#323C47;
+  --ink:#E8ECF0; --ink-2:#A9B3BD; --ink-3:#7E8994;
+  --ochre:#EBB043; --ochre-soft:#3A2E16; --ochre-ink:#F3C978;
+  --olive:#9CC06F; --olive-soft:#26321B;
+  --danger:#F2867E; --focus:#7FA9F0;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{height:100%;margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.5 "Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1,h2,h3{font-family:"Bricolage Grotesque","Public Sans",system-ui,sans-serif;margin:0;line-height:1.15}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.app{display:grid;grid-template-columns:320px 1fr;height:100%}
+
+/* ---- Liste ---- */
+.side{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.side-head{padding:20px 18px 14px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:14px}
+.brand h1{font-size:22px}
+.brand small{color:var(--ink-3);font-size:13px}
+.search{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);
+  background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:500}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.btn.primary:hover{opacity:.9}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+.btn.danger{color:var(--danger)}
+.new{width:100%;margin-top:10px}
+.list{list-style:none;margin:0;padding:6px 0;overflow-y:auto;flex:1}
+.list button{all:unset;box-sizing:border-box;display:block;width:100%;padding:12px 18px;cursor:pointer;border-left:3px solid transparent}
+.list button:hover{background:var(--surface-2)}
+.list button[aria-current="true"]{background:var(--surface-2);border-left-color:var(--ochre)}
+.list button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.li-name{font-weight:600}
+.li-meta{font-size:13px;color:var(--ink-2)}
+.li-step{font-size:12px;color:var(--ink-3);margin-top:2px}
+.empty-list{padding:24px 18px;color:var(--ink-3);font-size:14px}
+.store-note{padding:10px 18px;font-size:12px;color:var(--ink-3);border-top:1px solid var(--line)}
+
+/* ---- Fiche ---- */
+.main{overflow-y:auto;min-height:0}
+.sheet{max-width:960px;margin:0 auto;padding:28px 28px 60px}
+.back{display:none;margin-bottom:12px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:22px}
+.name-input{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-size:34px;font-weight:700;
+  border:none;background:transparent;padding:0;width:100%;min-width:0;border-bottom:2px solid transparent}
+.name-input:hover{border-bottom-color:var(--line)}
+.name-input:focus{outline:none;border-bottom-color:var(--ochre)}
+.top-left{flex:1 1 320px;min-width:0}
+.quick{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;color:var(--ink-2);font-size:14px}
+.quick a{color:var(--ink);font-weight:600;text-decoration:none;border-bottom:1px solid var(--ochre)}
+.top-actions{display:flex;gap:8px}
+
+section.block{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:18px}
+section.block h2{font-size:19px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 18px}
+.field label{display:block;font-size:13px;color:var(--ink-2);margin-bottom:4px}
+.field input,.field select,.field textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
+.field textarea{resize:vertical;min-height:70px}
+
+/* ---- Parcours : la tournée du projet ---- */
+.route-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.paid{font-size:14px;color:var(--ink-2)}
+.paid strong{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-size:22px;color:var(--ink)}
+.paybar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--surface-2);border:1px solid var(--line);margin:8px 0 22px}
+.paybar span{display:block;height:100%}
+.paybar .on{background:var(--ochre)}
+.route{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(9,minmax(0,1fr));position:relative}
+.route::before{content:"";position:absolute;left:5.5%;right:5.5%;top:17px;height:3px;background:var(--line);border-radius:2px}
+.route .progress{position:absolute;left:5.5%;top:17px;height:3px;background:var(--olive);border-radius:2px;transition:width .35s ease}
+.stop{position:relative;text-align:center;padding:0 3px}
+.stop button{all:unset;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;border-radius:8px;padding-bottom:4px}
+.stop button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.dot{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:14px;
+  background:var(--surface);border:2px solid var(--line);color:var(--ink-3);position:relative;z-index:1;transition:background .2s,border-color .2s}
+.stop.pay .dot{border-color:var(--ochre)}
+.stop.done .dot{background:var(--olive);border-color:var(--olive);color:var(--surface)}
+.stop.current .dot{border-color:var(--ink);color:var(--ink);box-shadow:0 0 0 4px var(--ochre-soft)}
+.stop-t{font-size:12.5px;font-weight:600;line-height:1.25}
+.stop-s{font-size:11.5px;color:var(--ink-3);line-height:1.25}
+.stop.pay .stop-s{color:var(--ochre-ink);font-weight:600}
+.stop-d{font-size:11.5px;color:var(--olive);font-weight:600}
+.route-hint{font-size:12.5px;color:var(--ink-3);margin-top:14px}
+
+/* ---- Suivi ---- */
+.add{display:grid;grid-template-columns:190px 190px 1fr;gap:10px;align-items:end;margin-bottom:6px}
+.add .note-wrap{grid-column:1 / -1}
+.add-actions{grid-column:1 / -1;display:flex;gap:8px;justify-content:flex-end}
+.journal{list-style:none;margin:18px 0 0;padding:0;border-left:2px solid var(--line);margin-left:6px}
+.entry{position:relative;padding:4px 0 18px 22px}
+.entry::before{content:"";position:absolute;left:-7px;top:9px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--ochre)}
+.entry:first-child::before{background:var(--ochre)}
+.entry-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
+.entry-date{font-weight:600}
+.tag{font-size:12px;padding:2px 8px;border-radius:20px;background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}
+.entry-note{margin-top:4px;white-space:pre-wrap;color:var(--ink);max-width:70ch}
+.entry-actions{display:flex;gap:2px;margin-left:auto}
+.entry-actions .btn{padding:3px 8px;font-size:13px}
+.journal-empty{color:var(--ink-3);margin-top:14px}
+.editing{background:var(--ochre-soft);border-radius:8px;padding:12px;margin:-4px -8px 12px}
+
+.welcome{display:grid;place-items:center;height:100%;padding:30px;text-align:center;color:var(--ink-2)}
+.welcome h2{font-size:26px;color:var(--ink);margin-bottom:8px}
+.saved{font-size:12.5px;color:var(--ink-3);min-height:1em}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);
+  background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+
+@media (max-width:900px){
+  .route{grid-template-columns:1fr;gap:4px}
+  .route::before{left:17px;right:auto;top:18px;bottom:18px;width:3px;height:auto}
+  .route .progress{display:none}
+  .stop{text-align:left;padding:0}
+  .stop button{flex-direction:row;align-items:center;gap:12px;padding:4px 0}
+  .stop-txt{display:flex;flex-direction:column}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:720px){
+  .app{grid-template-columns:1fr}
+  .app.has-sel .side{display:none}
+  .app:not(.has-sel) .main{display:none}
+  .back{display:inline-flex}
+  .sheet{padding:18px 16px 50px}
+  .name-input{font-size:28px}
+  .grid,.add{grid-template-columns:1fr}
+  section.block{padding:16px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* ---- Connexion ---- */
+.login{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);padding:20px;z-index:20}
+.login[hidden]{display:none}
+.login-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:28px}
+.login-card h1{font-size:26px;margin-bottom:4px}
+.login-card p{color:var(--ink-2);margin:0 0 18px}
+.login-card .field{margin-bottom:12px}
+.login-card .btn.primary{width:100%;margin-top:6px;padding:10px}
+.login-err{color:var(--danger);font-size:14px;min-height:1.4em;margin-top:8px}
+.linkbtn{all:unset;cursor:pointer;color:var(--ink-2);font-size:13.5px;text-decoration:underline;margin-top:12px;display:inline-block}
+.linkbtn:focus-visible{outline:2px solid var(--focus)}
+.who{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.who span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .btn{padding:3px 8px;font-size:12.5px}
+/* ---- Envoi par mail ---- */
+dialog{border:1px solid var(--line);border-radius:14px;padding:0;background:var(--surface);color:var(--ink);width:min(640px,calc(100vw - 24px))}
+dialog::backdrop{background:rgba(10,14,20,.45)}
+.dlg{padding:22px}
+.dlg h2{font-size:21px;margin-bottom:14px}
+.dlg .field{margin-bottom:12px}
+.dlg textarea{min-height:240px;font-size:13.5px;line-height:1.45}
+.dlg-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.dlg-warn{font-size:13px;color:var(--ochre-ink);background:var(--ochre-soft);border-radius:8px;padding:8px 10px;margin-bottom:12px}
+.dlg-warn[hidden]{display:none}
+.radios{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px}
+.radios label{display:flex;gap:6px;align-items:center;color:var(--ink);font-size:14px;margin:0}
+
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<section class="login" id="login" hidden>
+  <div class="login-card">
+    <h1>Suivi clients</h1>
+    <p>Connectez-vous avec votre compte STLS.</p>
+    <div class="field"><label for="lg-email">Email</label><input id="lg-email" type="email" autocomplete="username"></div>
+    <div class="field"><label for="lg-pass">Mot de passe</label><input id="lg-pass" type="password" autocomplete="current-password"></div>
+    <button class="btn primary" id="lg-btn">Se connecter</button>
+    <div class="login-err" id="lg-err" role="alert"></div>
+    <button class="linkbtn" id="lg-reset">Mot de passe oublié</button>
+  </div>
+</section>
+
+<div class="app" id="app">
+  <aside class="side">
+    <div class="side-head">
+      <div class="brand"><h1>Suivi clients</h1><small id="count"></small></div>
+      <input class="search" id="search" type="search" placeholder="Rechercher un nom, un téléphone…" aria-label="Rechercher un client">
+      <button class="btn primary new" id="newBtn">Nouvelle fiche</button>
+    </div>
+    <ul class="list" id="list"></ul>
+    <div class="store-note who"><span id="whoEmail"></span><button class="btn ghost" id="logoutBtn">Déconnexion</button></div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+
+<dialog id="mailDlg">
+  <div class="dlg">
+    <h2>Envoyer la fiche par mail</h2>
+    <div class="field"><label for="m-to">Destinataire</label><input id="m-to" type="email" multiple placeholder="adresse@exemple.fr (plusieurs : séparez par une virgule)"></div>
+    <div class="field"><label for="m-subject">Objet</label><input id="m-subject" type="text"></div>
+    <div class="field"><label>Contenu</label>
+      <div class="radios">
+        <label><input type="radio" name="m-what" value="full" checked> Fiche complète</label>
+        <label><input type="radio" name="m-what" value="suivi"> Suivi uniquement</label>
+        <label><input type="radio" name="m-what" value="client"> Version client (sans suivi interne)</label>
+      </div>
+    </div>
+    <div class="field"><label for="m-body">Message (modifiable)</label><textarea id="m-body"></textarea></div>
+    <div class="dlg-warn" id="m-warn" hidden>Ce message est long : certaines messageries le coupent. Si c’est le cas, utilisez « Copier le texte » et collez-le dans un nouveau mail.</div>
+    <div class="dlg-actions">
+      <button class="btn ghost" id="m-cancel">Annuler</button>
+      <button class="btn" id="m-copy">Copier le texte</button>
+      <button class="btn primary" id="m-send">Ouvrir dans ma messagerie</button>
+    </div>
+  </div>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+<script type="module">
+/* ============================================================
+   CONFIGURATION FIREBASE — à remplacer par celle de votre projet
+   (Console Firebase › Paramètres du projet › Vos applications)
+   Vous pouvez reprendre le même bloc que dans les modules du TMS.
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
+  authDomain: "gestion-depot-de9a4.firebaseapp.com",
+  projectId: "gestion-depot-de9a4",
+  storageBucket: "gestion-depot-de9a4.firebasestorage.app",
+  messagingSenderId: "521206560933",
+  appId: "1:521206560933:web:22bead871abbd50d19354c",
+  measurementId: "G-2M8ENNG05B"
+};
+const COLLECTION = "fichesSuivi";
+const VERSION = "1.0";
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const db = getFirestore(fbApp);
+
+const STEPS = [
+  {t:"Découverte", s:"Budget, plan, choix"},
+  {t:"Présentation du devis"},
+  {t:"Visite technique"},
+  {t:"Validation du projet", s:"Acompte 40 %", pay:40},
+  {t:"Commande fournisseurs"},
+  {t:"Vérification des AR", s:"Accusés de réception"},
+  {t:"Réception"},
+  {t:"Livraison", s:"Règlement 50 %", pay:50},
+  {t:"Installation", s:"Règlement final 10 %", pay:10}
+];
+const SUIVI_TYPES = ["Appel","Message répondeur","SMS","Email","RDV showroom","Visite sur place","Autre"];
+
+let clients = [];
+let selId = null;
+let query = "";
+let editingEntry = null;
+let unsub = null;
+let me = null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const col = () => collection(db, COLLECTION);
+
+/* ---------- Dates ---------- */
+const pad = n => String(n).padStart(2,"0");
+function nowLocal(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+const today = () => nowLocal().slice(0,10);
+function fmtDT(v){ if(!v) return ""; const [d,t]=v.split("T"); const [y,m,j]=d.split("-"); return t ? `${j}/${m}/${y} à ${t.replace(":","h")}` : `${j}/${m}/${y}`; }
+function fmtD(v){ if(!v) return ""; const [y,m,j]=v.slice(0,10).split("-"); return `${j}/${m}/${y}`; }
+
+/* ---------- Données ---------- */
+function blankClient(){
+  const now=new Date().toISOString();
+  return {id:uid(), contact:"", telephone:"", email:"", parrain:"", typeProjet:"Cuisine", localisation:"",
+    typeBien:"", notes:"", etapes:STEPS.map(()=>({done:false,date:""})), suivis:[],
+    createdAt:now, updatedAt:now, createdBy:me?.email||"", updatedBy:me?.email||""};
+}
+function normalize(c){
+  c.etapes = STEPS.map((_,i)=>({done:!!c.etapes?.[i]?.done, date:c.etapes?.[i]?.date || ""}));
+  c.suivis = Array.isArray(c.suivis) ? c.suivis : [];
+  for(const k of ["contact","telephone","email","parrain","typeProjet","localisation","typeBien","notes"]) c[k] = c[k] ?? "";
+  return c;
+}
+const stamp = () => ({updatedAt:new Date().toISOString(), updatedBy:me?.email||""});
+const ref = id => doc(db, COLLECTION, id);
+
+async function safe(p, msg="Enregistrement impossible : vérifiez votre connexion."){
+  try{ await p; flashSaved(); }catch(e){ console.error(e); toast(e?.code==="permission-denied" ? "Accès refusé par Firebase : vérifiez les règles Firestore." : msg); }
+}
+const createClient = c => { const {id,...body}=c; return safe(setDoc(ref(id), body)); };
+const updateFields = (id, fields) => safe(updateDoc(ref(id), {...fields, ...stamp()}));
+
+const pendingFields = new Map();  // saisie en cours, envoyée après une courte pause
+let saveTimer = null;
+function updateSoon(id, f, v){
+  pendingFields.set(f, v);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushPending, 600);
+}
+function flushPending(){
+  clearTimeout(saveTimer); saveTimer=null;
+  if(!pendingFields.size || !selId) return;
+  const fields = Object.fromEntries(pendingFields); pendingFields.clear();
+  updateFields(selId, fields);
+}
+
+function flashSaved(){ const el=$("#saved"); if(el){ el.textContent="Enregistré"; clearTimeout(el._t); el._t=setTimeout(()=>el.textContent="",1600);} }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),3000); }
+
+/* ---------- Calculs ---------- */
+const currentStep = c => c.etapes.findIndex(e=>!e.done);
+const paidPct = c => STEPS.reduce((s,st,i)=>s+(st.pay && c.etapes[i].done ? st.pay : 0),0);
+const lastSuivi = c => [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date))[0];
+const current = () => clients.find(x=>x.id===selId);
+
+/* ---------- Liste ---------- */
+function renderList(){
+  const q = query.trim().toLowerCase();
+  const items = clients
+    .filter(c=>!q || [c.contact,c.telephone,c.parrain,c.localisation,c.typeProjet].join(" ").toLowerCase().includes(q))
+    .sort((a,b)=>String(lastSuivi(b)?.date||b.updatedAt).localeCompare(String(lastSuivi(a)?.date||a.updatedAt)));
+  $("#count").textContent = clients.length ? `${clients.length} fiche${clients.length>1?"s":""}` : "";
+  if(!clients.length){ $("#list").innerHTML = `<li class="empty-list">Aucune fiche pour l’instant. Créez la première avec « Nouvelle fiche ».</li>`; return; }
+  if(!items.length){ $("#list").innerHTML = `<li class="empty-list">Aucun client ne correspond à « ${esc(query)} ».</li>`; return; }
+  $("#list").innerHTML = items.map(c=>{
+    const i=currentStep(c), ls=lastSuivi(c);
+    const step = i===-1 ? "Projet terminé" : `Étape ${i+1} : ${STEPS[i].t}`;
+    const meta = [c.typeProjet, c.localisation].filter(Boolean).join(", ");
+    return `<li><button data-id="${c.id}" aria-current="${c.id===selId}">
+      <div class="li-name">${esc(c.contact||"Sans nom")}</div>
+      ${meta?`<div class="li-meta">${esc(meta)}</div>`:""}
+      <div class="li-step">${step}${ls?`, dernier contact ${fmtD(ls.date)}`:""}</div>
+    </button></li>`;
+  }).join("");
+}
+
+/* ---------- Fiche ---------- */
+function field(key,label,c,type="text",list=""){
+  return `<div class="field"><label for="f-${key}">${label}</label>
+    <input id="f-${key}" data-f="${key}" type="${type}" value="${esc(c[key])}" ${list?`list="${list}"`:""}></div>`;
+}
+function renderMain(){
+  const app=$("#app"), main=$("#main");
+  const c = current();
+  app.classList.toggle("has-sel", !!c);
+  if(!c){
+    main.innerHTML = `<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`;
+    return;
+  }
+  const cur=currentStep(c), done=c.etapes.filter(e=>e.done).length, paid=paidPct(c);
+  const lastDoneIdx = c.etapes.reduce((m,e,i)=>e.done?i:m,-1);
+  const progW = lastDoneIdx<0 ? 0 : (lastDoneIdx/(STEPS.length-1))*89;
+  const tel = c.telephone.replace(/[^\d+]/g,"");
+  const suivis = [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
+  const ed = editingEntry ? c.suivis.find(s=>s.id===editingEntry) : null;
+
+  main.innerHTML = `
+  <div class="sheet">
+    <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
+    <div class="top">
+      <div class="top-left">
+        <input class="name-input" id="f-contact" data-f="contact" value="${esc(c.contact)}" placeholder="Nom du client" aria-label="Nom du client">
+        <div class="quick">
+          ${tel?`<a href="tel:${esc(tel)}">${esc(c.telephone)}</a>`:""}
+          ${c.parrain?`<span>Parrain : ${esc(c.parrain)}</span>`:""}
+          <span class="saved" id="saved"></span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="btn primary" id="mailBtn">Envoyer par mail</button>
+        <button class="btn" id="exportBtn">Exporter en .md</button>
+        <button class="btn danger" id="delBtn">Supprimer</button>
+      </div>
+    </div>
+
+    <section class="block">
+      <h2>Coordonnées et projet</h2>
+      <div class="grid">
+        ${field("telephone","Téléphone",c,"tel")}
+        ${field("email","Email",c,"email")}
+        ${field("parrain","Parrain",c)}
+        ${field("typeProjet","Type de projet",c,"text","projets")}
+        ${field("localisation","Localisation",c)}
+        ${field("typeBien","Type de bien",c,"text","biens")}
+      </div>
+      <div class="field" style="margin-top:14px"><label for="f-notes">Notes</label>
+        <textarea id="f-notes" data-f="notes" placeholder="Budget, contraintes, choix de façades…">${esc(c.notes)}</textarea></div>
+      <datalist id="projets"><option>Cuisine</option><option>Salle de bain</option><option>Électroménager</option><option>Dressing</option><option>Rangement</option></datalist>
+      <datalist id="biens"><option>Appartement</option><option>Maison</option><option>Local commercial</option></datalist>
+    </section>
+
+    <section class="block">
+      <div class="route-head">
+        <h2>Étapes du projet</h2>
+        <div class="paid">Encaissé <strong>${paid} %</strong></div>
+      </div>
+      <div class="paybar" aria-hidden="true">
+        ${STEPS.map((s,i)=>s.pay?`<span class="${c.etapes[i].done?"on":""}" style="width:${s.pay}%;${i!==8?"border-right:2px solid var(--surface)":""}"></span>`:"").join("")}
+      </div>
+      <ol class="route">
+        <li class="progress" aria-hidden="true" style="width:${progW}%"></li>
+        ${STEPS.map((s,i)=>{
+          const e=c.etapes[i];
+          const cls=["stop", s.pay?"pay":"", e.done?"done":"", i===cur?"current":""].join(" ");
+          return `<li class="${cls}"><button data-step="${i}" aria-pressed="${e.done}" aria-label="Étape ${i+1}, ${esc(s.t)}${e.done?", faite le "+fmtD(e.date):""}">
+            <span class="dot">${e.done?"✓":i+1}</span>
+            <span class="stop-txt"><span class="stop-t">${esc(s.t)}</span>
+            ${s.s?`<span class="stop-s">${esc(s.s)}</span>`:""}
+            ${e.done&&e.date?`<span class="stop-d">${fmtD(e.date)}</span>`:""}</span>
+          </button></li>`;
+        }).join("")}
+      </ol>
+      <p class="route-hint">${cur===-1?"Toutes les étapes sont faites.":`${done} étape${done>1?"s":""} sur 9. Cliquez sur une étape pour la cocher ou la décocher.`}</p>
+    </section>
+
+    <section class="block">
+      <h2>Suivi</h2>
+      <div class="add ${ed?"editing":""}" id="addForm">
+        <div class="field"><label for="s-date">Date et heure</label><input id="s-date" type="datetime-local" value="${ed?ed.date:nowLocal()}"></div>
+        <div class="field"><label for="s-type">Type de contact</label>
+          <select id="s-type">${SUIVI_TYPES.map(t=>`<option ${ed&&ed.type===t?"selected":""}>${t}</option>`).join("")}</select></div>
+        <div></div>
+        <div class="field note-wrap"><label for="s-note">Compte rendu</label>
+          <textarea id="s-note" placeholder="Ce qui a été dit, la prochaine action…">${esc(ed?ed.note:"")}</textarea></div>
+        <div class="add-actions">
+          ${ed?`<button class="btn" id="cancelEdit">Annuler</button>`:""}
+          <button class="btn primary" id="addEntry">${ed?"Enregistrer la modification":"Ajouter au suivi"}</button>
+        </div>
+      </div>
+      ${suivis.length ? `<ol class="journal">${suivis.map(s=>`
+        <li class="entry">
+          <div class="entry-head">
+            <span class="entry-date">${fmtDT(s.date)}</span>
+            <span class="tag">${esc(s.type)}</span>
+            ${s.by?`<span class="tag">${esc(s.by.split("@")[0])}</span>`:""}
+            <span class="entry-actions">
+              <button class="btn ghost" data-edit="${s.id}">Modifier</button>
+              <button class="btn ghost danger" data-del="${s.id}">Supprimer</button>
+            </span>
+          </div>
+          ${s.note?`<div class="entry-note">${esc(s.note)}</div>`:""}
+        </li>`).join("")}</ol>`
+      : `<p class="journal-empty">Aucun contact noté. Ajoutez le premier ci-dessus.</p>`}
+    </section>
+  </div>`;
+}
+function rerenderKeep(){
+  const a=document.activeElement, id=a?.id, pos=a?.selectionStart, top=$("#main").scrollTop;
+  renderMain(); $("#main").scrollTop=top;
+  if(id){ const el=document.getElementById(id); if(el){ el.focus({preventScroll:true}); try{ if(pos!=null) el.setSelectionRange(pos,pos);}catch(_){} } }
+}
+
+/* ---------- Événements ---------- */
+$("#list").addEventListener("click", e=>{
+  const b=e.target.closest("button[data-id]"); if(!b) return;
+  flushPending();
+  selId=b.dataset.id; editingEntry=null; renderList(); renderMain(); $("#main").scrollTop=0;
+});
+$("#search").addEventListener("input", e=>{ query=e.target.value; renderList(); });
+$("#newBtn").addEventListener("click", ()=>{
+  flushPending();
+  const c=blankClient(); clients.push(c); selId=c.id; editingEntry=null;
+  createClient(c); renderList(); renderMain();
+  setTimeout(()=>$("#f-contact")?.focus(),0);
+});
+
+$("#main").addEventListener("input", e=>{
+  const f=e.target.dataset?.f; if(!f) return;
+  const c=current(); if(!c) return;
+  c[f]=e.target.value; updateSoon(c.id, f, e.target.value); renderList();
+});
+$("#main").addEventListener("change", e=>{ if(e.target.dataset?.f){ flushPending(); rerenderKeep(); } });
+
+$("#main").addEventListener("click", async e=>{
+  const c=current(); if(!c) return;
+  const t=e.target;
+  if(t.closest("#backBtn")){ flushPending(); selId=null; editingEntry=null; renderList(); renderMain(); return; }
+  if(t.closest("#delBtn")){
+    if(confirm(`Supprimer la fiche de ${c.contact||"ce client"} et tout son suivi ?`)){
+      const id=c.id; pendingFields.clear(); selId=null; clients=clients.filter(x=>x.id!==id);
+      renderList(); renderMain();
+      try{ await deleteDoc(ref(id)); toast("Fiche supprimée"); }catch(err){ toast("Suppression impossible."); }
+    }
+    return;
+  }
+  if(t.closest("#exportBtn")){ exportMd(c); return; }
+  if(t.closest("#mailBtn")){ flushPending(); openMail(c); return; }
+  const stepBtn=t.closest("button[data-step]");
+  if(stepBtn){
+    const i=+stepBtn.dataset.step, st=c.etapes[i];
+    st.done=!st.done; st.date=st.done?today():"";
+    updateFields(c.id, {etapes:c.etapes});
+    const top=$("#main").scrollTop; renderMain(); $("#main").scrollTop=top; renderList();
+    document.querySelector(`button[data-step="${i}"]`)?.focus({preventScroll:true});
+    return;
+  }
+  if(t.closest("#addEntry")){
+    const date=$("#s-date").value||nowLocal(), type=$("#s-type").value, note=$("#s-note").value.trim();
+    if(editingEntry){
+      const s=c.suivis.find(x=>x.id===editingEntry);
+      if(s){ s.date=date; s.type=type; s.note=note; }
+      editingEntry=null;
+      updateFields(c.id, {suivis:c.suivis}); toast("Contact modifié");
+    } else {
+      const entry={id:uid(), date, type, note, by:me?.email||""};
+      c.suivis.push(entry);
+      updateFields(c.id, {suivis:arrayUnion(entry)}); toast("Contact ajouté au suivi");
+    }
+    const top=$("#main").scrollTop; renderMain(); $("#main").scrollTop=top; renderList();
+    return;
+  }
+  if(t.closest("#cancelEdit")){ editingEntry=null; rerenderKeep(); return; }
+  const edBtn=t.closest("button[data-edit]");
+  if(edBtn){ editingEntry=edBtn.dataset.edit; renderMain(); $("#addForm").scrollIntoView({block:"center"}); $("#s-note").focus(); return; }
+  const delBtn=t.closest("button[data-del]");
+  if(delBtn && confirm("Supprimer ce contact du suivi ?")){
+    const entry=c.suivis.find(s=>s.id===delBtn.dataset.del);
+    c.suivis=c.suivis.filter(s=>s.id!==delBtn.dataset.del);
+    if(editingEntry===delBtn.dataset.del) editingEntry=null;
+    if(entry) updateFields(c.id, {suivis:arrayRemove(entry)});
+    rerenderKeep(); renderList();
+  }
+});
+
+/* ---------- Textes : mail et export ---------- */
+function toText(c, what="full"){
+  const L=[];
+  L.push(`FICHE CLIENT – ${c.contact||"Sans nom"}`,"");
+  if(what!=="suivi"){
+    L.push("COORDONNÉES");
+    L.push(`Contact : ${c.contact}`);
+    if(c.telephone) L.push(`Téléphone : ${c.telephone}`);
+    if(c.email) L.push(`Email : ${c.email}`);
+    if(c.parrain && what==="full") L.push(`Parrain : ${c.parrain}`);
+    L.push("","PROJET");
+    if(c.typeProjet) L.push(`Type de projet : ${c.typeProjet}`);
+    if(c.localisation) L.push(`Localisation : ${c.localisation}`);
+    if(c.typeBien) L.push(`Type de bien : ${c.typeBien}`);
+    if(c.notes && what==="full") L.push(`Notes : ${c.notes}`);
+    L.push("","ÉTAPES DU PROJET");
+    STEPS.forEach((st,i)=>{ const e=c.etapes[i]; L.push(`${e.done?"[x]":"[ ]"} ${i+1}. ${st.t}${st.s?` (${st.s})`:""}${e.done&&e.date?` – fait le ${fmtD(e.date)}`:""}`); });
+    L.push(`Encaissé : ${paidPct(c)} %`,"");
+  }
+  if(what!=="client"){
+    L.push("SUIVI");
+    const s=[...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
+    if(!s.length) L.push("Aucun contact noté.");
+    s.forEach(x=>{ L.push(`– ${fmtDT(x.date)} – ${x.type}${x.by?` (${x.by.split("@")[0]})`:""}`); if(x.note) L.push(`  ${x.note.replace(/\n/g,"\n  ")}`); });
+    L.push("");
+  }
+  L.push("—","EURL STLS");
+  return L.join("\n");
+}
+function toMd(c){
+  const L=[];
+  L.push(`# Fiche Client – ${c.contact||"Sans nom"}`,"","## 📇 Coordonnées","","| Champ | Détail |","|---|---|");
+  L.push(`| **Contact** | ${c.contact} |`,`| **Téléphone** | ${c.telephone} |`);
+  if(c.email) L.push(`| **Email** | ${c.email} |`);
+  L.push(`| **Parrain** | ${c.parrain} |`,"","## 🏠 Projet","");
+  L.push(`- **Type de projet** : ${c.typeProjet}`,`- **Localisation** : ${c.localisation}`,`- **Type de bien** : ${c.typeBien}`);
+  if(c.notes) L.push("",`**Notes** : ${c.notes}`);
+  L.push("","## 📞 Suivi","");
+  const s=[...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
+  if(!s.length) L.push("- Aucun contact noté");
+  s.forEach(x=>L.push(`- **${fmtDT(x.date)}** – ${x.type}${x.note?` : ${x.note.replace(/\n/g," ")}`:""}`));
+  L.push("","---","","## 🔢 Étapes du projet","");
+  STEPS.forEach((st,i)=>{ const e=c.etapes[i]; L.push(`${i+1}. [${e.done?"x":" "}] **${st.t}**${st.s?` — ${st.s}`:""}${e.done&&e.date?` (fait le ${fmtD(e.date)})`:""}`); });
+  L.push("",`**Encaissé : ${paidPct(c)} %**`);
+  return L.join("\n");
+}
+const slug = s => (s||"client").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+function exportMd(c){
+  const blob=new Blob([toMd(c)],{type:"text/markdown;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`fiche-client-${slug(c.contact)}.md`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+/* ---------- Fenêtre d'envoi ---------- */
+const dlg=$("#mailDlg");
+function fillMailBody(){
+  const c=current(); if(!c) return;
+  const what=document.querySelector('input[name="m-what"]:checked').value;
+  $("#m-body").value=toText(c, what);
+  checkLen();
+}
+function checkLen(){ $("#m-warn").hidden = encodeURIComponent($("#m-body").value).length < 1800; }
+function openMail(c){
+  $("#m-to").value = c.email || "";
+  $("#m-subject").value = `Fiche client – ${c.contact||"Sans nom"}`;
+  document.querySelector('input[name="m-what"][value="full"]').checked=true;
+  fillMailBody();
+  dlg.showModal(); $("#m-to").focus();
+}
+document.querySelectorAll('input[name="m-what"]').forEach(r=>r.addEventListener("change", fillMailBody));
+$("#m-body").addEventListener("input", checkLen);
+$("#m-cancel").addEventListener("click", ()=>dlg.close());
+$("#m-copy").addEventListener("click", async ()=>{
+  try{ await navigator.clipboard.writeText($("#m-body").value); toast("Texte copié"); }
+  catch(e){ $("#m-body").select(); toast("Sélectionnez le texte puis copiez-le (Ctrl+C)."); }
+});
+$("#m-send").addEventListener("click", ()=>{
+  const to=$("#m-to").value.split(/[,;]/).map(s=>s.trim()).filter(Boolean).join(",");
+  const url=`mailto:${to}?subject=${encodeURIComponent($("#m-subject").value)}&body=${encodeURIComponent($("#m-body").value)}`;
+  const c=current();
+  if(c){
+    const entry={id:uid(), date:nowLocal(), type:"Email", note:`Fiche envoyée par mail${to?` à ${to}`:""}.`, by:me?.email||""};
+    c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)});
+  }
+  window.location.href=url;
+  dlg.close(); rerenderKeep(); renderList();
+});
+
+/* ---------- Connexion ---------- */
+const errMsg = code => ({
+  "auth/invalid-credential":"Email ou mot de passe incorrect.",
+  "auth/wrong-password":"Email ou mot de passe incorrect.",
+  "auth/user-not-found":"Aucun compte avec cet email.",
+  "auth/invalid-email":"Adresse email invalide.",
+  "auth/too-many-requests":"Trop d’essais. Réessayez dans quelques minutes.",
+  "auth/network-request-failed":"Pas de connexion internet.",
+  "auth/unauthorized-domain":"Ce site n’est pas autorisé dans Firebase (Authentication › Paramètres › Domaines autorisés)."
+}[code] || "Connexion impossible.");
+async function doLogin(){
+  $("#lg-err").textContent="";
+  try{ await signInWithEmailAndPassword(auth, $("#lg-email").value.trim(), $("#lg-pass").value); }
+  catch(e){ $("#lg-err").textContent=errMsg(e.code); }
+}
+$("#lg-btn").addEventListener("click", doLogin);
+$("#lg-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
+$("#lg-reset").addEventListener("click", async ()=>{
+  const em=$("#lg-email").value.trim();
+  if(!em){ $("#lg-err").textContent="Saisissez votre email, puis cliquez sur « Mot de passe oublié »."; return; }
+  try{ await sendPasswordResetEmail(auth, em); $("#lg-err").textContent="Un email de réinitialisation vient d’être envoyé."; }
+  catch(e){ $("#lg-err").textContent=errMsg(e.code); }
+});
+$("#logoutBtn").addEventListener("click", ()=>{ flushPending(); signOut(auth); });
+
+onAuthStateChanged(auth, user=>{
+  me=user;
+  if(unsub){ unsub(); unsub=null; }
+  if(!user){
+    clients=[]; selId=null;
+    $("#login").hidden=false; $("#app").hidden=true;
+    setTimeout(()=>$("#lg-email").focus(),0);
+    return;
+  }
+  $("#login").hidden=true; $("#app").hidden=false;
+  $("#whoEmail").textContent=user.email;
+  renderMain();
+  unsub = onSnapshot(col(), snap=>{
+    const a=document.activeElement;
+    const typing = a && $("#main").contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName);
+    const local=current();
+    const keepLocal = local && (typing || saveTimer!==null);
+    clients = snap.docs.map(d=>{
+      if(keepLocal && d.id===local.id) return local;   // ne pas écraser une saisie en cours
+      return normalize({id:d.id, ...d.data()});
+    });
+    if(selId && !clients.some(c=>c.id===selId)) selId=null;
+    renderList();
+    if(!typing && !dlg.open){ const top=$("#main").scrollTop; renderMain(); $("#main").scrollTop=top; }
+  }, err=>{
+    console.error(err);
+    toast(err.code==="permission-denied" ? "Accès refusé : ajoutez la règle Firestore pour « fichesSuivi »." : "Connexion aux fiches perdue. Rechargez la page.");
+  });
+});
+</script>
+</body>
+</html>
