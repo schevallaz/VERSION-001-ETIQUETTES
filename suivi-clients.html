@@ -335,6 +335,14 @@ h3.sub:first-child{margin-top:0}
 .proj-suivi{border-top:1px solid var(--line);margin-top:22px}
 #pdfDlg .radios label{align-items:flex-start}
 #pdfDlg .radios input{margin-top:4px}
+/* ---- v3.2 : coûts et marge ---- */
+.marge{border:1px solid var(--line);border-radius:10px;margin-top:22px;background:var(--surface)}
+.marge.open{border-color:var(--ink-3)}
+.marge-toggle{all:unset;box-sizing:border-box;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 14px}
+.marge-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.marge-body{padding:4px 14px 16px;border-top:1px solid var(--line)}
+.marge-body .grid-4{margin:12px 0}
+.dv td.neg{color:var(--danger);font-weight:600}
 
 [hidden]{display:none!important}
 </style>
@@ -423,7 +431,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.1";
+const VERSION = "3.2";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -494,6 +502,7 @@ let clients = [];
 let selId = null;           // id de fiche, ou "__params"
 let selProj = null;         // id du projet affiché
 let addingProject = false;
+let showMarge = false;      // bloc « coûts et marge » affiché à l'écran
 let query = "";
 let editingEntry = null;
 let openStep = null;
@@ -576,7 +585,7 @@ function normProjet(p){
     if(!Array.isArray(st.rendezvous.historique)) st.rendezvous.historique=[];
   });
   ["s2","s4"].forEach(s=>{ const st=p.steps[s];
-    if(st.montant!=null && st.mat==null && st.elec==null && st.presta==null){ st.mat=st.montant; st.saisie="TTC"; }
+    if(st.montant!=null && st.mat==null && st.elec==null && st.presta==null && st.livr==null){ st.mat=st.montant; st.saisie="TTC"; }
     if(!st.saisie) st.saisie="TTC"; });
   if(!p.steps.s3.necessaire) p.steps.s3.necessaire="Oui";
   p.installation={prevue:"",historique:[],...(p.installation||{})};
@@ -641,16 +650,17 @@ const currentStep = p => STEP_IDS.findIndex(s=>!p.steps[s].done && !skipped(p,s)
 // Devis : fourniture et prestations au taux du projet, électroménager toujours au taux normal.
 function calcDevis(p, st){
   const r=num(p.tva)||0, rn=num(P.tvaNormal)??20, ttcMode=(st.saisie||"TTC")==="TTC";
-  const cats=[["mat","Fourniture",r],["elec","Électroménager",rn],["presta","Prestations de services",r]];
+  const cats=[["mat","Fourniture",r],["elec","Électroménager",rn],["livr","Livraison",r],["presta","Installation (pose)",r]];
   const lines=cats.map(([k,label,rate])=>{
     const a=num(st[k]); if(a==null) return {k,label,rate,ht:null,tva:null,ttc:null};
     const ht = ttcMode ? a/(1+rate/100) : a, ttc = ttcMode ? a : a*(1+rate/100);
     return {k,label,rate,ht,tva:ttc-ht,ttc};
   });
   const has=lines.some(l=>l.ttc!=null), sum=k=>lines.reduce((s,l)=>s+(l[k]||0),0);
-  const mat=lines.filter(l=>l.k!=="presta");
+  const mat=lines.filter(l=>l.k==="mat"||l.k==="elec");
   return {lines, has, ht:sum("ht"), tva:sum("tva"), ttc:sum("ttc"),
-    materielHT:mat.reduce((s,l)=>s+(l.ht||0),0), prestaTTC:lines[2].ttc||0};
+    materielHT:mat.reduce((s,l)=>s+(l.ht||0),0), prestaTTC:(lines[2].ttc||0)+(lines[3].ttc||0),
+    htOf:k=>lines.find(l=>l.k===k)?.ht||0};
 }
 function devisRetenu(p){ const d4=calcDevis(p,p.steps.s4); return d4.has ? d4 : calcDevis(p,p.steps.s2); }
 function reglements(p){
@@ -663,6 +673,20 @@ function commission(c,p){
   const pct=num(p.commissionPct); if(!c.parrain || pct==null) return null;
   const base=devisRetenu(p).materielHT;
   return {pct, base, montant: base*pct/100};
+}
+// Marge par poste : ventes HT du devis retenu face aux coûts HT saisis dans le projet.
+function calcMarge(c,p){
+  const d=devisRetenu(p), k=p.couts||{}, n=x=>num(x)||0, com=commission(c,p);
+  const rows=[
+    {k:"produits", poste:"Produits (fourniture + électroménager)", vente:d.htOf("mat")+d.htOf("elec"), cout:n(k.achat)},
+    {k:"annexes",  poste:"Coûts annexes (transport d’approche, divers)", vente:0, cout:n(k.approche)+n(k.divers)},
+    {k:"livraison",poste:"Livraison", vente:d.htOf("livr"), cout:n(k.livraison)},
+    {k:"pose",     poste:"Installation (sous-traitance pose)", vente:d.htOf("presta"), cout:n(k.pose)}
+  ];
+  if(c.parrain) rows.push({k:"commission", poste:"Commission parrain", vente:0, cout:com?com.montant:0});
+  rows.forEach(r=>{ r.marge=r.vente-r.cout; r.taux=r.vente?r.marge/r.vente*100:null; });
+  const vente=rows.reduce((s,r)=>s+r.vente,0), cout=rows.reduce((s,r)=>s+r.cout,0);
+  return {rows, vente, cout, marge:vente-cout, taux:vente?(vente-cout)/vente*100:null, has:d.has, saisis:Object.values(k).some(v=>num(v)!=null)};
 }
 const lastSuivi = c => [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date))[0];
 /* ---------- Enregistrement ---------- */
@@ -969,7 +993,8 @@ function devisBlock(c,p,sid){
     <div class="grid-4">
       ${fi(c,`${b}.mat`,`Fourniture ${mode}`,{...nf,hint:"Meubles, plan de travail, sanitaires, literie…"})}
       ${fi(c,`${b}.elec`,`Électroménager ${mode}`,{...nf,hint:`Toujours à ${pctTxt(P.tvaNormal)}`})}
-      ${fi(c,`${b}.presta`,`Prestations de services ${mode}`,{...nf,hint:"Livraison, pose, installation…"})}
+      ${fi(c,`${b}.livr`,`Livraison ${mode}`,{...nf,hint:"Prestation de livraison"})}
+      ${fi(c,`${b}.presta`,`Installation (pose) ${mode}`,{...nf,hint:"Pose, montage, raccordements…"})}
     </div>
     ${d.has?`<div class="dv-wrap"><table class="dv">
       <thead><tr><th>Poste</th><th>TVA</th><th>HT</th><th>Montant TVA</th><th>TTC</th></tr></thead>
@@ -1160,6 +1185,7 @@ function projetPanel(c,p){
           ${open?`<div class="st-body">${stepBody(c,p,df.id)}</div>`:""}
         </div>`; }).join("")}
     </div>
+    ${margeBlock(c,p)}
     <div class="proj-suivi">
       <h3 class="sub" style="margin-top:26px">Suivi du projet ${esc(projLabel(c,p))}</h3>
       ${suiviBlock(c,p)}
@@ -1168,6 +1194,45 @@ function projetPanel(c,p){
       <button class="btn ghost danger small" data-delproj="${p.id}">Supprimer ce projet</button>
     </div>
   </div>`;
+}
+const pctM = v => v==null ? "–" : `${v.toFixed(1).replace(".",",")} %`;
+function margeTable(m){
+  return `<div class="dv-wrap"><table class="dv">
+    <thead><tr><th>Poste</th><th>Vente HT</th><th>Coût HT</th><th>Marge HT</th><th>% du prix de vente</th></tr></thead>
+    <tbody>${m.rows.map(r=>`<tr><td>${r.poste}</td><td>${r.vente?eur(r.vente):"–"}</td><td>${r.cout?eur(r.cout):"–"}</td>
+      <td class="${r.marge<0?"neg":""}">${eur(r.marge)}</td><td>${pctM(r.taux)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td>Marge du projet</td><td>${eur(m.vente)}</td><td>${eur(m.cout)}</td><td class="${m.marge<0?"neg":""}">${eur(m.marge)}</td><td>${pctM(m.taux)}</td></tr></tfoot>
+  </table></div>`;
+}
+function margeBlock(c,p){
+  const m=calcMarge(c,p), pc=`projets.${p.id}.couts`, nf={type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`};
+  const head=`<button class="marge-toggle" data-toggle-marge aria-expanded="${showMarge}">
+      <span><b>Coûts et marge</b> <span class="tag">interne</span></span>
+      <span class="muted">${showMarge?"Masquer":(m.saisis&&m.has?`Marge ${eur(m.marge)} (${pctM(m.taux)})`:"Afficher")}</span></button>`;
+  if(!showMarge) return `<div class="marge">${head}</div>`;
+  const ps=projList(c);
+  let cumul="";
+  if(ps.length>1){
+    const all=ps.map(q=>({q,m:calcMarge(c,q)}));
+    const tv=all.reduce((s,x)=>s+x.m.vente,0), tc=all.reduce((s,x)=>s+x.m.cout,0);
+    cumul=`<h3 class="sub">Cumul des projets du client</h3><div class="dv-wrap"><table class="dv">
+      <thead><tr><th>Projet</th><th>Vente HT</th><th>Coûts HT</th><th>Marge HT</th><th>% du prix de vente</th></tr></thead>
+      <tbody>${all.map(x=>`<tr><td>${esc(projLabel(c,x.q))}</td><td>${eur(x.m.vente)}</td><td>${eur(x.m.cout)}</td><td class="${x.m.marge<0?"neg":""}">${eur(x.m.marge)}</td><td>${pctM(x.m.taux)}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td>Total client</td><td>${eur(tv)}</td><td>${eur(tc)}</td><td class="${tv-tc<0?"neg":""}">${eur(tv-tc)}</td><td>${pctM(tv?(tv-tc)/tv*100:null)}</td></tr></tfoot></table></div>`;
+  }
+  return `<div class="marge open">${head}
+    <div class="marge-body">
+      <p class="route-hint" style="margin:0 0 10px">Ventes HT reprises du devis ${calcDevis(p,p.steps.s4).has?"définitif (étape 4)":"prévu (étape 2)"}. Ces informations n’apparaissent jamais sur le PDF client.</p>
+      <div class="grid-4">
+        ${fi(c,`${pc}.achat`,"Prix d’achat HT des produits",{...nf,hint:"Fourniture et électroménager"})}
+        ${fi(c,`${pc}.approche`,"Transport d’approche HT",nf)}
+        ${fi(c,`${pc}.divers`,"Divers HT",nf)}
+        ${fi(c,`${pc}.livraison`,"Coût de la livraison HT",nf)}
+        ${fi(c,`${pc}.pose`,"Sous-traitance pose HT",{...nf,hint:p.steps.s9.poseur?`Poseur : ${esc(p.steps.s9.poseur)}`:"Poseur"})}
+      </div>
+      ${m.has?margeTable(m):`<p class="journal-empty">Saisissez d’abord le devis (étape 2 ou 4) pour calculer la marge.</p>`}
+      ${cumul}
+    </div></div>`;
 }
 function suiviBlock(c,p){
   const scope=p?p.id:"gen", defs=stepDefs();
@@ -1527,6 +1592,7 @@ $("#main").addEventListener("click", async e=>{
   if(t.closest("#mailBtn")){ flushPending(); openMail(c); return; }
 
   // projets
+  if(t.closest("[data-toggle-marge]")){ showMarge=!showMarge; rerenderKeep(); return; }
   const tb=t.closest("[data-proj]");
   if(tb){ flushPending(); selProj=tb.dataset.proj; addingProject=false; openStep=null; suiviFilter="all"; editingEntry=null; rerenderKeep(); return; }
   if(t.closest("[data-addproj]")){ addingProject=!addingProject; rerenderKeep(); return; }
@@ -1906,13 +1972,17 @@ function buildPdf(c, version, pids){
     if(interne){
       if(c.parrain){ h3("Parrainage (confidentiel)");
         kv([["Parrain", c.parrain],["Commission", com?`${pctTxt(com.pct)} de ${peur(com.base)} HT de matériel, soit ${peur(com.montant)}`:"Taux non renseigné"]]); }
+      const mg=calcMarge(c,p);
+      if(mg.has){ h3("Coûts et marge (confidentiel)");
+        table(["Poste","Vente HT","Coût HT","Marge HT","% du PV"], mg.rows.map(r=>[r.poste, r.vente?peur(r.vente):"–", r.cout?peur(r.cout):"–", peur(r.marge), pctM(r.taux)]),
+          {foot:["Marge du projet",peur(mg.vente),peur(mg.cout),peur(mg.marge),pctM(mg.taux)], right:[1,2,3,4], cols:{0:{cellWidth:66}}}); }
       if(p.commandes.length){ h3("Commandes fournisseurs");
         table(["Fournisseur","N°","Commandé","Livraison prévue","Reçu","AR"], p.commandes.map(x=>[x.fournisseur||"",x.numero||"",fmtD(x.dateCommande),fmtD(x.dateLivPrevue),fmtD(x.dateReception),x.arOk?"Conforme":"À vérifier"])); }
       const sv=c.suivis.filter(x=>x.projet===p.id).sort((a,b)=>b.date.localeCompare(a.date));
       if(sv.length){ h3("Suivi du projet");
         table(["Date","Type","Étape","Compte rendu","Par"], sv.map(x=>[fmtDT(x.date),x.type,x.etape==="g"?"Général":String(STEP_IDS.indexOf(x.etape)+1),x.note||"",(x.by||"").split("@")[0]]),
           {cols:{0:{cellWidth:28},1:{cellWidth:24},2:{cellWidth:14},4:{cellWidth:20}}}); }
-      synth.push([projLabel(c,p), d.has?peur(d.ht):"–", d.has?peur(d.ttc):"–", peur(r.recu), peur(r.reste), com?peur(com.montant):"–", {ht:d.has?d.ht:0, ttc:d.has?d.ttc:0, recu:r.recu, reste:r.reste, com:com?com.montant:0}]);
+      synth.push([projLabel(c,p), d.has?peur(d.ht):"–", d.has?peur(d.ttc):"–", peur(r.recu), peur(r.reste), com?peur(com.montant):"–", {ht:d.has?d.ht:0, ttc:d.has?d.ttc:0, recu:r.recu, reste:r.reste, com:com?com.montant:0}, mg]);
     }
   });
   if(interne){
@@ -1925,7 +1995,10 @@ function buildPdf(c, version, pids){
       table(["Projet","Total HT","Total TTC","Encaissé","Reste dû","Commission"], synth.map(x=>x.slice(0,6)),
         {foot: synth.length>1?["Cumul",peur(t.ht),peur(t.ttc),peur(t.recu),peur(t.reste),peur(t.com)]:undefined,
          right:[1,2,3,4,5]});
-      text("Le tableau de marge (coûts d’achat, marge par projet et cumulée) viendra compléter cette synthèse.",M,{size:8.5,color:grey});
+      h3("Marge par projet");
+      const mv=synth.reduce((s,x)=>s+x[7].vente,0), mc=synth.reduce((s,x)=>s+x[7].cout,0);
+      table(["Projet","Vente HT","Coûts HT","Marge HT","% du PV"], synth.map(x=>[x[0],peur(x[7].vente),peur(x[7].cout),peur(x[7].marge),pctM(x[7].taux)]),
+        {foot: synth.length>1?["Cumul",peur(mv),peur(mc),peur(mv-mc),pctM(mv?(mv-mc)/mv*100:null)]:undefined, right:[1,2,3,4]});
     }
   }
   // Pied de page
