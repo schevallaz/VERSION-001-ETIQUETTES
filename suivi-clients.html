@@ -431,7 +431,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.2";
+const VERSION = "3.3";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -447,7 +447,7 @@ const db = getFirestore(fbApp);
 const storage = getStorage(fbApp);
 
 /* ---------- Référentiels ---------- */
-const STLS = {nom:"EURL STLS", adresse:"938 chemin du grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume",
+const STLS = {nom:"Ma Maison Plaisir by STLS", legal:"EURL STLS", rouge:"#C8102E", adresse:"938 chemin du grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume",
   tel:"06 58 30 16 87", mail:"s.chevallaz@stls.fr", siret:"790 485 247 00031", tva:"FR44 790485247"};
 
 const PAYS = [["FR","France"],["DE","Allemagne"],["AD","Andorre"],["AT","Autriche"],["BE","Belgique"],["BG","Bulgarie"],["CY","Chypre"],
@@ -1743,10 +1743,10 @@ function printAR(c,p,i){
   const lieu=[c.install.cp,c.install.ville].filter(Boolean).join(" ");
   w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Demande de modification – ${esc(x.fournisseur||"Fournisseur")}</title>
   <style>body{font:14px/1.55 Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px}
-  .h{display:flex;justify-content:space-between;gap:20px;margin-bottom:40px}.h b{font-size:18px}
+  .h{display:flex;justify-content:space-between;gap:20px;margin-bottom:40px}.h b{font-size:18px}.brand{font-size:18px}
   h1{font-size:18px;margin:30px 0 16px}.box{border:1px solid #999;border-radius:6px;padding:14px;white-space:pre-wrap;min-height:120px}
   table{border-collapse:collapse;margin:10px 0}td{padding:3px 14px 3px 0;vertical-align:top}.sig{margin-top:50px;display:flex;justify-content:space-between}</style></head><body>
-  <div class="h"><div><b>${STLS.nom}</b><br>${esc(STLS.adresse)}<br>Tél. ${STLS.tel}<br>${STLS.mail}<br>SIRET ${STLS.siret}</div>
+  <div class="h"><div><span class="brand">Ma Maison Plaisir by <b style="color:${STLS.rouge}">STLS</b></span><br>${esc(STLS.adresse)}<br>Tél. ${STLS.tel}<br>${STLS.mail}<br>${STLS.legal} – SIRET ${STLS.siret}</div>
   <div style="text-align:right">À l’attention de<br><b>${esc(x.fournisseur||"…")}</b><br><br>Le ${fmtD(today())}</div></div>
   <h1>Demande de modification d’accusé de réception</h1>
   <table><tr><td>Commande n°</td><td><b>${esc(x.numero||"…")}</b></td></tr>
@@ -1756,7 +1756,7 @@ function printAR(c,p,i){
   <p>Après vérification de votre accusé de réception, nous vous demandons d’apporter les modifications suivantes :</p>
   <div class="box">${esc(x.arModif||"")}</div>
   <p>Merci de nous retourner un accusé de réception corrigé dans les meilleurs délais.</p>
-  <div class="sig"><div>Pour ${STLS.nom}<br><br><br>Signature</div><div>Bon pour accord fournisseur<br><br><br>Date et signature</div></div>
+  <div class="sig"><div>Pour Ma Maison Plaisir by <b style="color:${STLS.rouge};font-size:inherit">STLS</b><br><br><br>Signature</div><div>Bon pour accord fournisseur<br><br><br>Date et signature</div></div>
   <script>window.onload=()=>window.print()<\/script></body></html>`);
   w.document.close();
   logSuivi(c,p.id,"s6",`Demande de modification d’AR imprimée pour ${x.fournisseur||"le fournisseur"}${x.numero?` (commande ${x.numero})`:""}.`,"Autre");
@@ -1920,9 +1920,11 @@ function buildPdf(c, version, pids){
   const kv=rows=>table(null, rows.filter(r=>r[1]), {theme:"plain", cols:{0:{fontStyle:"bold",cellWidth:48}}});
 
   // En-tête
-  pdf.setFont("helvetica","bold"); pdf.setFontSize(16); pdf.setTextColor(...ink); pdf.text(STLS.nom, M, y+4);
+  pdf.setFont("helvetica","normal"); pdf.setFontSize(16); pdf.setTextColor(...ink); pdf.text("Ma Maison Plaisir by ", M, y+4);
+  const bw=pdf.getTextWidth("Ma Maison Plaisir by ");
+  pdf.setFont("helvetica","bold"); pdf.setTextColor(200,16,46); pdf.text("STLS", M+bw, y+4);
   pdf.setFont("helvetica","normal"); pdf.setFontSize(8.5); pdf.setTextColor(...grey);
-  pdf.text(PT([STLS.adresse, `Tél. ${STLS.tel} – ${STLS.mail}`, `SIRET ${STLS.siret} – TVA ${STLS.tva}`].join("\n")), M, y+9);
+  pdf.text(PT([STLS.adresse, `Tél. ${STLS.tel} – ${STLS.mail}`, `${STLS.legal} – SIRET ${STLS.siret} – TVA ${STLS.tva}`].join("\n")), M, y+9);
   pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.setTextColor(...ink);
   pdf.text(PT(interne?"FICHE CLIENT – DOCUMENT INTERNE":"FICHE PROJET"), W-M, y+4, {align:"right"});
   pdf.setFont("helvetica","normal"); pdf.setFontSize(9); pdf.setTextColor(...grey);
