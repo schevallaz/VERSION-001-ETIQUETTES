@@ -445,7 +445,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.4";
+const VERSION = "3.5";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -488,7 +488,8 @@ const DEPS = [["01","Ain"],["02","Aisne"],["03","Allier"],["04","Alpes-de-Haute-
 
 const DEFAULT_PARAMS = {
   tvaRates:[10,20], tvaDefaut:10, tvaNormal:20,
-  pctAcompte:40, pctLivraison:50, pctSolde:10,
+  pctAcompte:40, pctLivraison:50, pctSolde:10,          // projet avec installation
+  pctAcompteSP:50, pctLivraisonSP:50,                     // projet sans installation
   types:[
     {nom:"Cuisine", rubriques:["Meubles","Plan de travail","Sanitaires","Électroménager"], visite:true},
     {nom:"Salle de bain", rubriques:["Meubles","Plan de travail","Sanitaires"], visite:true},
@@ -559,17 +560,24 @@ const num = v => (v===""||v==null||isNaN(+v)) ? null : +v;
 const pctTxt = v => `${String(v).replace(".",",")} %`;
 
 /* ---------- Modèle ---------- */
-function stepDefs(){
+// Pourcentages de règlement selon que l'installation est prévue ou non.
+const sansPose = p => p && p.installPrevue==="Non";
+function pcts(p){
+  return sansPose(p) ? {a:num(P.pctAcompteSP)??50, l:num(P.pctLivraisonSP)??50, s:0}
+                     : {a:num(P.pctAcompte)??40, l:num(P.pctLivraison)??50, s:num(P.pctSolde)??10};
+}
+function stepDefs(p){
+  const k=pcts(p);
   return [
     {id:"s1", t:"Découverte", s:"Budget, plan, choix"},
     {id:"s2", t:"Présentation du devis"},
     {id:"s3", t:"Visite technique"},
-    {id:"s4", t:"Validation du projet", s:`Acompte ${P.pctAcompte} %`, pay:true},
+    {id:"s4", t:"Validation du projet", s:`Acompte ${k.a} %`, pay:true},
     {id:"s5", t:"Commande fournisseurs"},
     {id:"s6", t:"Vérification des AR", s:"Accusés de réception"},
     {id:"s7", t:"Réception"},
-    {id:"s8", t:"Livraison", s:`Règlement ${P.pctLivraison} %`, pay:true},
-    {id:"s9", t:"Installation", s:`Règlement final ${P.pctSolde} %`, pay:true}
+    {id:"s8", t:"Livraison", s:`Règlement ${k.l} %`, pay:true},
+    {id:"s9", t:"Installation", s:k.s?`Règlement final ${k.s} %`:"", pay:!!k.s}
   ];
 }
 const blankAddr = () => ({pays:"FR", dep:"83", cp:"", ville:"", adresse:""});
@@ -592,6 +600,7 @@ function blankProjet(c, type){
     tva:P.tvaDefaut, commissionPct:null, installation:{prevue:"",historique:[]}, steps:blankSteps(), commandes:[]};
   p.steps.s3.necessaire = def && def.visite===false ? "Non" : "Oui";
   p.devisMode = defaultDevisMode(type);
+  p.installPrevue = "Oui";
   const par=P.parrains.find(x=>x.nom===c.parrain); if(par && par.pct!=null) p.commissionPct=par.pct;
   return p;
 }
@@ -611,6 +620,7 @@ function normProjet(p){
     if(!st.saisie) st.saisie="TTC"; });
   if(!p.steps.s3.necessaire) p.steps.s3.necessaire="Oui";
   if(!DEVIS_MODES.includes(p.devisMode)) p.devisMode="Montant global";
+  if(p.installPrevue!=="Oui" && p.installPrevue!=="Non") p.installPrevue="Oui";
   p.installation={prevue:"",historique:[],...(p.installation||{})};
   p.commandes=Array.isArray(p.commandes)?p.commandes:[];
   if(p.tva==null) p.tva=P.tvaDefaut;
@@ -668,7 +678,7 @@ function nomFiche(c){
     return `${civAbbr(ps[0].civ)} et ${civAbbr(ps[1].civ)} ${ps[0].nom}`;
   return ps.map(personne).join(" & ");
 }
-const skipped = (p,id) => id==="s3" && p.steps.s3.necessaire==="Non";
+const skipped = (p,id) => (id==="s3" && p.steps.s3.necessaire==="Non") || (id==="s9" && sansPose(p));
 const currentStep = p => STEP_IDS.findIndex(s=>!p.steps[s].done && !skipped(p,s));
 // Devis : fourniture et prestations au taux du projet, électroménager toujours au taux normal.
 function calcDevis(p, st){
@@ -698,9 +708,9 @@ function calcDevis(p, st){
 function devisRetenu(p){ const d4=calcDevis(p,p.steps.s4); return d4.has ? d4 : calcDevis(p,p.steps.s2); }
 function reglements(p){
   const m=devisRetenu(p).ttc;
-  const a=m*P.pctAcompte/100, l=m*P.pctLivraison/100, s=m*P.pctSolde/100;
-  const recu=(p.steps.s4.done?a:0)+(p.steps.s8.done?l:0)+(p.steps.s9.done?s:0);
-  return {m,a,l,s,recu,reste:Math.max(0,m-recu)};
+  const k=pcts(p), a=m*k.a/100, l=m*k.l/100, s=m*k.s/100;
+  const recu=(p.steps.s4.done?a:0)+(p.steps.s8.done?l:0)+(p.steps.s9.done&&!sansPose(p)?s:0);
+  return {m,a,l,s,k,recu,reste:Math.max(0,m-recu)};
 }
 function commission(c,p){
   const pct=num(p.commissionPct); if(!c.parrain || pct==null) return null;
@@ -1124,7 +1134,7 @@ function stepBody0(c,p,id){
       <h3 class="sub">Montant définitif${d2.has?` <span class="muted" style="text-transform:none;letter-spacing:0">(devis prévu : ${eur(d2.ttc)} TTC)</span>`:""}</h3>
       ${devisBlock(c,p,"s4")}
       <div class="grid-2" style="margin-top:12px">
-        <div class="calc"><small>Acompte de ${P.pctAcompte} % à encaisser</small><span class="money">${eur(r.a)}</span>
+        <div class="calc"><small>Acompte de ${r.k.a} % à encaisser</small><span class="money">${eur(r.a)}</span>
           <small>Calculé sur ${eur(r.m)} TTC${calcDevis(p,s).has?"":" (devis prévu, faute de montant définitif)"}</small></div>
         ${contactSel(c,`${b}.contact`)}
       </div>
@@ -1168,7 +1178,7 @@ function stepBody0(c,p,id){
       : `<p class="journal-empty" style="margin-top:12px">Cochez l’étape et indiquez la date quand la marchandise est reçue.</p>`;
   case "s8":
     return `<div class="grid-2" style="margin-top:12px">
-        <div class="calc"><small>Règlement de ${P.pctLivraison} % à la livraison</small><span class="money">${eur(r.l)}</span>
+        <div class="calc"><small>Règlement de ${r.k.l} % à la livraison${sansPose(p)?" (solde, pas d’installation)":""}</small><span class="money">${eur(r.l)}</span>
           <small>Calculé sur ${eur(r.m)} TTC</small></div>
         ${fi(c,`${b}.dateLivraison`,"Date de la livraison",{type:"date"})}
       </div>`;
@@ -1176,7 +1186,7 @@ function stepBody0(c,p,id){
     return `<div class="grid-2" style="margin-top:12px">
         ${fi(c,`${b}.poseur`,"Nom du poseur",{list:"dl-poseurs"})}
         ${fi(c,`${b}.datePose`,"Date de la pose",{type:"date"})}
-        <div class="calc"><small>Solde de ${P.pctSolde} % à l’installation</small><span class="money">${eur(r.s)}</span>
+        <div class="calc"><small>Solde de ${r.k.s} % à l’installation</small><span class="money">${eur(r.s)}</span>
           <small>Calculé sur ${eur(r.m)} TTC</small></div>
       </div>
       <datalist id="dl-poseurs">${P.poseurs.map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
@@ -1185,7 +1195,7 @@ function stepBody0(c,p,id){
 }
 /* ---------- Fiche client ---------- */
 function projetPanel(c,p){
-  const defs=stepDefs(), cur=currentStep(p), r=reglements(p), com=commission(c,p), pb=`projets.${p.id}`;
+  const defs=stepDefs(p), cur=currentStep(p), r=reglements(p), com=commission(c,p), pb=`projets.${p.id}`;
   const doneN=STEP_IDS.filter(s=>p.steps[s].done||skipped(p,s)).length;
   const lastDoneIdx=STEP_IDS.reduce((m,s,i)=>(p.steps[s].done||skipped(p,s))?i:m,-1);
   const progW=lastDoneIdx<0?0:(lastDoneIdx/8)*89;
@@ -1195,7 +1205,9 @@ function projetPanel(c,p){
     <div class="grid-4">
       ${fi(c,`${pb}.libelle`,"Nom du projet",{ph:p.type,hint:`Type : ${esc(p.type)}`})}
       ${sel(c,`${pb}.tva`,"Taux de TVA du projet",P.tvaRates.map(v=>[v,pctTxt(v)]),{kind:"num",empty:false})}
-      ${fi(c,`${pb}.installation.prevue`,"Installation prévue",{type:"date",attrs:"data-nolive",
+      ${seg(c,`${pb}.installPrevue`,"Installation prévue ?",["Oui","Non"],{req:true,def:"Oui",
+          hint:sansPose(p)?`Règlements : ${r.k.a} % à la commande, ${r.k.l} % à la livraison`:`Règlements : ${r.k.a} % / ${r.k.l} % / ${r.k.s} %`})}
+      ${fi(c,`${pb}.installation.prevue`,sansPose(p)?"Livraison prévue":"Installation prévue",{type:"date",attrs:"data-nolive",
           hint:inst.historique.length?`Décalée ${inst.historique.length} fois`:"Une modification est gardée dans l’historique"})}
       ${c.parrain?fi(c,`${pb}.commissionPct`,`Commission ${esc(c.parrain)} (%)`,{type:"number",kind:"num",attrs:`step="0.1" min="0" max="100"`,
           hint:com?`${eur(com.montant)} sur ${eur(com.base)} HT de matériel`:"Calculée sur le matériel HT, hors prestations"}):""}
@@ -1209,9 +1221,9 @@ function projetPanel(c,p){
       <div class="paid">Encaissé <strong>${eur(r.recu)}</strong>${r.m?` sur ${eur(r.m)}`:""}${d.has&&d.prestaTTC?` <span class="muted">(dont prestations ${eur(d.prestaTTC)})</span>`:""}</div>
     </div>
     <div class="paybar" aria-hidden="true">
-      <span class="${p.steps.s4.done?"on":""}" style="width:${P.pctAcompte}%;border-right:2px solid var(--surface)"></span>
-      <span class="${p.steps.s8.done?"on":""}" style="width:${P.pctLivraison}%;border-right:2px solid var(--surface)"></span>
-      <span class="${p.steps.s9.done?"on":""}" style="width:${P.pctSolde}%"></span>
+      <span class="${p.steps.s4.done?"on":""}" style="width:${r.k.a}%;border-right:2px solid var(--surface)"></span>
+      <span class="${p.steps.s8.done?"on":""}" style="width:${r.k.l}%;${r.k.s?"border-right:2px solid var(--surface)":""}"></span>
+      ${r.k.s?`<span class="${p.steps.s9.done?"on":""}" style="width:${r.k.s}%"></span>`:""}
     </div>
     <ol class="route">
       <li class="progress" aria-hidden="true" style="width:${progW}%"></li>
@@ -1449,7 +1461,8 @@ function rerenderKeep(){
 function select(id){ flushPending(); selId=id; selProj=null; addingProject=false; editingEntry=null; openStep=null; suiviFilter="all"; renderList(); renderMain(); $("#main").scrollTop=0; }
 /* ---------- Paramètres ---------- */
 function renderParams(){
-  const sum=P.pctAcompte+P.pctLivraison+P.pctSolde;
+  const sum=(num(P.pctAcompte)||0)+(num(P.pctLivraison)||0)+(num(P.pctSolde)||0);
+  const sumSP=(num(P.pctAcompteSP)||0)+(num(P.pctLivraisonSP)||0);
   return `<div class="sheet">
     <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
     <div class="top"><div class="top-left"><h1 style="font-size:32px">Paramètres</h1>
@@ -1467,12 +1480,19 @@ function renderParams(){
     </section>
 
     <section class="block"><h2>Règlements</h2>
+      <h3 class="sub">Projet avec installation</h3>
       <div class="pct-row">
         <div class="field"><label for="p-a">Acompte à la validation (%)</label><input id="p-a" type="number" min="0" max="100" step="1" data-pp="pctAcompte" value="${P.pctAcompte}"></div>
         <div class="field"><label for="p-l">À la livraison (%)</label><input id="p-l" type="number" min="0" max="100" step="1" data-pp="pctLivraison" value="${P.pctLivraison}"></div>
         <div class="field"><label for="p-s">Solde à l’installation (%)</label><input id="p-s" type="number" min="0" max="100" step="1" data-pp="pctSolde" value="${P.pctSolde}"></div>
       </div>
       ${sum!==100?`<div class="sum-warn">Le total fait ${sum} % au lieu de 100 %.</div>`:""}
+      <h3 class="sub">Projet sans installation</h3>
+      <div class="pct-row">
+        <div class="field"><label for="p-asp">Acompte à la commande (%)</label><input id="p-asp" type="number" min="0" max="100" step="1" data-pp="pctAcompteSP" value="${P.pctAcompteSP}"></div>
+        <div class="field"><label for="p-lsp">Solde à la livraison (%)</label><input id="p-lsp" type="number" min="0" max="100" step="1" data-pp="pctLivraisonSP" value="${P.pctLivraisonSP}"></div>
+      </div>
+      ${sumSP!==100?`<div class="sum-warn">Le total fait ${sumSP} % au lieu de 100 %.</div>`:""}
     </section>
 
     <section class="block"><h2>Types de projet</h2>
@@ -1694,6 +1714,8 @@ $("#main").addEventListener("click", async e=>{
   if(sg){ const path=sg.dataset.set, cur=getP(c,path)||"";
     const v = (cur===sg.dataset.v && sg.dataset.req===undefined) ? "" : sg.dataset.v;
     setP(c,path,v); queue(c,path,v); flushPending();
+    if(/^projets\.[^.]+\.installPrevue$/.test(path)){ const pr=c.projets[path.split(".")[1]], k=pcts(pr);
+      logSuivi(c,pr.id,"g", v==="Non"?`Pas d’installation prévue : règlement ${k.a} % à la commande et ${k.l} % à la livraison.`:`Installation prévue : règlement ${k.a} % / ${k.l} % / ${k.s} %.`,"Autre"); }
     if(/\.steps\.s3\.necessaire$/.test(path)){ const pr=c.projets[path.split(".")[1]];
       logSuivi(c,pr.id,"s3", v==="Non"?"Visite technique non nécessaire pour ce projet.":"Visite technique nécessaire pour ce projet.","Autre"); }
     rerenderKeep(); renderList(); return; }
@@ -1864,7 +1886,7 @@ function toText(c, what="full"){
       const st4=calcDevis(p,p.steps.s4).has?p.steps.s4:p.steps.s2;
       if(calcDevis(p,st4).has){ L.push(`Devis ${st4===p.steps.s4?"définitif":"prévu"}${st4.numero?` n° ${st4.numero}`:""} :`); devisLines(p,st4,L); }
       if(what==="full" && com) L.push(`Commission parrain : ${pctTxt(com.pct)} de ${eur(com.base)} HT, soit ${eur(com.montant)}`);
-      defs.forEach((d,i)=>{ const st=p.steps[d.id], sm=stepSummary(c,p,d.id), sk=skipped(p,d.id);
+      stepDefs(p).forEach((d,i)=>{ const st=p.steps[d.id], sm=stepSummary(c,p,d.id), sk=skipped(p,d.id);
         L.push(`${sk?"[-]":st.done?"[x]":"[ ]"} ${i+1}. ${d.t}${d.s&&!sk?` (${d.s})`:""}${st.done&&st.date&&!sk?` – fait le ${fmtD(st.date)}`:""}${sm?` – ${sm}`:""}`); });
       if(r.m) L.push(`Encaissé : ${eur(r.recu)} sur ${eur(r.m)} – reste : ${eur(r.reste)}`);
       if(what==="full" && p.commandes.length){
@@ -2044,7 +2066,7 @@ function buildPdf(c, version, pids){
       table(["Poste","TVA","HT","Montant TVA","TTC"], d.lines.filter(l=>l.ttc!=null).map(l=>[l.label,pctTxt(l.rate),peur(l.ht),peur(l.tva),peur(l.ttc)]),
         {foot:["Total","",peur(d.ht),peur(d.tva),peur(d.ttc)], right:[1,2,3,4]});
       h3("Échéancier de règlement");
-      const ech=[["Acompte à la validation",P.pctAcompte,r.a,p.steps.s4],["À la livraison",P.pctLivraison,r.l,p.steps.s8],["Solde à l’installation",P.pctSolde,r.s,p.steps.s9]];
+      const ech=[["Acompte à la commande",r.k.a,r.a,p.steps.s4],[sansPose(p)?"Solde à la livraison":"À la livraison",r.k.l,r.l,p.steps.s8],["Solde à l’installation",r.k.s,r.s,p.steps.s9]].filter(x=>x[1]>0);
       table(["Échéance","%","Montant TTC","Statut"], ech.map(([l,pc,m,stp])=>[l,`${pc} %`,peur(m),stp.done?`Réglé${stp.date?` le ${fmtD(stp.date)}`:""}`:"À venir"]),
         {foot:["Reste à régler","",peur(r.reste),""], right:[1,2]});
     }
