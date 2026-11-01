@@ -189,6 +189,97 @@ dialog::backdrop{background:rgba(10,14,20,.45)}
 .dlg-warn[hidden]{display:none}
 .radios{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px}
 .radios label{display:flex;gap:6px;align-items:center;color:var(--ink);font-size:14px;margin:0}
+/* ---- v2 : sous-blocs, choix, documents ---- */
+.side-foot{border-top:1px solid var(--line);padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+.side-foot .who{padding:0 6px;border:none}
+.paramsBtn{justify-content:flex-start}
+.paramsBtn[aria-current="true"]{background:var(--surface-2);border-color:var(--ochre)}
+h3.sub{font-size:15px;margin:18px 0 10px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.04em;font-family:"Public Sans",system-ui,sans-serif;font-weight:600}
+h3.sub:first-child{margin-top:0}
+.contact-row{display:grid;grid-template-columns:130px repeat(4,minmax(0,1fr));gap:10px 14px;align-items:end;margin-bottom:12px}
+.grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 16px}
+.grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
+.span-2{grid-column:span 2}
+.field .hint{font-size:12px;color:var(--ink-3);margin-top:3px}
+.field .bad{font-size:12px;color:var(--danger);margin-top:3px}
+.field input.invalid{border-color:var(--danger)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--surface-2);border-radius:20px;padding:5px 12px;cursor:pointer;font-size:14px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.chip.chip-add{border-style:dashed;background:transparent;color:var(--ink-2)}
+.chip .x{margin-left:6px;opacity:.6}
+.toggle{display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;margin:4px 0 10px}
+.toggle input{width:18px;height:18px;accent-color:var(--olive)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;padding:7px 14px;font-size:14px;background:var(--surface-2)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.seg button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.money{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-size:20px;font-weight:700}
+.calc{background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;padding:10px 12px}
+.calc small{display:block;color:var(--ink-3);font-size:12.5px}
+.btn.small{padding:5px 10px;font-size:13px}
+
+/* Étapes en accordéon */
+.steps-acc{margin-top:22px;display:flex;flex-direction:column;gap:8px}
+.st{border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.st.done{border-color:var(--olive)}
+.st-head{display:flex;align-items:center;gap:12px;padding:10px 14px}
+.st-head .num{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;border:2px solid var(--line);flex:none}
+.st.done .num{background:var(--olive);border-color:var(--olive);color:var(--surface)}
+.st-open{all:unset;cursor:pointer;flex:1;min-width:0}
+.st-open:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
+.st-title{font-weight:600}
+.st-sum{font-size:13px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-done{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);flex:none}
+.st-done input[type=checkbox]{width:18px;height:18px;accent-color:var(--olive)}
+.st-done input[type=date]{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);font-size:13px}
+.st-body{padding:4px 16px 18px;border-top:1px solid var(--line)}
+.chev{transition:transform .2s;color:var(--ink-3)}
+.st[data-open="true"] .chev{transform:rotate(90deg)}
+.rub{border-left:3px solid var(--ochre);padding-left:12px;margin-bottom:14px}
+.rub-t{font-weight:600;margin-bottom:6px}
+.cmd{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--surface-2)}
+.cmd .field input,.cmd .field textarea,.cmd .field select{background:var(--surface)}
+.cmd-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-weight:600}
+
+/* Documents */
+.docs{margin-top:6px}
+.docs-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.doc{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:4px 6px 4px 4px;background:var(--surface);max-width:260px}
+.doc img{width:40px;height:40px;object-fit:cover;border-radius:5px}
+.doc .ico{width:40px;height:40px;display:grid;place-items:center;border-radius:5px;background:var(--surface-2);font-size:11px;font-weight:700;color:var(--danger)}
+.doc a{color:var(--ink);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none}
+.doc a:hover{text-decoration:underline}
+.doc button{all:unset;cursor:pointer;color:var(--ink-3);padding:2px 4px}
+.doc button:focus-visible{outline:2px solid var(--focus)}
+.up-btns{display:flex;gap:6px;flex-wrap:wrap}
+.up-btns label{cursor:pointer}
+.up-btns input{display:none}
+
+/* Suivi filtre */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.filters .chip{font-size:13px;padding:3px 10px}
+
+/* Paramètres */
+.prow{display:grid;grid-template-columns:200px 1fr auto;gap:10px;align-items:center;margin-bottom:8px}
+.prow2{display:grid;grid-template-columns:1fr 120px auto;gap:10px;align-items:center;margin-bottom:8px}
+.prow input,.prow2 input{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
+.pct-row{display:flex;gap:14px;flex-wrap:wrap}
+.pct-row .field{width:160px}
+.sum-warn{color:var(--danger);font-size:13px;margin-top:6px}
+
+@media (max-width:900px){
+  .contact-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:720px){
+  .contact-row,.grid-4,.grid-2,.prow,.prow2{grid-template-columns:1fr}
+  .span-2{grid-column:auto}
+  .st-head{flex-wrap:wrap}
+  .top-actions{flex-wrap:wrap}
+}
+@media print{.side,.top-actions,.toast{display:none}}
 
 [hidden]{display:none!important}
 </style>
@@ -214,7 +305,10 @@ dialog::backdrop{background:rgba(10,14,20,.45)}
       <button class="btn primary new" id="newBtn">Nouvelle fiche</button>
     </div>
     <ul class="list" id="list"></ul>
-    <div class="store-note who"><span id="whoEmail"></span><button class="btn ghost" id="logoutBtn">Déconnexion</button></div>
+    <div class="side-foot">
+      <button class="btn ghost paramsBtn" id="paramsBtn" aria-current="false">⚙️ Paramètres</button>
+      <div class="store-note who"><span id="whoEmail"></span><button class="btn ghost" id="logoutBtn">Déconnexion</button></div>
+    </div>
   </aside>
   <main class="main" id="main"></main>
 </div>
@@ -243,9 +337,8 @@ dialog::backdrop{background:rgba(10,14,20,.45)}
 <div class="toast" id="toast" role="status"></div>
 <script type="module">
 /* ============================================================
-   CONFIGURATION FIREBASE — à remplacer par celle de votre projet
-   (Console Firebase › Paramètres du projet › Vos applications)
-   Vous pouvez reprendre le même bloc que dans les modules du TMS.
+   Suivi clients – STLS – version 2.0
+   Projet Firebase du TMS (mêmes comptes que Gestion Dépôt)
    ============================================================ */
 const firebaseConfig = {
   apiKey: "AIzaSyDEOdOoZyWmKZyDDe6c83TBBiMQUF5z1Qk",
@@ -257,109 +350,361 @@ const firebaseConfig = {
   measurementId: "G-2M8ENNG05B"
 };
 const COLLECTION = "fichesSuivi";
-const VERSION = "1.0";
+const PARAMS_COL = "fichesSuiviParams";
+const VERSION = "2.0";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage, ref as sref, uploadBytes, getDownloadURL, deleteObject }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
+const storage = getStorage(fbApp);
 
-const STEPS = [
-  {t:"Découverte", s:"Budget, plan, choix"},
-  {t:"Présentation du devis"},
-  {t:"Visite technique"},
-  {t:"Validation du projet", s:"Acompte 40 %", pay:40},
-  {t:"Commande fournisseurs"},
-  {t:"Vérification des AR", s:"Accusés de réception"},
-  {t:"Réception"},
-  {t:"Livraison", s:"Règlement 50 %", pay:50},
-  {t:"Installation", s:"Règlement final 10 %", pay:10}
-];
+/* ---------- Référentiels ---------- */
+const STLS = {nom:"EURL STLS", adresse:"938 chemin du grand Rayol, 83470 Saint-Maximin-la-Sainte-Baume",
+  tel:"06 58 30 16 87", mail:"s.chevallaz@stls.fr", siret:"790 485 247 00031", tva:"FR44 790485247"};
+
+const PAYS = [["FR","France"],["DE","Allemagne"],["AD","Andorre"],["AT","Autriche"],["BE","Belgique"],["BG","Bulgarie"],["CY","Chypre"],
+  ["HR","Croatie"],["DK","Danemark"],["ES","Espagne"],["EE","Estonie"],["FI","Finlande"],["GR","Grèce"],["HU","Hongrie"],["IE","Irlande"],
+  ["IS","Islande"],["IT","Italie"],["LV","Lettonie"],["LI","Liechtenstein"],["LT","Lituanie"],["LU","Luxembourg"],["MT","Malte"],
+  ["MC","Monaco"],["NO","Norvège"],["NL","Pays-Bas"],["PL","Pologne"],["PT","Portugal"],["CZ","République tchèque"],["RO","Roumanie"],
+  ["GB","Royaume-Uni"],["SK","Slovaquie"],["SI","Slovénie"],["SE","Suède"],["CH","Suisse"]];
+
+const DEPS = [["01","Ain"],["02","Aisne"],["03","Allier"],["04","Alpes-de-Haute-Provence"],["05","Hautes-Alpes"],["06","Alpes-Maritimes"],
+  ["07","Ardèche"],["08","Ardennes"],["09","Ariège"],["10","Aube"],["11","Aude"],["12","Aveyron"],["13","Bouches-du-Rhône"],["14","Calvados"],
+  ["15","Cantal"],["16","Charente"],["17","Charente-Maritime"],["18","Cher"],["19","Corrèze"],["2A","Corse-du-Sud"],["2B","Haute-Corse"],
+  ["21","Côte-d’Or"],["22","Côtes-d’Armor"],["23","Creuse"],["24","Dordogne"],["25","Doubs"],["26","Drôme"],["27","Eure"],["28","Eure-et-Loir"],
+  ["29","Finistère"],["30","Gard"],["31","Haute-Garonne"],["32","Gers"],["33","Gironde"],["34","Hérault"],["35","Ille-et-Vilaine"],["36","Indre"],
+  ["37","Indre-et-Loire"],["38","Isère"],["39","Jura"],["40","Landes"],["41","Loir-et-Cher"],["42","Loire"],["43","Haute-Loire"],
+  ["44","Loire-Atlantique"],["45","Loiret"],["46","Lot"],["47","Lot-et-Garonne"],["48","Lozère"],["49","Maine-et-Loire"],["50","Manche"],
+  ["51","Marne"],["52","Haute-Marne"],["53","Mayenne"],["54","Meurthe-et-Moselle"],["55","Meuse"],["56","Morbihan"],["57","Moselle"],
+  ["58","Nièvre"],["59","Nord"],["60","Oise"],["61","Orne"],["62","Pas-de-Calais"],["63","Puy-de-Dôme"],["64","Pyrénées-Atlantiques"],
+  ["65","Hautes-Pyrénées"],["66","Pyrénées-Orientales"],["67","Bas-Rhin"],["68","Haut-Rhin"],["69","Rhône"],["70","Haute-Saône"],
+  ["71","Saône-et-Loire"],["72","Sarthe"],["73","Savoie"],["74","Haute-Savoie"],["75","Paris"],["76","Seine-Maritime"],["77","Seine-et-Marne"],
+  ["78","Yvelines"],["79","Deux-Sèvres"],["80","Somme"],["81","Tarn"],["82","Tarn-et-Garonne"],["83","Var"],["84","Vaucluse"],["85","Vendée"],
+  ["86","Vienne"],["87","Haute-Vienne"],["88","Vosges"],["89","Yonne"],["90","Territoire de Belfort"],["91","Essonne"],["92","Hauts-de-Seine"],
+  ["93","Seine-Saint-Denis"],["94","Val-de-Marne"],["95","Val-d’Oise"],["971","Guadeloupe"],["972","Martinique"],["973","Guyane"],
+  ["974","La Réunion"],["976","Mayotte"]];
+
+const DEFAULT_PARAMS = {
+  tvaRates:[10,20], tvaDefaut:10,
+  pctAcompte:40, pctLivraison:50, pctSolde:10,
+  types:[
+    {nom:"Cuisine", rubriques:["Meubles","Plan de travail","Sanitaires","Électroménager"]},
+    {nom:"Salle de bain", rubriques:["Meubles","Plan de travail","Sanitaires"]},
+    {nom:"Dressing", rubriques:["Meubles","Plan de travail","Sanitaires"]},
+    {nom:"Literie", rubriques:["Literie"]},
+    {nom:"Cuisine extérieure", rubriques:["Meubles","Plan de travail","Électroménager"]},
+    {nom:"Douche vapeur", rubriques:["Description"]},
+    {nom:"Sauna", rubriques:["Description"]},
+    {nom:"Hammam", rubriques:["Description"]},
+    {nom:"Meubles", rubriques:["Description"]},
+    {nom:"Canapé", rubriques:["Description"]}
+  ],
+  biens:["Villa","Appartement","Bureau","Magasin"],
+  parrains:[],
+  poseurs:[]
+};
 const SUIVI_TYPES = ["Appel","Message répondeur","SMS","Email","RDV showroom","Visite sur place","Autre"];
 
+/* ---------- État ---------- */
+let P = structuredClone(DEFAULT_PARAMS);
+let paramsExist = false;
 let clients = [];
-let selId = null;
+let selId = null;           // id de fiche, ou "__params"
 let query = "";
 let editingEntry = null;
-let unsub = null;
+let openStep = null;
+let suiviFilter = "all";
+let unsub = null, unsubP = null;
 let me = null;
+
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
-const col = () => collection(db, COLLECTION);
+const slug = s => (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "x";
+const rubKey = (t,r) => slug(t)+"__"+slug(r);
+const ref = id => doc(db, COLLECTION, id);
+const current = () => clients.find(x=>x.id===selId);
 
-/* ---------- Dates ---------- */
+/* ---------- Chemins dans l'objet ---------- */
+function getP(o, path){ return path.split(".").reduce((a,k)=>a==null?undefined:a[k], o); }
+function setP(o, path, v){
+  const ks=path.split("."); let a=o;
+  ks.slice(0,-1).forEach((k,i)=>{ if(a[k]==null || typeof a[k]!=="object") a[k] = /^\d+$/.test(ks[i+1]) ? [] : {}; a=a[k]; });
+  a[ks[ks.length-1]] = v;
+}
+
+/* ---------- Dates et montants ---------- */
 const pad = n => String(n).padStart(2,"0");
 function nowLocal(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 const today = () => nowLocal().slice(0,10);
 function fmtDT(v){ if(!v) return ""; const [d,t]=v.split("T"); const [y,m,j]=d.split("-"); return t ? `${j}/${m}/${y} à ${t.replace(":","h")}` : `${j}/${m}/${y}`; }
 function fmtD(v){ if(!v) return ""; const [y,m,j]=v.slice(0,10).split("-"); return `${j}/${m}/${y}`; }
+const eur = n => (n==null||isNaN(n)) ? "–" : new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR"}).format(n);
+const num = v => (v===""||v==null||isNaN(+v)) ? null : +v;
 
-/* ---------- Données ---------- */
+/* ---------- Modèle de fiche ---------- */
+const STEP_IDS = ["s1","s2","s3","s4","s5","s6","s7","s8","s9"];
+function stepDefs(){
+  return [
+    {id:"s1", t:"Découverte", s:"Budget, plan, choix"},
+    {id:"s2", t:"Présentation du devis"},
+    {id:"s3", t:"Visite technique"},
+    {id:"s4", t:"Validation du projet", s:`Acompte ${P.pctAcompte} %`, pay:"pctAcompte"},
+    {id:"s5", t:"Commande fournisseurs"},
+    {id:"s6", t:"Vérification des AR", s:"Accusés de réception"},
+    {id:"s7", t:"Réception"},
+    {id:"s8", t:"Livraison", s:`Règlement ${P.pctLivraison} %`, pay:"pctLivraison"},
+    {id:"s9", t:"Installation", s:`Règlement final ${P.pctSolde} %`, pay:"pctSolde"}
+  ];
+}
+const blankAddr = () => ({pays:"FR", dep:"83", cp:"", ville:"", adresse:""});
 function blankClient(){
   const now=new Date().toISOString();
-  return {id:uid(), contact:"", telephone:"", email:"", parrain:"", typeProjet:"Cuisine", localisation:"",
-    typeBien:"", notes:"", etapes:STEPS.map(()=>({done:false,date:""})), suivis:[],
+  const steps={}; STEP_IDS.forEach(s=>steps[s]={done:false,date:""});
+  return {id:uid(),
+    c1:{civ:"Madame",nom:"",prenom:"",tel:"",mail:""},
+    c2:{civ:"Monsieur",nom:"",prenom:"",tel:"",mail:""},
+    types:[], typeBien:"", install:blankAddr(), factDiff:false, fact:blankAddr(),
+    entreprise:false, raisonSociale:"", siret:"", tvaIntra:"",
+    parrain:"", commissionPct:null, baseMaterielHT:null, tva:P.tvaDefaut, notes:"",
+    steps, commandes:[], suivis:[],
     createdAt:now, updatedAt:now, createdBy:me?.email||"", updatedBy:me?.email||""};
 }
 function normalize(c){
-  c.etapes = STEPS.map((_,i)=>({done:!!c.etapes?.[i]?.done, date:c.etapes?.[i]?.date || ""}));
-  c.suivis = Array.isArray(c.suivis) ? c.suivis : [];
-  for(const k of ["contact","telephone","email","parrain","typeProjet","localisation","typeBien","notes"]) c[k] = c[k] ?? "";
+  const b=blankClient();
+  // reprise des fiches de la version 1
+  if(Array.isArray(c.etapes)){
+    c.steps = c.steps || {};
+    c.etapes.forEach((e,i)=>{ c.steps[STEP_IDS[i]] = {...(c.steps[STEP_IDS[i]]||{}), done:!!e.done, date:e.date||""}; });
+    delete c.etapes;
+  }
+  if(c.contact!==undefined && !c.c1){ c.c1={...b.c1, nom:c.contact||"", tel:c.telephone||"", mail:c.email||""}; }
+  if(c.typeProjet && !c.types){ c.types=[c.typeProjet]; }
+  if(c.localisation && !c.install){ c.install={...b.install, ville:c.localisation}; }
+  for(const k of Object.keys(b)) if(c[k]===undefined) c[k]=b[k];
+  c.c1={...b.c1,...c.c1}; c.c2={...b.c2,...c.c2};
+  c.install={...b.install,...c.install}; c.fact={...b.fact,...c.fact};
+  STEP_IDS.forEach(s=>{ c.steps[s]={done:false,date:"",...(c.steps[s]||{})}; });
+  c.types=Array.isArray(c.types)?c.types:[]; c.commandes=Array.isArray(c.commandes)?c.commandes:[]; c.suivis=Array.isArray(c.suivis)?c.suivis:[];
+  c.suivis.forEach(s=>{ if(!s.etape) s.etape="g"; });
   return c;
 }
-const stamp = () => ({updatedAt:new Date().toISOString(), updatedBy:me?.email||""});
-const ref = id => doc(db, COLLECTION, id);
 
-async function safe(p, msg="Enregistrement impossible : vérifiez votre connexion."){
-  try{ await p; flashSaved(); }catch(e){ console.error(e); toast(e?.code==="permission-denied" ? "Accès refusé par Firebase : vérifiez les règles Firestore." : msg); }
+/* ---------- Calculs ---------- */
+const civAbbr = v => v==="Monsieur" ? "M." : "Mme";
+function contactLabel(k){ return k==="both" ? "Les deux" : ""; }
+function personne(p){ return [civAbbr(p.civ), p.prenom, p.nom].filter(Boolean).join(" "); }
+function nomFiche(c){
+  const ps=[c.c1,c.c2].filter(p=>p.nom||p.prenom);
+  if(!ps.length) return "";
+  if(ps.length===2 && ps[0].nom && ps[0].nom.toLowerCase()===ps[1].nom.toLowerCase())
+    return `${civAbbr(ps[0].civ)} et ${civAbbr(ps[1].civ)} ${ps[0].nom}`;
+  return ps.map(personne).join(" & ");
 }
-const createClient = c => { const {id,...body}=c; return safe(setDoc(ref(id), body)); };
+const currentStep = c => STEP_IDS.findIndex(s=>!c.steps[s].done);
+const montantFinal = c => num(c.steps.s4.montant) ?? num(c.steps.s2.montant) ?? 0;
+function reglements(c){
+  const m=montantFinal(c);
+  const a=m*P.pctAcompte/100, l=m*P.pctLivraison/100, s=m*P.pctSolde/100;
+  const recu=(c.steps.s4.done?a:0)+(c.steps.s8.done?l:0)+(c.steps.s9.done?s:0);
+  return {m,a,l,s,recu,reste:Math.max(0,m-recu)};
+}
+function commission(c){
+  const pct=num(c.commissionPct); if(!c.parrain || pct==null) return null;
+  const base = num(c.baseMaterielHT) ?? (montantFinal(c)/(1+(num(c.tva)||0)/100));
+  return {pct, base, montant: base*pct/100};
+}
+const lastSuivi = c => [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date))[0];
+function contactName(c,k){ if(k==="c1") return personne(c.c1); if(k==="c2") return personne(c.c2); if(k==="both") return nomFiche(c); return ""; }
+
+/* ---------- Enregistrement ---------- */
+const stamp = () => ({updatedAt:new Date().toISOString(), updatedBy:me?.email||""});
+async function safe(p, msg="Enregistrement impossible : vérifiez votre connexion."){
+  try{ await p; flashSaved(); return true; }
+  catch(e){ console.error(e); toast(e?.code==="permission-denied" ? "Accès refusé par Firebase : vérifiez les règles." : msg); return false; }
+}
+const createClient = c => { const {id,...body}=c; return safe(setDoc(ref(id), JSON.parse(JSON.stringify(body)))); };
 const updateFields = (id, fields) => safe(updateDoc(ref(id), {...fields, ...stamp()}));
 
-const pendingFields = new Map();  // saisie en cours, envoyée après une courte pause
+const pendingFields = new Map();
 let saveTimer = null;
-function updateSoon(id, f, v){
-  pendingFields.set(f, v);
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(flushPending, 600);
+function queue(c, path, v){
+  if(path.startsWith("commandes.")) pendingFields.set("commandes", JSON.parse(JSON.stringify(c.commandes)));
+  else if(path==="types") pendingFields.set("types", [...c.types]);
+  else pendingFields.set(path, v===undefined?null:v);
+  clearTimeout(saveTimer); saveTimer=setTimeout(flushPending, 600);
 }
 function flushPending(){
   clearTimeout(saveTimer); saveTimer=null;
-  if(!pendingFields.size || !selId) return;
-  const fields = Object.fromEntries(pendingFields); pendingFields.clear();
+  if(!pendingFields.size || !selId || selId==="__params") { pendingFields.clear(); return; }
+  const fields=Object.fromEntries(pendingFields); pendingFields.clear();
   updateFields(selId, fields);
 }
-
 function flashSaved(){ const el=$("#saved"); if(el){ el.textContent="Enregistré"; clearTimeout(el._t); el._t=setTimeout(()=>el.textContent="",1600);} }
-function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),3000); }
+function toast(msg, ms=3000){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),ms); }
 
-/* ---------- Calculs ---------- */
-const currentStep = c => c.etapes.findIndex(e=>!e.done);
-const paidPct = c => STEPS.reduce((s,st,i)=>s+(st.pay && c.etapes[i].done ? st.pay : 0),0);
-const lastSuivi = c => [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date))[0];
-const current = () => clients.find(x=>x.id===selId);
+/* Paramètres */
+let paramsTimer=null;
+function saveParams(now=false){
+  clearTimeout(paramsTimer);
+  const go=()=>safe(setDoc(doc(db,PARAMS_COL,"config"), JSON.parse(JSON.stringify({...P, updatedAt:new Date().toISOString(), updatedBy:me?.email||""}))));
+  if(now) return go();
+  paramsTimer=setTimeout(go,700);
+}
+
+/* ---------- Communes (API Géo, gouvernement) ---------- */
+const geoCache = {};
+function loadCommunes(dep){
+  if(!dep || !DEPS.some(d=>d[0]===dep)) return Promise.resolve([]);
+  if(!geoCache[dep]){
+    geoCache[dep] = fetch(`https://geo.api.gouv.fr/departements/${dep}/communes?fields=nom,codesPostaux&format=json`)
+      .then(r=>r.ok?r.json():[]).catch(()=>[]);
+  }
+  return geoCache[dep];
+}
+async function fillGeo(block){
+  const c=current(); if(!c) return;
+  const a=c[block]; if(a.pays!=="FR") return;
+  const list=await loadCommunes(a.dep);
+  const dlCp=document.getElementById(`dl-cp-${block}`), dlV=document.getElementById(`dl-ville-${block}`);
+  if(!dlCp||!dlV) return;
+  const cps=[...new Set(list.flatMap(x=>x.codesPostaux||[]))].sort();
+  dlCp.innerHTML=cps.map(v=>`<option value="${v}">`).join("");
+  const cp=(c[block].cp||"").trim();
+  const villes = cp.length===5 ? list.filter(x=>(x.codesPostaux||[]).includes(cp)) : list;
+  dlV.innerHTML=[...new Set(villes.map(x=>x.nom))].sort((a,b)=>a.localeCompare(b,"fr")).map(v=>`<option value="${esc(v)}">`).join("");
+  const hint=document.getElementById(`geo-hint-${block}`);
+  if(hint) hint.textContent = list.length ? "" : "Liste des communes indisponible : saisie libre.";
+  if(cp.length===5 && villes.length===1 && !c[block].ville){
+    c[block].ville=villes[0].nom; queue(c, `${block}.ville`, villes[0].nom);
+    const inp=document.getElementById(`f-${block}-ville`); if(inp) inp.value=villes[0].nom;
+  }
+}
+
+/* ---------- Documents (Firebase Storage) ---------- */
+async function compress(file){
+  if(!file.type.startsWith("image/") || file.size < 1.5e6) return file;
+  try{
+    const bmp=await createImageBitmap(file);
+    const s=Math.min(1, 2000/Math.max(bmp.width,bmp.height));
+    const cv=document.createElement("canvas"); cv.width=Math.round(bmp.width*s); cv.height=Math.round(bmp.height*s);
+    cv.getContext("2d").drawImage(bmp,0,0,cv.width,cv.height);
+    const blob=await new Promise(r=>cv.toBlob(r,"image/jpeg",.85));
+    return blob ? new File([blob], file.name.replace(/\.\w+$/,"")+".jpg", {type:"image/jpeg"}) : file;
+  }catch(e){ return file; }
+}
+async function uploadDocs(c, path, files){
+  if(!files?.length) return;
+  for(const f0 of files){
+    if(!/^image\/|application\/pdf/.test(f0.type)){ toast(`« ${f0.name} » : seuls les PDF et les photos sont acceptés.`); continue; }
+    const f=await compress(f0);
+    if(f.size > 15*1024*1024){ toast(`« ${f0.name} » dépasse 15 Mo.`); continue; }
+    toast(`Envoi de « ${f.name} »…`, 20000);
+    const spath=`${COLLECTION}/${c.id}/${Date.now()}-${slug(f.name.replace(/\.\w+$/,""))}.${(f.name.split(".").pop()||"bin").toLowerCase()}`;
+    try{
+      await uploadBytes(sref(storage, spath), f, {contentType:f.type});
+      const url=await getDownloadURL(sref(storage, spath));
+      const meta={name:f.name, path:spath, url, type:f.type, size:f.size, at:new Date().toISOString(), by:me?.email||""};
+      const list=getP(c,path)||[]; list.push(meta); setP(c,path,list);
+      if(path.startsWith("commandes.")){ flushPending(); await updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))}); }
+      else await updateFields(c.id,{[path]:arrayUnion(meta)});
+      toast(`« ${f.name} » archivé`);
+      rerenderKeep();
+    }catch(e){
+      console.error(e);
+      toast(e?.code==="storage/unauthorized" ? "Envoi refusé : vérifiez les règles Storage." :
+            /storage\/(unknown|bucket-not-found|project-not-found)/.test(e?.code||"") ? "Firebase Storage n’est pas activé sur le projet." : "Envoi impossible.", 5000);
+    }
+  }
+}
+async function removeDoc(c, path, idx){
+  const list=getP(c,path)||[]; const d=list[idx]; if(!d) return;
+  if(!confirm(`Supprimer « ${d.name} » ?`)) return;
+  try{ await deleteObject(sref(storage,d.path)); }catch(e){ if(e?.code!=="storage/object-not-found"){ toast("Suppression du fichier impossible."); return; } }
+  list.splice(idx,1);
+  if(path.startsWith("commandes.")) await updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))});
+  else await updateFields(c.id,{[path]:arrayRemove(d)});
+  rerenderKeep();
+}
+
+/* ---------- Petits composants ---------- */
+function val(c,p){ const v=getP(c,p); return v==null?"":v; }
+function fi(c,p,label,o={}){
+  const id="f-"+p.replace(/\./g,"-");
+  return `<div class="field ${o.cls||""}"><label for="${id}">${label}</label>
+    <input id="${id}" data-p="${p}" ${o.kind?`data-kind="${o.kind}"`:""} type="${o.type||"text"}" value="${esc(val(c,p))}"
+      ${o.list?`list="${o.list}"`:""} ${o.ph?`placeholder="${esc(o.ph)}"`:""} ${o.attrs||""}>
+    ${o.hint?`<div class="hint">${o.hint}</div>`:""}${o.bad?`<div class="bad">${o.bad}</div>`:""}</div>`;
+}
+function ta(c,p,label,ph=""){
+  const id="f-"+p.replace(/\./g,"-");
+  return `<div class="field"><label for="${id}">${label}</label><textarea id="${id}" data-p="${p}" placeholder="${esc(ph)}">${esc(val(c,p))}</textarea></div>`;
+}
+function sel(c,p,label,opts,o={}){
+  const id="f-"+p.replace(/\./g,"-"), v=String(val(c,p));
+  return `<div class="field ${o.cls||""}"><label for="${id}">${label}</label>
+    <select id="${id}" data-p="${p}" ${o.kind?`data-kind="${o.kind}"`:""}>
+      ${o.empty!==false?`<option value="">${o.empty||"—"}</option>`:""}
+      ${opts.map(([ov,ol])=>`<option value="${esc(ov)}" ${String(ov)===v?"selected":""}>${esc(ol)}</option>`).join("")}
+      ${o.add?`<option value="__add">+ Ajouter…</option>`:""}
+    </select></div>`;
+}
+function seg(c,p,label,opts=["Oui","Non"]){
+  const v=val(c,p);
+  return `<div class="field"><label>${label}</label><div class="seg" role="group" aria-label="${esc(label)}">
+    ${opts.map(o=>`<button type="button" data-set="${p}" data-v="${esc(o)}" aria-pressed="${v===o}">${esc(o)}</button>`).join("")}</div></div>`;
+}
+function contactSel(c,p,label="Nom du contact"){
+  const o=[]; if(c.c1.nom||c.c1.prenom) o.push(["c1",personne(c.c1)]); if(c.c2.nom||c.c2.prenom) o.push(["c2",personne(c.c2)]);
+  if(o.length===2) o.push(["both","Les deux"]);
+  return sel(c,p,label,o,{empty:o.length?"Choisir…":"Renseignez les coordonnées"});
+}
+function docs(c,p,label){
+  const list=getP(c,p)||[];
+  return `<div class="field docs"><label>${label}</label>
+    ${list.length?`<div class="docs-list">${list.map((d,i)=>`<div class="doc">
+      ${d.type?.startsWith("image/")?`<img src="${esc(d.url)}" alt="">`:`<span class="ico">PDF</span>`}
+      <a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)}">${esc(d.name)}</a>
+      <button type="button" data-deldoc="${p}" data-i="${i}" aria-label="Supprimer ${esc(d.name)}">✕</button></div>`).join("")}</div>`:""}
+    <div class="up-btns">
+      <label class="btn small">📷 Photo<input type="file" accept="image/*" capture="environment" data-up="${p}"></label>
+      <label class="btn small">📄 PDF ou image<input type="file" accept="application/pdf,image/*" multiple data-up="${p}"></label>
+    </div></div>`;
+}
+const isTel = v => !v || /^\+?[0-9 ().\-]{6,22}$/.test(v.trim());
+const isMail = v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+function fmtSiret(v){ const d=(v||"").replace(/\D/g,"").slice(0,14); return [d.slice(0,3),d.slice(3,6),d.slice(6,9),d.slice(9)].filter(Boolean).join(" "); }
+function fmtTva(v){ const s=(v||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,13); return s.length>2 ? s.slice(0,2)+" "+s.slice(2) : s; }
+function tvaFromSiret(siret){
+  const siren=(siret||"").replace(/\D/g,"").slice(0,9); if(siren.length!==9) return "";
+  const key=(12 + 3*(Number(siren)%97))%97; return `FR ${pad(key)}${siren}`;
+}
 
 /* ---------- Liste ---------- */
 function renderList(){
-  const q = query.trim().toLowerCase();
-  const items = clients
-    .filter(c=>!q || [c.contact,c.telephone,c.parrain,c.localisation,c.typeProjet].join(" ").toLowerCase().includes(q))
+  const q=query.trim().toLowerCase();
+  const items=clients
+    .filter(c=>!q || [nomFiche(c),c.c1.tel,c.c2.tel,c.c1.mail,c.c2.mail,c.parrain,c.install.ville,c.install.cp,c.types.join(" "),c.raisonSociale].join(" ").toLowerCase().includes(q))
     .sort((a,b)=>String(lastSuivi(b)?.date||b.updatedAt).localeCompare(String(lastSuivi(a)?.date||a.updatedAt)));
   $("#count").textContent = clients.length ? `${clients.length} fiche${clients.length>1?"s":""}` : "";
-  if(!clients.length){ $("#list").innerHTML = `<li class="empty-list">Aucune fiche pour l’instant. Créez la première avec « Nouvelle fiche ».</li>`; return; }
-  if(!items.length){ $("#list").innerHTML = `<li class="empty-list">Aucun client ne correspond à « ${esc(query)} ».</li>`; return; }
-  $("#list").innerHTML = items.map(c=>{
+  $("#paramsBtn").setAttribute("aria-current", selId==="__params");
+  if(!clients.length){ $("#list").innerHTML=`<li class="empty-list">Aucune fiche pour l’instant. Créez la première avec « Nouvelle fiche ».</li>`; return; }
+  if(!items.length){ $("#list").innerHTML=`<li class="empty-list">Aucun client ne correspond à « ${esc(query)} ».</li>`; return; }
+  const defs=stepDefs();
+  $("#list").innerHTML=items.map(c=>{
     const i=currentStep(c), ls=lastSuivi(c);
-    const step = i===-1 ? "Projet terminé" : `Étape ${i+1} : ${STEPS[i].t}`;
-    const meta = [c.typeProjet, c.localisation].filter(Boolean).join(", ");
+    const step = i===-1 ? "Projet terminé" : `Étape ${i+1} : ${defs[i].t}`;
+    const meta=[c.types.join(", "), c.install.ville].filter(Boolean).join(" – ");
     return `<li><button data-id="${c.id}" aria-current="${c.id===selId}">
-      <div class="li-name">${esc(c.contact||"Sans nom")}</div>
+      <div class="li-name">${esc(nomFiche(c)||c.raisonSociale||"Sans nom")}</div>
       ${meta?`<div class="li-meta">${esc(meta)}</div>`:""}
       <div class="li-step">${step}${ls?`, dernier contact ${fmtD(ls.date)}`:""}</div>
     </button></li>`;
@@ -367,82 +712,264 @@ function renderList(){
 }
 
 /* ---------- Fiche ---------- */
-function field(key,label,c,type="text",list=""){
-  return `<div class="field"><label for="f-${key}">${label}</label>
-    <input id="f-${key}" data-f="${key}" type="${type}" value="${esc(c[key])}" ${list?`list="${list}"`:""}></div>`;
+function addrBlock(c,b){
+  const a=c[b], fr=a.pays==="FR";
+  return `<div class="grid-4">
+    ${sel(c,`${b}.pays`,"Pays",PAYS.map(([k,n])=>[k,`${k} – ${n}`]),{empty:false})}
+    ${fr?sel(c,`${b}.dep`,"Département",DEPS.map(([k,n])=>[k,`${k} – ${n}`]),{empty:"Choisir…"}):""}
+    ${fi(c,`${b}.cp`,"Code postal",{list:fr?`dl-cp-${b}`:"",attrs:fr?`inputmode="numeric" maxlength="5"`:`maxlength="12"`})}
+    ${fi(c,`${b}.ville`,"Ville",{list:fr?`dl-ville-${b}`:""})}
+    ${fi(c,`${b}.adresse`,"Adresse",{cls:"span-2",ph:"N° et rue, lieu-dit…"})}
+  </div>
+  <div class="hint" id="geo-hint-${b}" style="font-size:12px;color:var(--ink-3)"></div>
+  <datalist id="dl-cp-${b}"></datalist><datalist id="dl-ville-${b}"></datalist>`;
 }
-function renderMain(){
-  const app=$("#app"), main=$("#main");
-  const c = current();
-  app.classList.toggle("has-sel", !!c);
-  if(!c){
-    main.innerHTML = `<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`;
-    return;
+function contactRow(c,k,label){
+  const p=c[k];
+  return `<div class="contact-row">
+    ${sel(c,`${k}.civ`,label,[["Madame","Madame"],["Monsieur","Monsieur"]],{empty:false})}
+    ${fi(c,`${k}.nom`,"Nom")}
+    ${fi(c,`${k}.prenom`,"Prénom")}
+    ${fi(c,`${k}.tel`,"Téléphone",{type:"tel",ph:"06 12 34 56 78 ou +41 …",bad:isTel(p.tel)?"":"Numéro non valide"})}
+    ${fi(c,`${k}.mail`,"Email",{type:"email",ph:"nom@exemple.fr",bad:isMail(p.mail)?"":"Adresse email non valide"})}
+  </div>`;
+}
+function stepSummary(c,id){
+  const s=c.steps[id], r=reglements(c);
+  switch(id){
+    case "s1": return [s.datePrevue&&`Projet prévu le ${fmtD(s.datePrevue)}`, num(s.budget)!=null&&`budget max ${eur(num(s.budget))}`].filter(Boolean).join(", ");
+    case "s2": return [s.numero&&`Devis ${s.numero}`, num(s.montant)!=null&&eur(num(s.montant)), s.decision].filter(Boolean).join(", ");
+    case "s3": return s.rdv?`RDV le ${fmtDT(s.rdv)}`:"";
+    case "s4": return r.m?`Acompte ${eur(r.a)}${s.methode?` par ${s.methode.toLowerCase()}`:""}`:"";
+    case "s5": return c.commandes.length?`${c.commandes.length} commande${c.commandes.length>1?"s":""}`:"";
+    case "s6": { const n=c.commandes.filter(x=>x.arOk).length; return c.commandes.length?`${n}/${c.commandes.length} AR conformes`:""; }
+    case "s7": { const n=c.commandes.filter(x=>x.dateReception).length; return c.commandes.length?`${n}/${c.commandes.length} commandes reçues`:""; }
+    case "s8": return r.m?`${eur(r.l)}${s.dateLivraison?`, livraison le ${fmtD(s.dateLivraison)}`:""}`:"";
+    case "s9": return [s.poseur, r.m&&`solde ${eur(r.s)}`].filter(Boolean).join(", ");
   }
-  const cur=currentStep(c), done=c.etapes.filter(e=>e.done).length, paid=paidPct(c);
-  const lastDoneIdx = c.etapes.reduce((m,e,i)=>e.done?i:m,-1);
-  const progW = lastDoneIdx<0 ? 0 : (lastDoneIdx/(STEPS.length-1))*89;
-  const tel = c.telephone.replace(/[^\d+]/g,"");
-  const suivis = [...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
+  return "";
+}
+function stepBody(c,id){
+  const s=c.steps[id], r=reglements(c), b=`steps.${id}`;
+  switch(id){
+  case "s1": {
+    const rubs = c.types.map(t=>{
+      const def=P.types.find(x=>x.nom===t);
+      const list=(def?.rubriques?.length?def.rubriques:["Description"]);
+      return list.map(rb=>{ const k=rubKey(t,rb); return `<div class="rub"><div class="rub-t">Projet ${esc(t)}${list.length>1||rb!=="Description"?` – ${esc(rb)}`:""}</div>
+        ${ta(c,`${b}.rub.${k}.texte`,"Description")}${fi(c,`${b}.rub.${k}.comment`,"Commentaires")}</div>`; }).join("");
+    }).join("");
+    return `<div class="grid-2" style="margin-top:12px">
+        ${fi(c,`${b}.datePrevue`,"Date prévue du projet",{type:"date"})}
+        ${fi(c,`${b}.budget`,"Budget maximum (TTC)",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`})}
+      </div>
+      <h3 class="sub">Détail du projet</h3>
+      ${rubs || `<p class="journal-empty">Sélectionnez un ou plusieurs types de projet dans la partie « Projet » pour faire apparaître les zones de description.</p>`}`;
+  }
+  case "s2":
+    return `<div class="grid-2" style="margin-top:12px">
+        ${fi(c,`${b}.numero`,"N° du devis")}
+        ${fi(c,`${b}.montant`,"Montant TTC du devis (prévu)",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`})}
+        ${fi(c,`${b}.rdv`,"Date et heure du RDV",{type:"datetime-local"})}
+        ${contactSel(c,`${b}.contact`)}
+        ${seg(c,`${b}.reserveVT`,"Acceptation sous réserve de la visite technique")}
+        ${seg(c,`${b}.planValide`,"Plan provisoire validé par le client")}
+        ${seg(c,`${b}.decision`,"Décision du client",["Acceptation","Refus"])}
+        ${fi(c,`${b}.decisionDate`,"Date de la décision",{type:"date"})}
+      </div>
+      ${docs(c,`${b}.docsDevis`,"Devis (photo ou PDF)")}
+      ${docs(c,`${b}.docsScan`,"Documents scannés du dossier client")}`;
+  case "s3":
+    return `<div class="grid-2" style="margin-top:12px">
+        ${fi(c,`${b}.rdv`,"Date et heure du RDV",{type:"datetime-local"})}
+        ${contactSel(c,`${b}.contact`)}
+        ${seg(c,`${b}.planValide`,"Plan provisoire validé (technique OK)")}
+      </div>
+      <h3 class="sub">Cotes sur plan</h3>
+      <div class="grid-2">
+        ${ta(c,`${b}.meubles`,"Implantation meubles","Cotes, remarques…")}
+        ${ta(c,`${b}.plomberie`,"Implantation plomberie","Arrivées, évacuations, cotes…")}
+        ${ta(c,`${b}.electricite`,"Implantation électricité","Prises, circuits, cotes…")}
+        ${ta(c,`${b}.modifs`,"Modifications diverses")}
+      </div>
+      ${docs(c,`${b}.docsPlan`,"Plans cotés et photos du chantier")}`;
+  case "s4":
+    return `<div class="grid-2" style="margin-top:12px">
+        ${fi(c,`${b}.numero`,"N° du devis définitif",{ph:c.steps.s2.numero||""})}
+        ${fi(c,`${b}.montant`,"Montant TTC définitif",{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal"`,hint:num(c.steps.s2.montant)!=null?`Devis prévu : ${eur(num(c.steps.s2.montant))}`:""})}
+        <div class="calc"><small>Acompte de ${P.pctAcompte} % à encaisser</small><span class="money">${eur(r.a)}</span></div>
+        ${seg(c,`${b}.methode`,"Méthode de versement",["Chèque","Virement"])}
+        ${fi(c,`${b}.rdv`,"Date et heure du RDV",{type:"datetime-local"})}
+        ${fi(c,`${b}.lieu`,"Lieu du RDV",{ph:"Showroom, domicile du client…"})}
+        ${contactSel(c,`${b}.contact`)}
+      </div>
+      ${docs(c,`${b}.docsDevis`,"Devis définitif")}
+      ${docs(c,`${b}.docsPlan`,"Plan validé (technique OK)")}
+      ${docs(c,`${b}.docsAcompte`,"Devis signé et versement de l’acompte")}`;
+  case "s5":
+    return `<div class="grid-2" style="margin-top:12px">
+        <div class="field"><label for="nbCmd">Nombre de commandes</label>
+          <input id="nbCmd" type="number" min="0" max="20" value="${c.commandes.length}" data-nbcmd></div>
+      </div>
+      ${c.commandes.map((x,i)=>`<div class="cmd">
+        <div class="cmd-head">Commande ${i+1}${x.fournisseur?` – ${esc(x.fournisseur)}`:""}
+          <button class="btn ghost danger small" data-delcmd="${i}">Retirer</button></div>
+        <div class="grid-4">
+          ${fi(c,`commandes.${i}.fournisseur`,"Fournisseur")}
+          ${fi(c,`commandes.${i}.numero`,"N° de commande")}
+          ${fi(c,`commandes.${i}.dateCommande`,"Date de commande",{type:"date"})}
+          ${fi(c,`commandes.${i}.dateLivPrevue`,"Livraison prévue",{type:"date"})}
+          ${fi(c,`commandes.${i}.dateReception`,"Date de réception",{type:"date"})}
+        </div>
+        ${docs(c,`commandes.${i}.docs`,"Bon de commande")}
+      </div>`).join("")}
+      <button class="btn small" data-addcmd>+ Ajouter une commande</button>`;
+  case "s6":
+    if(!c.commandes.length) return `<p class="journal-empty">Ajoutez d’abord les commandes à l’étape 5.</p>`;
+    return c.commandes.map((x,i)=>`<div class="cmd" style="margin-top:12px">
+        <div class="cmd-head">Commande ${i+1}${x.fournisseur?` – ${esc(x.fournisseur)}`:""}${x.numero?` (n° ${esc(x.numero)})`:""}</div>
+        <label class="toggle"><input type="checkbox" data-p="commandes.${i}.arOk" data-kind="bool" ${x.arOk?"checked":""}> AR vérifié et conforme</label>
+        ${x.arOk?"":`${ta(c,`commandes.${i}.arModif`,"Modifications à demander au fournisseur")}
+          <button class="btn small" data-print-ar="${i}">🖨️ Imprimer la demande de modification</button>`}
+        ${docs(c,`commandes.${i}.arDocs`,"Accusé de réception")}
+      </div>`).join("");
+  case "s7":
+    return c.commandes.length ? `<div style="margin-top:12px">${c.commandes.map((x,i)=>`<div class="cmd">
+        <div class="cmd-head">Commande ${i+1}${x.fournisseur?` – ${esc(x.fournisseur)}`:""}</div>
+        <div class="grid-2">${fi(c,`commandes.${i}.dateReception`,"Date de réception",{type:"date"})}
+        <div class="field"><label>Livraison prévue</label><div style="padding:8px 0">${x.dateLivPrevue?fmtD(x.dateLivPrevue):"–"}</div></div></div>
+      </div>`).join("")}</div><p class="route-hint">Cochez l’étape quand toute la marchandise est reçue.</p>`
+      : `<p class="journal-empty" style="margin-top:12px">Cochez l’étape et indiquez la date quand la marchandise est reçue.</p>`;
+  case "s8":
+    return `<div class="grid-2" style="margin-top:12px">
+        <div class="calc"><small>Règlement de ${P.pctLivraison} % à la livraison</small><span class="money">${eur(r.l)}</span>
+          <small>Calculé sur ${eur(r.m)} TTC</small></div>
+        ${fi(c,`${b}.dateLivraison`,"Date de la livraison",{type:"date"})}
+      </div>`;
+  case "s9":
+    return `<div class="grid-2" style="margin-top:12px">
+        ${fi(c,`${b}.poseur`,"Nom du poseur",{list:"dl-poseurs"})}
+        ${fi(c,`${b}.datePose`,"Date de la pose",{type:"date"})}
+        <div class="calc"><small>Solde de ${P.pctSolde} % à l’installation</small><span class="money">${eur(r.s)}</span>
+          <small>Calculé sur ${eur(r.m)} TTC</small></div>
+      </div>
+      <datalist id="dl-poseurs">${P.poseurs.map(p=>`<option value="${esc(p)}">`).join("")}</datalist>`;
+  }
+  return "";
+}
+function renderFiche(c){
+  const defs=stepDefs(), cur=currentStep(c), r=reglements(c), com=commission(c);
+  const doneN=STEP_IDS.filter(s=>c.steps[s].done).length;
+  const lastDoneIdx=STEP_IDS.reduce((m,s,i)=>c.steps[s].done?i:m,-1);
+  const progW=lastDoneIdx<0?0:(lastDoneIdx/8)*89;
+  if(openStep===null) openStep = cur===-1 ? null : STEP_IDS[cur];
+  const tels=[c.c1,c.c2].filter(p=>p.tel).map(p=>`<a href="tel:${esc(p.tel.replace(/[^\d+]/g,""))}">${esc(p.tel)}</a>`).join(" ");
   const ed = editingEntry ? c.suivis.find(s=>s.id===editingEntry) : null;
+  const suivis=[...c.suivis].filter(s=>suiviFilter==="all"||s.etape===suiviFilter).sort((a,b)=>b.date.localeCompare(a.date));
+  const stepName = id => id==="g" ? "Général" : `Étape ${STEP_IDS.indexOf(id)+1}`;
+  const countBy = id => c.suivis.filter(s=>s.etape===id).length;
 
-  main.innerHTML = `
-  <div class="sheet">
+  return `<div class="sheet">
     <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
     <div class="top">
       <div class="top-left">
-        <input class="name-input" id="f-contact" data-f="contact" value="${esc(c.contact)}" placeholder="Nom du client" aria-label="Nom du client">
+        <h1 style="font-size:32px">${esc(nomFiche(c)||c.raisonSociale||"Nouvelle fiche")}</h1>
         <div class="quick">
-          ${tel?`<a href="tel:${esc(tel)}">${esc(c.telephone)}</a>`:""}
-          ${c.parrain?`<span>Parrain : ${esc(c.parrain)}</span>`:""}
+          ${tels}
+          ${c.types.length?`<span>${esc(c.types.join(", "))}</span>`:""}
+          ${c.install.ville?`<span>${esc(c.install.ville)}</span>`:""}
           <span class="saved" id="saved"></span>
         </div>
       </div>
       <div class="top-actions">
         <button class="btn primary" id="mailBtn">Envoyer par mail</button>
-        <button class="btn" id="exportBtn">Exporter en .md</button>
+        <button class="btn" id="exportBtn">Exporter</button>
         <button class="btn danger" id="delBtn">Supprimer</button>
       </div>
     </div>
 
     <section class="block">
-      <h2>Coordonnées et projet</h2>
-      <div class="grid">
-        ${field("telephone","Téléphone",c,"tel")}
-        ${field("email","Email",c,"email")}
-        ${field("parrain","Parrain",c)}
-        ${field("typeProjet","Type de projet",c,"text","projets")}
-        ${field("localisation","Localisation",c)}
-        ${field("typeBien","Type de bien",c,"text","biens")}
+      <h2>Coordonnées</h2>
+      ${contactRow(c,"c1","Contact 1")}
+      ${contactRow(c,"c2","Contact 2")}
+    </section>
+
+    <section class="block">
+      <h2>Projet</h2>
+      <div class="field"><label>Type(s) de projet</label>
+        <div class="chips">${P.types.map(t=>`<button type="button" class="chip" data-type="${esc(t.nom)}" aria-pressed="${c.types.includes(t.nom)}">${esc(t.nom)}</button>`).join("")}
+          ${c.types.filter(t=>!P.types.some(x=>x.nom===t)).map(t=>`<button type="button" class="chip" data-type="${esc(t)}" aria-pressed="true">${esc(t)}</button>`).join("")}
+          <button type="button" class="chip chip-add" data-addtype>+ Ajouter un type</button></div></div>
+      <h3 class="sub">Localisation de l’installation</h3>
+      ${addrBlock(c,"install")}
+      <h3 class="sub">Bien et conditions</h3>
+      <div class="grid-4">
+        ${sel(c,"typeBien","Type de bien",[...new Set([...P.biens, c.typeBien].filter(Boolean))].map(v=>[v,v]),{add:true})}
+        ${sel(c,"tva","Taux de TVA applicable",P.tvaRates.map(v=>[v,`${String(v).replace(".",",")} %`]),{kind:"num",empty:false})}
+        ${sel(c,"parrain","Parrain",[...new Set([...P.parrains.map(p=>p.nom), c.parrain].filter(Boolean))].map(v=>[v,v]),{add:true,empty:"Aucun"})}
+        ${c.parrain?fi(c,"commissionPct","Commission parrain (%)",{type:"number",kind:"num",attrs:`step="0.1" min="0" max="100"`}):""}
       </div>
+      ${c.parrain?`<div class="grid-4" style="margin-top:12px">
+        ${fi(c,"baseMaterielHT","Montant matériel HT (base commission)",{type:"number",kind:"num",cls:"span-2",attrs:`step="0.01" min="0"`,hint:"Vide : calcul sur le montant HT du devis"})}
+        <div class="calc span-2"><small>Commission due à ${esc(c.parrain)}</small><span class="money">${com?eur(com.montant):"–"}</span>
+          ${com?`<small>${String(com.pct).replace(".",",")} % de ${eur(com.base)} HT</small>`:""}</div></div>`:""}
       <div class="field" style="margin-top:14px"><label for="f-notes">Notes</label>
-        <textarea id="f-notes" data-f="notes" placeholder="Budget, contraintes, choix de façades…">${esc(c.notes)}</textarea></div>
-      <datalist id="projets"><option>Cuisine</option><option>Salle de bain</option><option>Électroménager</option><option>Dressing</option><option>Rangement</option></datalist>
-      <datalist id="biens"><option>Appartement</option><option>Maison</option><option>Local commercial</option></datalist>
+        <textarea id="f-notes" data-p="notes" placeholder="Informations générales…">${esc(c.notes)}</textarea></div>
+    </section>
+
+    <section class="block">
+      <h2>Facturation</h2>
+      <label class="toggle"><input type="checkbox" data-p="factDiff" data-kind="bool" ${c.factDiff?"checked":""}> Adresse de facturation différente de l’installation</label>
+      ${c.factDiff?addrBlock(c,"fact"):""}
+      <label class="toggle" style="margin-top:12px"><input type="checkbox" data-p="entreprise" data-kind="bool" ${c.entreprise?"checked":""}> Le client est une entreprise</label>
+      ${c.entreprise?`<div class="grid-4">
+        ${fi(c,"raisonSociale","Raison sociale",{cls:"span-2"})}
+        ${fi(c,"siret","N° de SIRET",{ph:"123 456 789 00012",attrs:`inputmode="numeric" data-fmt="siret"`,bad:c.siret&&c.siret.replace(/\D/g,"").length!==14?"14 chiffres attendus":""})}
+        ${fi(c,"tvaIntra","N° de TVA intracommunautaire",{ph:"FR 12345678901",attrs:`data-fmt="tva"`,
+          hint:!c.tvaIntra&&tvaFromSiret(c.siret)?`<button type="button" class="linkbtn" style="margin:0" data-tvasug>Proposer ${tvaFromSiret(c.siret)}</button>`:""})}
+      </div>`:""}
     </section>
 
     <section class="block">
       <div class="route-head">
         <h2>Étapes du projet</h2>
-        <div class="paid">Encaissé <strong>${paid} %</strong></div>
+        <div class="paid">Encaissé <strong>${eur(r.recu)}</strong>${r.m?` sur ${eur(r.m)}`:""}</div>
       </div>
       <div class="paybar" aria-hidden="true">
-        ${STEPS.map((s,i)=>s.pay?`<span class="${c.etapes[i].done?"on":""}" style="width:${s.pay}%;${i!==8?"border-right:2px solid var(--surface)":""}"></span>`:"").join("")}
+        <span class="${c.steps.s4.done?"on":""}" style="width:${P.pctAcompte}%;border-right:2px solid var(--surface)"></span>
+        <span class="${c.steps.s8.done?"on":""}" style="width:${P.pctLivraison}%;border-right:2px solid var(--surface)"></span>
+        <span class="${c.steps.s9.done?"on":""}" style="width:${P.pctSolde}%"></span>
       </div>
       <ol class="route">
         <li class="progress" aria-hidden="true" style="width:${progW}%"></li>
-        ${STEPS.map((s,i)=>{
-          const e=c.etapes[i];
-          const cls=["stop", s.pay?"pay":"", e.done?"done":"", i===cur?"current":""].join(" ");
-          return `<li class="${cls}"><button data-step="${i}" aria-pressed="${e.done}" aria-label="Étape ${i+1}, ${esc(s.t)}${e.done?", faite le "+fmtD(e.date):""}">
-            <span class="dot">${e.done?"✓":i+1}</span>
-            <span class="stop-txt"><span class="stop-t">${esc(s.t)}</span>
-            ${s.s?`<span class="stop-s">${esc(s.s)}</span>`:""}
-            ${e.done&&e.date?`<span class="stop-d">${fmtD(e.date)}</span>`:""}</span>
-          </button></li>`;
-        }).join("")}
+        ${defs.map((d,i)=>{ const st=c.steps[d.id];
+          const cls=["stop",d.pay?"pay":"",st.done?"done":"",i===cur?"current":""].join(" ");
+          return `<li class="${cls}"><button data-goto="${d.id}" aria-label="Étape ${i+1}, ${esc(d.t)}${st.done?", faite le "+fmtD(st.date):""}">
+            <span class="dot">${st.done?"✓":i+1}</span>
+            <span class="stop-txt"><span class="stop-t">${esc(d.t)}</span>
+            ${d.s?`<span class="stop-s">${esc(d.s)}</span>`:""}
+            ${st.done&&st.date?`<span class="stop-d">${fmtD(st.date)}</span>`:""}</span></button></li>`; }).join("")}
       </ol>
-      <p class="route-hint">${cur===-1?"Toutes les étapes sont faites.":`${done} étape${done>1?"s":""} sur 9. Cliquez sur une étape pour la cocher ou la décocher.`}</p>
+      <p class="route-hint">${cur===-1?"Toutes les étapes sont faites.":`${doneN} étape${doneN>1?"s":""} sur 9. Cliquez sur une étape pour l’ouvrir.`}</p>
+
+      <div class="steps-acc">
+        ${defs.map((d,i)=>{ const st=c.steps[d.id], open=openStep===d.id, sum=stepSummary(c,d.id);
+          return `<div class="st ${st.done?"done":""}" id="st-${d.id}" data-open="${open}">
+            <div class="st-head">
+              <span class="num">${st.done?"✓":i+1}</span>
+              <button class="st-open" data-open-step="${d.id}" aria-expanded="${open}">
+                <div class="st-title">${esc(d.t)}${d.s?` <span style="font-weight:400;color:var(--ink-3)">(${esc(d.s)})</span>`:""}</div>
+                ${sum?`<div class="st-sum">${esc(sum)}</div>`:""}
+              </button>
+              <span class="st-done">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-done="${d.id}" ${st.done?"checked":""}> Réalisé</label>
+                ${st.done?`<input type="date" data-p="steps.${d.id}.date" value="${esc(st.date)}" aria-label="Date de réalisation">`:""}
+              </span>
+              <span class="chev" aria-hidden="true">›</span>
+            </div>
+            ${open?`<div class="st-body">${stepBody(c,d.id)}</div>`:""}
+          </div>`; }).join("")}
+      </div>
     </section>
 
     <section class="block">
@@ -451,7 +978,8 @@ function renderMain(){
         <div class="field"><label for="s-date">Date et heure</label><input id="s-date" type="datetime-local" value="${ed?ed.date:nowLocal()}"></div>
         <div class="field"><label for="s-type">Type de contact</label>
           <select id="s-type">${SUIVI_TYPES.map(t=>`<option ${ed&&ed.type===t?"selected":""}>${t}</option>`).join("")}</select></div>
-        <div></div>
+        <div class="field"><label for="s-etape">Étape concernée</label>
+          <select id="s-etape"><option value="g">Général</option>${defs.map((d,i)=>`<option value="${d.id}" ${(ed?ed.etape===d.id:(cur>=0&&STEP_IDS[cur]===d.id))?"selected":""}>${i+1}. ${esc(d.t)}</option>`).join("")}</select></div>
         <div class="field note-wrap"><label for="s-note">Compte rendu</label>
           <textarea id="s-note" placeholder="Ce qui a été dit, la prochaine action…">${esc(ed?ed.note:"")}</textarea></div>
         <div class="add-actions">
@@ -459,151 +987,366 @@ function renderMain(){
           <button class="btn primary" id="addEntry">${ed?"Enregistrer la modification":"Ajouter au suivi"}</button>
         </div>
       </div>
-      ${suivis.length ? `<ol class="journal">${suivis.map(s=>`
-        <li class="entry">
+      <div class="filters" role="group" aria-label="Filtrer le suivi par étape">
+        <button class="chip" data-filter="all" aria-pressed="${suiviFilter==="all"}">Tout (${c.suivis.length})</button>
+        ${countBy("g")?`<button class="chip" data-filter="g" aria-pressed="${suiviFilter==="g"}">Général (${countBy("g")})</button>`:""}
+        ${STEP_IDS.filter(id=>countBy(id)).map(id=>`<button class="chip" data-filter="${id}" aria-pressed="${suiviFilter===id}">${stepName(id)} (${countBy(id)})</button>`).join("")}
+      </div>
+      ${suivis.length?`<ol class="journal">${suivis.map(s=>`<li class="entry">
           <div class="entry-head">
             <span class="entry-date">${fmtDT(s.date)}</span>
             <span class="tag">${esc(s.type)}</span>
+            <span class="tag">${stepName(s.etape)}</span>
             ${s.by?`<span class="tag">${esc(s.by.split("@")[0])}</span>`:""}
             <span class="entry-actions">
               <button class="btn ghost" data-edit="${s.id}">Modifier</button>
               <button class="btn ghost danger" data-del="${s.id}">Supprimer</button>
             </span>
           </div>
-          ${s.note?`<div class="entry-note">${esc(s.note)}</div>`:""}
-        </li>`).join("")}</ol>`
-      : `<p class="journal-empty">Aucun contact noté. Ajoutez le premier ci-dessus.</p>`}
+          ${s.note?`<div class="entry-note">${esc(s.note)}</div>`:""}</li>`).join("")}</ol>`
+        : `<p class="journal-empty">${c.suivis.length?"Aucun contact pour cette étape.":"Aucun contact noté. Ajoutez le premier ci-dessus."}</p>`}
     </section>
   </div>`;
+}
+
+/* ---------- Paramètres ---------- */
+function renderParams(){
+  const sum=P.pctAcompte+P.pctLivraison+P.pctSolde;
+  return `<div class="sheet">
+    <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
+    <div class="top"><div class="top-left"><h1 style="font-size:32px">Paramètres</h1>
+      <div class="quick"><span>Communs à toutes les fiches et à toute l’équipe.</span><span class="saved" id="saved"></span></div></div></div>
+
+    <section class="block"><h2>Taux de TVA</h2>
+      <div class="chips">${P.tvaRates.map((v,i)=>`<button class="chip" data-pdel="tvaRates" data-i="${i}" aria-pressed="${v===P.tvaDefaut}" title="Retirer">${String(v).replace(".",",")} %<span class="x">✕</span></button>`).join("")}
+        <button class="chip chip-add" data-padd="tvaRates">+ Ajouter un taux</button></div>
+      <div class="grid-4" style="margin-top:14px">
+        <div class="field"><label for="p-tvaDefaut">Taux par défaut des nouvelles fiches</label>
+          <select id="p-tvaDefaut" data-pp="tvaDefaut">${P.tvaRates.map(v=>`<option value="${v}" ${v===P.tvaDefaut?"selected":""}>${String(v).replace(".",",")} %</option>`).join("")}</select></div>
+      </div>
+    </section>
+
+    <section class="block"><h2>Règlements</h2>
+      <div class="pct-row">
+        <div class="field"><label for="p-a">Acompte à la validation (%)</label><input id="p-a" type="number" min="0" max="100" step="1" data-pp="pctAcompte" value="${P.pctAcompte}"></div>
+        <div class="field"><label for="p-l">À la livraison (%)</label><input id="p-l" type="number" min="0" max="100" step="1" data-pp="pctLivraison" value="${P.pctLivraison}"></div>
+        <div class="field"><label for="p-s">Solde à l’installation (%)</label><input id="p-s" type="number" min="0" max="100" step="1" data-pp="pctSolde" value="${P.pctSolde}"></div>
+      </div>
+      ${sum!==100?`<div class="sum-warn">Le total fait ${sum} % au lieu de 100 %.</div>`:""}
+    </section>
+
+    <section class="block"><h2>Types de projet</h2>
+      <p class="route-hint" style="margin:0 0 12px">Les rubriques, séparées par des virgules, créent les zones de description à l’étape « Découverte ».</p>
+      ${P.types.map((t,i)=>`<div class="prow">
+        <input value="${esc(t.nom)}" data-ptype="${i}" data-k="nom" aria-label="Nom du type">
+        <input value="${esc(t.rubriques.join(", "))}" data-ptype="${i}" data-k="rubriques" aria-label="Rubriques de ${esc(t.nom)}">
+        <button class="btn ghost danger small" data-pdel="types" data-i="${i}">Retirer</button></div>`).join("")}
+      <button class="btn small" data-padd="types">+ Ajouter un type de projet</button>
+    </section>
+
+    <section class="block"><h2>Types de bien</h2>
+      <div class="chips">${P.biens.map((v,i)=>`<button class="chip" data-pdel="biens" data-i="${i}" title="Retirer">${esc(v)}<span class="x">✕</span></button>`).join("")}
+        <button class="chip chip-add" data-padd="biens">+ Ajouter</button></div>
+    </section>
+
+    <section class="block"><h2>Parrains</h2>
+      ${P.parrains.length?"":`<p class="journal-empty" style="margin:0 0 10px">Aucun parrain enregistré.</p>`}
+      ${P.parrains.map((p,i)=>`<div class="prow2">
+        <input value="${esc(p.nom)}" data-pparrain="${i}" data-k="nom" aria-label="Nom du parrain">
+        <input type="number" step="0.1" min="0" max="100" value="${p.pct??""}" data-pparrain="${i}" data-k="pct" aria-label="Commission par défaut (%)" placeholder="% défaut">
+        <button class="btn ghost danger small" data-pdel="parrains" data-i="${i}">Retirer</button></div>`).join("")}
+      <button class="btn small" data-padd="parrains">+ Ajouter un parrain</button>
+    </section>
+
+    <section class="block"><h2>Poseurs</h2>
+      <div class="chips">${P.poseurs.map((v,i)=>`<button class="chip" data-pdel="poseurs" data-i="${i}" title="Retirer">${esc(v)}<span class="x">✕</span></button>`).join("")}
+        <button class="chip chip-add" data-padd="poseurs">+ Ajouter</button></div>
+    </section>
+    <p class="route-hint">Version ${VERSION}</p>
+  </div>`;
+}
+
+/* ---------- Rendu ---------- */
+function renderMain(){
+  const app=$("#app"), main=$("#main");
+  if(selId==="__params"){ app.classList.add("has-sel"); main.innerHTML=renderParams(); return; }
+  const c=current();
+  app.classList.toggle("has-sel", !!c);
+  if(!c){ main.innerHTML=`<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`; return; }
+  main.innerHTML=renderFiche(c);
+  fillGeo("install"); if(c.factDiff) fillGeo("fact");
 }
 function rerenderKeep(){
   const a=document.activeElement, id=a?.id, pos=a?.selectionStart, top=$("#main").scrollTop;
   renderMain(); $("#main").scrollTop=top;
   if(id){ const el=document.getElementById(id); if(el){ el.focus({preventScroll:true}); try{ if(pos!=null) el.setSelectionRange(pos,pos);}catch(_){} } }
 }
+function select(id){ flushPending(); selId=id; editingEntry=null; openStep=null; suiviFilter="all"; renderList(); renderMain(); $("#main").scrollTop=0; }
 
-/* ---------- Événements ---------- */
-$("#list").addEventListener("click", e=>{
-  const b=e.target.closest("button[data-id]"); if(!b) return;
-  flushPending();
-  selId=b.dataset.id; editingEntry=null; renderList(); renderMain(); $("#main").scrollTop=0;
-});
+/* ---------- Événements : liste ---------- */
+$("#list").addEventListener("click", e=>{ const b=e.target.closest("button[data-id]"); if(b) select(b.dataset.id); });
 $("#search").addEventListener("input", e=>{ query=e.target.value; renderList(); });
+$("#paramsBtn").addEventListener("click", ()=>select("__params"));
 $("#newBtn").addEventListener("click", ()=>{
   flushPending();
-  const c=blankClient(); clients.push(c); selId=c.id; editingEntry=null;
-  createClient(c); renderList(); renderMain();
-  setTimeout(()=>$("#f-contact")?.focus(),0);
+  const c=blankClient(); clients.push(c); createClient(c);
+  select(c.id); openStep="s1"; renderMain();
+  setTimeout(()=>$("#f-c1-nom")?.focus(),0);
 });
 
+/* ---------- Événements : saisie ---------- */
+function readVal(el){
+  if(el.dataset.kind==="bool") return el.checked;
+  if(el.dataset.kind==="num") return num(el.value);
+  return el.value;
+}
 $("#main").addEventListener("input", e=>{
-  const f=e.target.dataset?.f; if(!f) return;
+  const el=e.target;
+  if(selId==="__params"){ paramInput(el); return; }
   const c=current(); if(!c) return;
-  c[f]=e.target.value; updateSoon(c.id, f, e.target.value); renderList();
+  if(el.dataset.fmt==="siret"){ const p=el.selectionStart, before=el.value.length; el.value=fmtSiret(el.value); try{ el.setSelectionRange(p+(el.value.length-before),p+(el.value.length-before)); }catch(_){} }
+  if(el.dataset.fmt==="tva"){ el.value=fmtTva(el.value); }
+  const p=el.dataset.p; if(!p || el.tagName==="SELECT") return;
+  if(el.type==="checkbox") return;
+  const v=readVal(el); setP(c,p,v); queue(c,p,v);
+  if(/\.cp$/.test(p)){ const blk=p.split(".")[0]; fillGeo(blk); }
+  if(/^c[12]\./.test(p)) renderList();
 });
-$("#main").addEventListener("change", e=>{ if(e.target.dataset?.f){ flushPending(); rerenderKeep(); } });
-
-$("#main").addEventListener("click", async e=>{
+$("#main").addEventListener("change", e=>{
+  const el=e.target;
+  if(selId==="__params"){ paramChange(el); return; }
   const c=current(); if(!c) return;
+  if(el.dataset.up){ uploadDocs(c, el.dataset.up, [...el.files]); el.value=""; return; }
+  if(el.dataset.nbcmd!==undefined){ setCmdCount(c, Math.max(0,Math.min(20,parseInt(el.value)||0))); return; }
+  if(el.dataset.done){
+    const s=c.steps[el.dataset.done]; s.done=el.checked; s.date=el.checked?(s.date||today()):"";
+    flushPending(); updateFields(c.id,{[`steps.${el.dataset.done}.done`]:s.done,[`steps.${el.dataset.done}.date`]:s.date});
+    rerenderKeep(); renderList(); return;
+  }
+  const p=el.dataset.p; if(!p) return;
+  if(el.tagName==="SELECT" && el.value==="__add"){ addFromSelect(c,p,el); return; }
+  const v=readVal(el); setP(c,p,v);
+  if(p==="parrain"){
+    const def=P.parrains.find(x=>x.nom===v);
+    if(def && def.pct!=null){ c.commissionPct=def.pct; queue(c,"commissionPct",def.pct); }
+    if(!v){ c.commissionPct=null; queue(c,"commissionPct",null); }
+  }
+  if(/\.(pays|dep)$/.test(p)){
+    const blk=p.split(".")[0];
+    if(p.endsWith("pays")){ c[blk].dep = v==="FR" ? "83" : ""; queue(c,`${blk}.dep`,c[blk].dep); }
+    c[blk].cp=""; c[blk].ville=""; queue(c,`${blk}.cp`,""); queue(c,`${blk}.ville`,"");
+  }
+  queue(c,p,v); flushPending();
+  rerenderKeep(); renderList();
+});
+function addFromSelect(c,p,el){
+  const label = p==="typeBien" ? "Nouveau type de bien :" : "Nom du parrain :";
+  const v=(prompt(label)||"").trim();
+  if(!v){ el.value=getP(c,p)||""; return; }
+  if(p==="typeBien"){ if(!P.biens.includes(v)) P.biens.push(v); }
+  else { if(!P.parrains.some(x=>x.nom===v)){ const pct=num((prompt(`Commission par défaut de ${v} (%) :`, "")||"").replace(",", ".")); P.parrains.push({nom:v,pct}); } }
+  saveParams(true);
+  setP(c,p,v); queue(c,p,v);
+  if(p==="parrain"){ const def=P.parrains.find(x=>x.nom===v); if(def?.pct!=null){ c.commissionPct=def.pct; queue(c,"commissionPct",def.pct); } }
+  flushPending(); rerenderKeep();
+}
+function setCmdCount(c,n){
+  const cur=c.commandes.length;
+  if(n<cur){
+    const lost=c.commandes.slice(n).some(x=>x.fournisseur||x.numero||x.docs?.length||x.arDocs?.length);
+    if(lost && !confirm(`Retirer ${cur-n} commande(s) déjà renseignée(s) ?`)){ rerenderKeep(); return; }
+    c.commandes=c.commandes.slice(0,n);
+  } else { for(let i=cur;i<n;i++) c.commandes.push({id:uid(),fournisseur:"",numero:"",dateCommande:"",dateLivPrevue:"",dateReception:"",docs:[],arOk:false,arModif:"",arDocs:[]}); }
+  flushPending(); updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))}); rerenderKeep();
+}
+
+/* ---------- Événements : clics ---------- */
+$("#main").addEventListener("click", async e=>{
   const t=e.target;
-  if(t.closest("#backBtn")){ flushPending(); selId=null; editingEntry=null; renderList(); renderMain(); return; }
+  if(t.closest("#backBtn")){ select(null); return; }
+  if(selId==="__params"){ paramClick(t); return; }
+  const c=current(); if(!c) return;
+
   if(t.closest("#delBtn")){
-    if(confirm(`Supprimer la fiche de ${c.contact||"ce client"} et tout son suivi ?`)){
-      const id=c.id; pendingFields.clear(); selId=null; clients=clients.filter(x=>x.id!==id);
-      renderList(); renderMain();
-      try{ await deleteDoc(ref(id)); toast("Fiche supprimée"); }catch(err){ toast("Suppression impossible."); }
+    if(confirm(`Supprimer la fiche de ${nomFiche(c)||"ce client"} et tout son suivi ?`)){
+      try{ await deleteDoc(ref(c.id)); const id=c.id; pendingFields.clear(); clients=clients.filter(x=>x.id!==id); select(null); toast("Fiche supprimée"); }
+      catch(err){ toast(err?.code==="permission-denied"?"Seul un administrateur peut supprimer une fiche.":"Suppression impossible."); }
     }
     return;
   }
-  if(t.closest("#exportBtn")){ exportMd(c); return; }
+  if(t.closest("#exportBtn")){ exportTxt(c); return; }
   if(t.closest("#mailBtn")){ flushPending(); openMail(c); return; }
-  const stepBtn=t.closest("button[data-step]");
-  if(stepBtn){
-    const i=+stepBtn.dataset.step, st=c.etapes[i];
-    st.done=!st.done; st.date=st.done?today():"";
-    updateFields(c.id, {etapes:c.etapes});
-    const top=$("#main").scrollTop; renderMain(); $("#main").scrollTop=top; renderList();
-    document.querySelector(`button[data-step="${i}"]`)?.focus({preventScroll:true});
-    return;
+
+  const g=t.closest("[data-goto]");
+  if(g){ openStep=g.dataset.goto; renderMain(); document.getElementById("st-"+openStep)?.scrollIntoView({behavior:"smooth",block:"start"}); return; }
+  const os=t.closest("[data-open-step]");
+  if(os){ openStep = openStep===os.dataset.openStep ? "" : os.dataset.openStep; rerenderKeep(); return; }
+
+  const ty=t.closest("[data-type]");
+  if(ty){ const v=ty.dataset.type; c.types = c.types.includes(v) ? c.types.filter(x=>x!==v) : [...c.types, v]; queue(c,"types"); flushPending(); rerenderKeep(); renderList(); return; }
+  if(t.closest("[data-addtype]")){
+    const v=(prompt("Nouveau type de projet :")||"").trim(); if(!v) return;
+    if(!P.types.some(x=>x.nom===v)){ P.types.push({nom:v,rubriques:["Description"]}); saveParams(true); }
+    if(!c.types.includes(v)){ c.types.push(v); queue(c,"types"); flushPending(); }
+    rerenderKeep(); return;
   }
+  const sg=t.closest("[data-set]");
+  if(sg){ const p=sg.dataset.set, cur=getP(c,p), v= cur===sg.dataset.v ? "" : sg.dataset.v; setP(c,p,v); queue(c,p,v); flushPending(); rerenderKeep(); return; }
+  if(t.closest("[data-tvasug]")){ c.tvaIntra=tvaFromSiret(c.siret); queue(c,"tvaIntra",c.tvaIntra); flushPending(); rerenderKeep(); return; }
+  const dd=t.closest("[data-deldoc]");
+  if(dd){ removeDoc(c, dd.dataset.deldoc, +dd.dataset.i); return; }
+  if(t.closest("[data-addcmd]")){ setCmdCount(c, c.commandes.length+1); return; }
+  const dc=t.closest("[data-delcmd]");
+  if(dc){ const i=+dc.dataset.delcmd; const x=c.commandes[i];
+    if((x.fournisseur||x.docs?.length) && !confirm("Retirer cette commande ?")) return;
+    c.commandes.splice(i,1); flushPending(); updateFields(c.id,{commandes:JSON.parse(JSON.stringify(c.commandes))}); rerenderKeep(); return; }
+  const pa=t.closest("[data-print-ar]");
+  if(pa){ flushPending(); printAR(c, +pa.dataset.printAr); return; }
+
+  const fl=t.closest("[data-filter]");
+  if(fl){ suiviFilter=fl.dataset.filter; rerenderKeep(); return; }
   if(t.closest("#addEntry")){
-    const date=$("#s-date").value||nowLocal(), type=$("#s-type").value, note=$("#s-note").value.trim();
+    const date=$("#s-date").value||nowLocal(), type=$("#s-type").value, etape=$("#s-etape").value, note=$("#s-note").value.trim();
+    flushPending();
     if(editingEntry){
-      const s=c.suivis.find(x=>x.id===editingEntry);
-      if(s){ s.date=date; s.type=type; s.note=note; }
-      editingEntry=null;
-      updateFields(c.id, {suivis:c.suivis}); toast("Contact modifié");
+      const s=c.suivis.find(x=>x.id===editingEntry); if(s){ Object.assign(s,{date,type,etape,note}); }
+      editingEntry=null; updateFields(c.id,{suivis:c.suivis}); toast("Contact modifié");
     } else {
-      const entry={id:uid(), date, type, note, by:me?.email||""};
-      c.suivis.push(entry);
-      updateFields(c.id, {suivis:arrayUnion(entry)}); toast("Contact ajouté au suivi");
+      const entry={id:uid(),date,type,etape,note,by:me?.email||""};
+      c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)}); toast("Contact ajouté au suivi");
     }
-    const top=$("#main").scrollTop; renderMain(); $("#main").scrollTop=top; renderList();
-    return;
+    rerenderKeep(); renderList(); return;
   }
   if(t.closest("#cancelEdit")){ editingEntry=null; rerenderKeep(); return; }
-  const edBtn=t.closest("button[data-edit]");
-  if(edBtn){ editingEntry=edBtn.dataset.edit; renderMain(); $("#addForm").scrollIntoView({block:"center"}); $("#s-note").focus(); return; }
-  const delBtn=t.closest("button[data-del]");
-  if(delBtn && confirm("Supprimer ce contact du suivi ?")){
-    const entry=c.suivis.find(s=>s.id===delBtn.dataset.del);
-    c.suivis=c.suivis.filter(s=>s.id!==delBtn.dataset.del);
-    if(editingEntry===delBtn.dataset.del) editingEntry=null;
-    if(entry) updateFields(c.id, {suivis:arrayRemove(entry)});
+  const eb=t.closest("button[data-edit]");
+  if(eb){ editingEntry=eb.dataset.edit; renderMain(); $("#addForm").scrollIntoView({block:"center"}); $("#s-note").focus(); return; }
+  const db_=t.closest("button[data-del]");
+  if(db_ && confirm("Supprimer ce contact du suivi ?")){
+    const entry=c.suivis.find(s=>s.id===db_.dataset.del);
+    c.suivis=c.suivis.filter(s=>s.id!==db_.dataset.del);
+    if(editingEntry===db_.dataset.del) editingEntry=null;
+    if(entry) updateFields(c.id,{suivis:arrayRemove(entry)});
     rerenderKeep(); renderList();
   }
 });
 
+/* ---------- Événements : paramètres ---------- */
+function paramInput(el){
+  if(el.dataset.ptype!==undefined){
+    const t=P.types[+el.dataset.ptype];
+    if(el.dataset.k==="nom") t.nom=el.value.trim();
+    else t.rubriques=el.value.split(",").map(s=>s.trim()).filter(Boolean);
+    saveParams(); return;
+  }
+  if(el.dataset.pparrain!==undefined){
+    const p=P.parrains[+el.dataset.pparrain];
+    if(el.dataset.k==="nom") p.nom=el.value.trim(); else p.pct=num(el.value);
+    saveParams(); return;
+  }
+  if(el.dataset.pp && el.type==="number"){ P[el.dataset.pp]=num(el.value)??0; saveParams(); }
+}
+function paramChange(el){
+  if(el.dataset.pp==="tvaDefaut"){ P.tvaDefaut=num(el.value); saveParams(true); rerenderKeep(); return; }
+  if(el.dataset.pp){ rerenderKeep(); }
+}
+function paramClick(t){
+  const add=t.closest("[data-padd]");
+  if(add){
+    const k=add.dataset.padd;
+    if(k==="tvaRates"){ const v=num((prompt("Nouveau taux de TVA (%) :")||"").replace(",",".")); if(v!=null && !P.tvaRates.includes(v)){ P.tvaRates.push(v); P.tvaRates.sort((a,b)=>a-b); } }
+    else if(k==="types"){ const v=(prompt("Nom du type de projet :")||"").trim(); if(v) P.types.push({nom:v,rubriques:["Description"]}); }
+    else if(k==="parrains"){ const v=(prompt("Nom du parrain :")||"").trim(); if(v) P.parrains.push({nom:v,pct:num((prompt("Commission par défaut (%) :")||"").replace(",","."))}); }
+    else { const v=(prompt(k==="biens"?"Nouveau type de bien :":"Nom du poseur :")||"").trim(); if(v && !P[k].includes(v)) P[k].push(v); }
+    saveParams(true); rerenderKeep(); return;
+  }
+  const del=t.closest("[data-pdel]");
+  if(del){
+    const k=del.dataset.pdel, i=+del.dataset.i;
+    const label = k==="types"?P.types[i].nom : k==="parrains"?P.parrains[i].nom : P[k][i];
+    if(k==="tvaRates" && P.tvaRates.length<=1){ toast("Gardez au moins un taux."); return; }
+    if(!confirm(`Retirer « ${label}${k==="tvaRates"?" %":""} » de la liste ? Les fiches existantes ne sont pas modifiées.`)) return;
+    P[k].splice(i,1);
+    if(k==="tvaRates" && !P.tvaRates.includes(P.tvaDefaut)) P.tvaDefaut=P.tvaRates[0];
+    saveParams(true); rerenderKeep();
+  }
+}
+
+/* ---------- Demande de modification d'AR ---------- */
+function printAR(c,i){
+  const x=c.commandes[i]; if(!x) return;
+  const w=window.open("","_blank"); if(!w){ toast("Autorisez les fenêtres pour imprimer."); return; }
+  const lieu=[c.install.cp,c.install.ville].filter(Boolean).join(" ");
+  w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Demande de modification – ${esc(x.fournisseur||"Fournisseur")}</title>
+  <style>body{font:14px/1.55 Arial,Helvetica,sans-serif;color:#111;max-width:720px;margin:40px auto;padding:0 24px}
+  .h{display:flex;justify-content:space-between;gap:20px;margin-bottom:40px}.h b{font-size:18px}
+  h1{font-size:18px;margin:30px 0 16px}.box{border:1px solid #999;border-radius:6px;padding:14px;white-space:pre-wrap;min-height:120px}
+  table{border-collapse:collapse;margin:10px 0}td{padding:3px 14px 3px 0;vertical-align:top}.sig{margin-top:50px;display:flex;justify-content:space-between}
+  @media print{body{margin:0 auto}}</style></head><body>
+  <div class="h"><div><b>${STLS.nom}</b><br>${esc(STLS.adresse)}<br>Tél. ${STLS.tel}<br>${STLS.mail}<br>SIRET ${STLS.siret}</div>
+  <div style="text-align:right">À l’attention de<br><b>${esc(x.fournisseur||"…")}</b><br><br>Le ${fmtD(today())}</div></div>
+  <h1>Demande de modification d’accusé de réception</h1>
+  <table><tr><td>Commande n°</td><td><b>${esc(x.numero||"…")}</b></td></tr>
+  <tr><td>Date de commande</td><td>${fmtD(x.dateCommande)||"…"}</td></tr>
+  <tr><td>Livraison prévue</td><td>${fmtD(x.dateLivPrevue)||"…"}</td></tr>
+  <tr><td>Client final</td><td>${esc(nomFiche(c)||"…")}${lieu?` – ${esc(lieu)}`:""}</td></tr></table>
+  <p>Après vérification de votre accusé de réception, nous vous demandons d’apporter les modifications suivantes :</p>
+  <div class="box">${esc(x.arModif||"")}</div>
+  <p>Merci de nous retourner un accusé de réception corrigé dans les meilleurs délais.</p>
+  <div class="sig"><div>Pour ${STLS.nom}<br><br><br>Signature</div><div>Bon pour accord fournisseur<br><br><br>Date et signature</div></div>
+  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+  const entry={id:uid(),date:nowLocal(),type:"Autre",etape:"s6",note:`Demande de modification d’AR imprimée pour ${x.fournisseur||"le fournisseur"}${x.numero?` (commande ${x.numero})`:""}.`,by:me?.email||""};
+  c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)});
+}
+
 /* ---------- Textes : mail et export ---------- */
+function addrText(a){ return [a.adresse, [a.cp,a.ville].filter(Boolean).join(" "), a.pays&&a.pays!=="FR"?(PAYS.find(p=>p[0]===a.pays)?.[1]||a.pays):""].filter(Boolean).join(", "); }
 function toText(c, what="full"){
-  const L=[];
-  L.push(`FICHE CLIENT – ${c.contact||"Sans nom"}`,"");
+  const L=[], r=reglements(c), defs=stepDefs(), com=commission(c);
+  L.push(`FICHE CLIENT – ${nomFiche(c)||c.raisonSociale||"Sans nom"}`,"");
   if(what!=="suivi"){
     L.push("COORDONNÉES");
-    L.push(`Contact : ${c.contact}`);
-    if(c.telephone) L.push(`Téléphone : ${c.telephone}`);
-    if(c.email) L.push(`Email : ${c.email}`);
-    if(c.parrain && what==="full") L.push(`Parrain : ${c.parrain}`);
+    [c.c1,c.c2].filter(p=>p.nom||p.prenom).forEach(p=>L.push(`${personne(p)}${p.tel?` – ${p.tel}`:""}${p.mail?` – ${p.mail}`:""}`));
+    if(c.entreprise){ L.push(`Entreprise : ${c.raisonSociale||""}${c.siret?` – SIRET ${c.siret}`:""}${c.tvaIntra?` – TVA ${c.tvaIntra}`:""}`); }
     L.push("","PROJET");
-    if(c.typeProjet) L.push(`Type de projet : ${c.typeProjet}`);
-    if(c.localisation) L.push(`Localisation : ${c.localisation}`);
+    if(c.types.length) L.push(`Type(s) : ${c.types.join(", ")}`);
+    if(addrText(c.install)) L.push(`Installation : ${addrText(c.install)}`);
     if(c.typeBien) L.push(`Type de bien : ${c.typeBien}`);
-    if(c.notes && what==="full") L.push(`Notes : ${c.notes}`);
+    L.push(`TVA applicable : ${String(c.tva).replace(".",",")} %`);
+    if(c.factDiff && addrText(c.fact)) L.push(`Facturation : ${addrText(c.fact)}`);
+    if(what==="full"){
+      if(c.parrain) L.push(`Parrain : ${c.parrain}${com?` – commission ${String(com.pct).replace(".",",")} % soit ${eur(com.montant)}`:""}`);
+      if(c.notes) L.push(`Notes : ${c.notes}`);
+    }
+    const s1=c.steps.s1;
+    if(s1.datePrevue) L.push(`Date prévue du projet : ${fmtD(s1.datePrevue)}`);
+    if(num(s1.budget)!=null) L.push(`Budget maximum : ${eur(num(s1.budget))} TTC`);
+    c.types.forEach(t=>{ const def=P.types.find(x=>x.nom===t); (def?.rubriques||["Description"]).forEach(rb=>{
+      const v=s1.rub?.[rubKey(t,rb)]; if(v?.texte||v?.comment) L.push(`– ${t} ${rb==="Description"?"":rb} : ${[v.texte,v.comment].filter(Boolean).join(" / ")}`.replace(/\s+:/," :")); }); });
     L.push("","ÉTAPES DU PROJET");
-    STEPS.forEach((st,i)=>{ const e=c.etapes[i]; L.push(`${e.done?"[x]":"[ ]"} ${i+1}. ${st.t}${st.s?` (${st.s})`:""}${e.done&&e.date?` – fait le ${fmtD(e.date)}`:""}`); });
-    L.push(`Encaissé : ${paidPct(c)} %`,"");
+    defs.forEach((d,i)=>{ const st=c.steps[d.id], sm=stepSummary(c,d.id);
+      L.push(`${st.done?"[x]":"[ ]"} ${i+1}. ${d.t}${d.s?` (${d.s})`:""}${st.done&&st.date?` – fait le ${fmtD(st.date)}`:""}${sm?` – ${sm}`:""}`); });
+    if(r.m){ L.push(`Montant TTC : ${eur(r.m)} – encaissé : ${eur(r.recu)} – reste : ${eur(r.reste)}`); }
+    if(what==="full" && c.commandes.length){
+      L.push("","COMMANDES FOURNISSEURS");
+      c.commandes.forEach((x,i)=>L.push(`${i+1}. ${x.fournisseur||"?"}${x.numero?` n° ${x.numero}`:""}${x.dateCommande?`, commandée le ${fmtD(x.dateCommande)}`:""}${x.dateLivPrevue?`, prévue le ${fmtD(x.dateLivPrevue)}`:""}${x.dateReception?`, reçue le ${fmtD(x.dateReception)}`:""}${x.arOk?", AR conforme":""}`));
+    }
+    L.push("");
   }
   if(what!=="client"){
     L.push("SUIVI");
     const s=[...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
     if(!s.length) L.push("Aucun contact noté.");
-    s.forEach(x=>{ L.push(`– ${fmtDT(x.date)} – ${x.type}${x.by?` (${x.by.split("@")[0]})`:""}`); if(x.note) L.push(`  ${x.note.replace(/\n/g,"\n  ")}`); });
+    s.forEach(x=>{ const n=x.etape==="g"?"Général":`Étape ${STEP_IDS.indexOf(x.etape)+1}`;
+      L.push(`– ${fmtDT(x.date)} – ${x.type} – ${n}${x.by?` (${x.by.split("@")[0]})`:""}`); if(x.note) L.push(`  ${x.note.replace(/\n/g,"\n  ")}`); });
     L.push("");
   }
-  L.push("—","EURL STLS");
+  L.push("—",STLS.nom);
   return L.join("\n");
 }
-function toMd(c){
-  const L=[];
-  L.push(`# Fiche Client – ${c.contact||"Sans nom"}`,"","## 📇 Coordonnées","","| Champ | Détail |","|---|---|");
-  L.push(`| **Contact** | ${c.contact} |`,`| **Téléphone** | ${c.telephone} |`);
-  if(c.email) L.push(`| **Email** | ${c.email} |`);
-  L.push(`| **Parrain** | ${c.parrain} |`,"","## 🏠 Projet","");
-  L.push(`- **Type de projet** : ${c.typeProjet}`,`- **Localisation** : ${c.localisation}`,`- **Type de bien** : ${c.typeBien}`);
-  if(c.notes) L.push("",`**Notes** : ${c.notes}`);
-  L.push("","## 📞 Suivi","");
-  const s=[...c.suivis].sort((a,b)=>b.date.localeCompare(a.date));
-  if(!s.length) L.push("- Aucun contact noté");
-  s.forEach(x=>L.push(`- **${fmtDT(x.date)}** – ${x.type}${x.note?` : ${x.note.replace(/\n/g," ")}`:""}`));
-  L.push("","---","","## 🔢 Étapes du projet","");
-  STEPS.forEach((st,i)=>{ const e=c.etapes[i]; L.push(`${i+1}. [${e.done?"x":" "}] **${st.t}**${st.s?` — ${st.s}`:""}${e.done&&e.date?` (fait le ${fmtD(e.date)})`:""}`); });
-  L.push("",`**Encaissé : ${paidPct(c)} %**`);
-  return L.join("\n");
-}
-const slug = s => (s||"client").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
-function exportMd(c){
-  const blob=new Blob([toMd(c)],{type:"text/markdown;charset=utf-8"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`fiche-client-${slug(c.contact)}.md`;
+function exportTxt(c){
+  const blob=new Blob([toText(c,"full")],{type:"text/plain;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`fiche-client-${slug(nomFiche(c)||"client")}.txt`;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 
@@ -611,17 +1354,14 @@ function exportMd(c){
 const dlg=$("#mailDlg");
 function fillMailBody(){
   const c=current(); if(!c) return;
-  const what=document.querySelector('input[name="m-what"]:checked').value;
-  $("#m-body").value=toText(c, what);
-  checkLen();
+  $("#m-body").value=toText(c, document.querySelector('input[name="m-what"]:checked').value); checkLen();
 }
 function checkLen(){ $("#m-warn").hidden = encodeURIComponent($("#m-body").value).length < 1800; }
 function openMail(c){
-  $("#m-to").value = c.email || "";
-  $("#m-subject").value = `Fiche client – ${c.contact||"Sans nom"}`;
+  $("#m-to").value=[c.c1.mail,c.c2.mail].filter(Boolean).join(", ");
+  $("#m-subject").value=`Fiche client – ${nomFiche(c)||"Sans nom"}`;
   document.querySelector('input[name="m-what"][value="full"]').checked=true;
-  fillMailBody();
-  dlg.showModal(); $("#m-to").focus();
+  fillMailBody(); dlg.showModal(); $("#m-to").focus();
 }
 document.querySelectorAll('input[name="m-what"]').forEach(r=>r.addEventListener("change", fillMailBody));
 $("#m-body").addEventListener("input", checkLen);
@@ -634,22 +1374,16 @@ $("#m-send").addEventListener("click", ()=>{
   const to=$("#m-to").value.split(/[,;]/).map(s=>s.trim()).filter(Boolean).join(",");
   const url=`mailto:${to}?subject=${encodeURIComponent($("#m-subject").value)}&body=${encodeURIComponent($("#m-body").value)}`;
   const c=current();
-  if(c){
-    const entry={id:uid(), date:nowLocal(), type:"Email", note:`Fiche envoyée par mail${to?` à ${to}`:""}.`, by:me?.email||""};
-    c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)});
-  }
-  window.location.href=url;
-  dlg.close(); rerenderKeep(); renderList();
+  if(c){ const entry={id:uid(),date:nowLocal(),type:"Email",etape:"g",note:`Fiche envoyée par mail${to?` à ${to}`:""}.`,by:me?.email||""};
+    c.suivis.push(entry); updateFields(c.id,{suivis:arrayUnion(entry)}); }
+  window.location.href=url; dlg.close(); rerenderKeep(); renderList();
 });
 
 /* ---------- Connexion ---------- */
 const errMsg = code => ({
-  "auth/invalid-credential":"Email ou mot de passe incorrect.",
-  "auth/wrong-password":"Email ou mot de passe incorrect.",
-  "auth/user-not-found":"Aucun compte avec cet email.",
-  "auth/invalid-email":"Adresse email invalide.",
-  "auth/too-many-requests":"Trop d’essais. Réessayez dans quelques minutes.",
-  "auth/network-request-failed":"Pas de connexion internet.",
+  "auth/invalid-credential":"Email ou mot de passe incorrect.","auth/wrong-password":"Email ou mot de passe incorrect.",
+  "auth/user-not-found":"Aucun compte avec cet email.","auth/invalid-email":"Adresse email invalide.",
+  "auth/too-many-requests":"Trop d’essais. Réessayez dans quelques minutes.","auth/network-request-failed":"Pas de connexion internet.",
   "auth/unauthorized-domain":"Ce site n’est pas autorisé dans Firebase (Authentication › Paramètres › Domaines autorisés)."
 }[code] || "Connexion impossible.");
 async function doLogin(){
@@ -669,32 +1403,26 @@ $("#logoutBtn").addEventListener("click", ()=>{ flushPending(); signOut(auth); }
 
 onAuthStateChanged(auth, user=>{
   me=user;
-  if(unsub){ unsub(); unsub=null; }
-  if(!user){
-    clients=[]; selId=null;
-    $("#login").hidden=false; $("#app").hidden=true;
-    setTimeout(()=>$("#lg-email").focus(),0);
-    return;
-  }
-  $("#login").hidden=true; $("#app").hidden=false;
-  $("#whoEmail").textContent=user.email;
+  if(unsub){ unsub(); unsub=null; } if(unsubP){ unsubP(); unsubP=null; }
+  if(!user){ clients=[]; selId=null; $("#login").hidden=false; $("#app").hidden=true; setTimeout(()=>$("#lg-email").focus(),0); return; }
+  $("#login").hidden=true; $("#app").hidden=false; $("#whoEmail").textContent=user.email;
   renderMain();
-  unsub = onSnapshot(col(), snap=>{
+  unsubP = onSnapshot(doc(db,PARAMS_COL,"config"), snap=>{
+    paramsExist=snap.exists();
+    P = {...structuredClone(DEFAULT_PARAMS), ...(snap.exists()?snap.data():{})};
+    const a=document.activeElement, typing=a && $("#main").contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName);
+    renderList(); if(!typing && !dlg.open) rerenderKeep();
+  }, err=>{ console.error(err); if(err.code==="permission-denied") toast("Paramètres inaccessibles : ajoutez la règle « fichesSuiviParams ».",6000); });
+  unsub = onSnapshot(collection(db,COLLECTION), snap=>{
     const a=document.activeElement;
     const typing = a && $("#main").contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName);
     const local=current();
     const keepLocal = local && (typing || saveTimer!==null);
-    clients = snap.docs.map(d=>{
-      if(keepLocal && d.id===local.id) return local;   // ne pas écraser une saisie en cours
-      return normalize({id:d.id, ...d.data()});
-    });
-    if(selId && !clients.some(c=>c.id===selId)) selId=null;
+    clients = snap.docs.map(d=> (keepLocal && d.id===local.id) ? local : normalize({id:d.id, ...d.data()}));
+    if(selId && selId!=="__params" && !clients.some(c=>c.id===selId)) selId=null;
     renderList();
     if(!typing && !dlg.open){ const top=$("#main").scrollTop; renderMain(); $("#main").scrollTop=top; }
-  }, err=>{
-    console.error(err);
-    toast(err.code==="permission-denied" ? "Accès refusé : ajoutez la règle Firestore pour « fichesSuivi »." : "Connexion aux fiches perdue. Rechargez la page.");
-  });
+  }, err=>{ console.error(err); toast(err.code==="permission-denied" ? "Accès refusé : vérifiez les règles Firestore." : "Connexion aux fiches perdue. Rechargez la page."); });
 });
 </script>
 </body>
