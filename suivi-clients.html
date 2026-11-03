@@ -358,6 +358,13 @@ h3.sub:first-child{margin-top:0}
 .prow3 select{padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);font-size:13px}
 @media (max-width:900px){ .lg{min-width:780px} }
 
+/* ---- v3.6 : transmission au dépôt ---- */
+.depot-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:13.5px}
+.depot-line .linkbtn{margin:0;font-size:12.5px}
+.depot-form{margin-top:10px;padding:12px;border:1px dashed var(--ochre);border-radius:8px;background:var(--ochre-soft)}
+.depot-form .field input,.depot-form .field select{background:var(--surface)}
+.tag-bad{background:transparent;border-color:var(--danger);color:var(--danger)}
+
 [hidden]{display:none!important}
 </style>
 </head>
@@ -445,12 +452,12 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.5";
+const VERSION = "3.6";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove, deleteField }
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove, deleteField }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sref, uploadBytes, getDownloadURL, deleteObject }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
@@ -1158,6 +1165,7 @@ function stepBody0(c,p,id){
           ${fi(c,`${pc}.${i}.dateReception`,"Date de réception",{type:"date"})}
         </div>
         ${docs(c,`${pc}.${i}.docs`,"Bon de commande")}
+        ${depotBlock(c,p,i)}
       </div>`).join("")}
       <button class="btn small" data-addcmd="${p.id}">+ Ajouter une commande</button>`;
   case "s6":
@@ -1174,6 +1182,7 @@ function stepBody0(c,p,id){
         <div class="cmd-head">Commande ${i+1}${x.fournisseur?` – ${esc(x.fournisseur)}`:""}</div>
         <div class="grid-2">${fi(c,`${pc}.${i}.dateReception`,"Date de réception",{type:"date"})}
         <div class="field"><label>Livraison prévue</label><div style="padding:8px 0">${x.dateLivPrevue?fmtD(x.dateLivPrevue):"–"}</div></div></div>
+        ${x.depot?.transmissionId?`<div class="depot-line">${depotStatusHtml(c,p,i)}</div>`:""}
       </div>`).join("")}</div><p class="route-hint">Cochez l’étape quand toute la marchandise est reçue.</p>`
       : `<p class="journal-empty" style="margin-top:12px">Cochez l’étape et indiquez la date quand la marchandise est reçue.</p>`;
   case "s8":
@@ -1674,6 +1683,19 @@ $("#main").addEventListener("click", async e=>{
 
   // projets
   if(t.closest("[data-toggle-marge]")){ showMarge=!showMarge; rerenderKeep(); return; }
+  const to=t.closest("[data-trans-open]");
+  if(to){ flushPending(); transOpen=to.dataset.transOpen; rerenderKeep(); return; }
+  if(t.closest("[data-trans-cancel]")){ transOpen=null; rerenderKeep(); return; }
+  const ts=t.closest("[data-trans-send]");
+  if(ts){ const key=ts.dataset.transSend, [pid,i]=key.split("|"); ts.disabled=true;
+    await transmettreCommande(c,c.projets[pid],+i,document.getElementById(`tr-ag-${key}`)?.value,document.getElementById(`tr-cl-${key}`)?.value.trim(),document.getElementById(`tr-rq-${key}`)?.value.trim());
+    ts.disabled=false; return; }
+  const dr=t.closest("[data-depot-refresh]");
+  if(dr){ const [pid,i]=dr.dataset.depotRefresh.split("|"); fetchDepot(c,c.projets[pid],+i); return; }
+  const dt=t.closest("[data-depot-retry]");
+  if(dt){ const [pid,i]=dt.dataset.depotRetry.split("|"), pr=c.projets[pid], x=pr.commandes[+i];
+    if(!confirm("Transmettre à nouveau cette commande au dépôt ?")) return;
+    delete x.depot; flushPending(); await updateFields(c.id,{[`projets.${pid}.commandes`]:clone(pr.commandes)}); transOpen=`${pid}|${i}`; rerenderKeep(); return; }
   const al=t.closest("[data-addline]");
   if(al){ const [pid,sid]=al.dataset.addline.split("|"), st=c.projets[pid].steps[sid];
     st.lignes=[...(st.lignes||[]),{id:uid(),designation:"",ref:"",poste:c.projets[pid].type==="Électroménager"?"elec":"mat",qte:1,pu:null,pa:null}];
@@ -1772,6 +1794,100 @@ $("#main").addEventListener("click", async e=>{
     rerenderKeep(); renderList();
   }
 });
+
+/* ---------- Transmission des commandes à Gestion Dépôt ---------- */
+// Suivi clients dépose la commande dans stls_depot/agency_XX/transmissions ; le dépôt l'intègre avec son propre code
+// (fiche contremarque + CDE en attente). On relit ensuite l'état côté dépôt pour l'afficher ici.
+let agences=null, agencesErr="", transOpen=null;
+const depotCache={};
+async function loadAgences(){
+  if(agences) return agences;
+  try{ const sn=await getDoc(doc(db,"stls_depot","global")); agences=(sn.exists()&&sn.data().agenciesList)||[]; agencesErr=agences.length?"":"Aucune agence trouvée dans Gestion Dépôt."; }
+  catch(e){ console.error(e); agences=[]; agencesErr="Liste des agences inaccessible avec ce compte."; }
+  return agences;
+}
+const agenceNom = code => { const a=(agences||[]).find(x=>x.code===code); return a ? `${a.code}${a.name?` – ${a.name}`:""}` : code; };
+function paysDepot(code){ const x=PAYS.find(q=>q[0]===code); return x ? `${x[0]}-${x[1]}` : "FR-France"; }
+function contremarqueDepuisFiche(c,p){
+  const a=c.install, p1=(c.c1.nom||c.c1.prenom)?c.c1:c.c2, p2=p1===c.c1?c.c2:c.c1;
+  const k={ nom:(p1.nom||"").toUpperCase(), prenom:p1.prenom||"", tel1:p1.tel||p2.tel||"", tel2:p1.tel&&p2.tel?p2.tel:"", mail:p1.mail||p2.mail||"",
+    adresse1:a.adresse||"", adresse2:"", departement:a.pays==="FR"?(a.dep||""):"", cp:a.cp||"", ville:a.ville||"", pays:paysDepot(a.pays) };
+  if(!sansPose(p) && p.installation.prevue) k.datePose=p.installation.prevue;
+  return k;
+}
+async function transmettreCommande(c,p,i,agence,client,remarque){
+  const x=p.commandes[i]; if(!x) return;
+  if(!x.fournisseur){ toast("Indiquez d’abord le fournisseur de la commande."); return; }
+  if(!agence){ toast("Choisissez l’agence destinataire."); return; }
+  const id=uid();
+  const data={ id, statut:"nouvelle", source:"suivi-clients", createdAt:new Date().toISOString(), createdBy:me?.email||"", createdByUid:me?.uid||"",
+    ficheId:c.id, projetId:p.id, projet:projLabel(c,p), typeProjet:p.type, commandeId:x.id||"", client:client||"Ma Maison Plaisir",
+    contremarque:contremarqueDepuisFiche(c,p),
+    commande:{ fournisseur:x.fournisseur||"", numero:x.numero||"", dateCommande:x.dateCommande||"", dateLivPrevue:x.dateLivPrevue||"" },
+    installationPrevue: sansPose(p) ? "" : (p.installation.prevue||""), remarque:remarque||"" };
+  try{ await setDoc(doc(db,"stls_depot",`agency_${agence}`,"transmissions",id), clone(data)); }
+  catch(e){ console.error(e); toast(e?.code==="permission-denied" ? "Envoi refusé : ton compte n’est pas rattaché à cette agence." : "Envoi impossible : vérifiez la connexion.",5000); return; }
+  x.depot={ agence, agenceNom:agenceNom(agence), transmissionId:id, le:nowLocal(), par:me?.email||"" };
+  transOpen=null; delete depotCache[id];
+  flushPending(); await updateFields(c.id,{[`projets.${p.id}.commandes`]:clone(p.commandes)});
+  logSuivi(c,p.id,"s5",`Commande ${x.fournisseur}${x.numero?` n° ${x.numero}`:""} transmise au dépôt ${agenceNom(agence)}.`,"Autre");
+  toast("Commande transmise au dépôt"); rerenderKeep();
+}
+async function fetchDepot(c,p,i){
+  const x=p.commandes[i], t=x?.depot; if(!t?.transmissionId) return;
+  const key=t.transmissionId; depotCache[key]={...(depotCache[key]||{}), loading:true, at:Date.now()};
+  const info={at:Date.now()};
+  try{
+    const sn=await getDoc(doc(db,"stls_depot",`agency_${t.agence}`,"transmissions",key));
+    if(!sn.exists()) info.etat="absente";
+    else{ const d=sn.data(); Object.assign(info,{etat:d.statut, labelNumber:d.labelNumber||"", receptionId:d.receptionId||"", motif:d.motifIgnore||"", integreLe:d.integreLe||""});
+      if(d.receptionId){ try{ const r=await getDoc(doc(db,"stls_depot",`agency_${t.agence}`,"receptions",d.receptionId));
+        if(r.exists()){ const rd=r.data().data||{}; info.receivedAt=rd.receivedAt||""; info.exitedAt=rd.exitedAt||""; info.deletedAt=r.data().deletedAt||rd.deletedAt||""; } }catch(e){} } }
+  }catch(e){ info.etat="erreur"; info.err=e?.code==="permission-denied"?"accès refusé (agence)":"lecture impossible"; }
+  depotCache[key]=info;
+  // la date de réception remonte du dépôt si elle n'a pas été saisie ici
+  if(info.receivedAt && !x.dateReception){ x.dateReception=String(info.receivedAt).slice(0,10); updateFields(c.id,{[`projets.${p.id}.commandes`]:clone(p.commandes)}); }
+  if(!fieldFocused() && !dlg.open) rerenderKeep();
+}
+function depotStatusHtml(c,p,i){
+  const x=p.commandes[i], t=x.depot, st=depotCache[t.transmissionId];
+  if(!st || (!st.loading && Date.now()-st.at>60000)) setTimeout(()=>fetchDepot(c,p,i),0);
+  let etat="Lecture de l’état au dépôt…", cls="";
+  if(st && !st.loading){
+    if(st.etat==="nouvelle"){ etat="En attente d’intégration par le dépôt"; cls="tag-warn"; }
+    else if(st.etat==="ignoree"){ etat=`Ignorée par le dépôt${st.motif?` : ${st.motif}`:""}`; cls="tag-bad"; }
+    else if(st.etat==="integree"){
+      if(st.deletedAt){ etat=`CDE ${st.labelNumber} supprimée au dépôt`; cls="tag-bad"; }
+      else if(st.exitedAt){ etat=`CDE ${st.labelNumber} sortie du dépôt le ${fmtD(st.exitedAt)}`; cls="tag-ok"; }
+      else if(st.receivedAt){ etat=`CDE ${st.labelNumber} reçue au dépôt le ${fmtD(st.receivedAt)}`; cls="tag-ok"; }
+      else { etat=`CDE ${st.labelNumber} en attente de réception`; cls="tag-warn"; }
+    }
+    else if(st.etat==="absente"){ etat="Transmission introuvable au dépôt"; cls="tag-bad"; }
+    else if(st.etat==="erreur"){ etat=`État indisponible (${st.err})`; }
+  }
+  return `<span>📦 Transmise à l’agence ${esc(t.agenceNom||t.agence)} le ${fmtDT(t.le)}</span> <span class="tag ${cls}">${esc(etat)}</span>
+    <button type="button" class="linkbtn" data-depot-refresh="${p.id}|${i}">Actualiser</button>
+    ${st?.etat==="ignoree"||st?.etat==="absente"?`<button type="button" class="linkbtn" data-depot-retry="${p.id}|${i}">Transmettre à nouveau</button>`:""}`;
+}
+function depotBlock(c,p,i){
+  const x=p.commandes[i], key=`${p.id}|${i}`;
+  if(x.depot?.transmissionId) return `<div class="depot-line">${depotStatusHtml(c,p,i)}</div>`;
+  if(transOpen!==key) return `<div class="depot-line"><button class="btn small" data-trans-open="${key}">📦 Transmettre au dépôt</button>
+    <span class="muted">${x.fournisseur?"Crée la CDE en attente et la fiche contremarque dans Gestion Dépôt.":"Renseignez d’abord le fournisseur."}</span></div>`;
+  if(!agences){ loadAgences().then(()=>rerenderKeep()); return `<div class="depot-form muted">Chargement des agences…</div>`; }
+  const warn = !p.steps.s4.done ? `<div class="dlg-warn">Le projet n’est pas encore validé (étape 4). Transmettez quand même si la commande est passée.</div>` : "";
+  return `<div class="depot-form">${warn}
+    <div class="grid-4">
+      <div class="field"><label for="tr-ag-${key}">Agence destinataire</label>
+        <select id="tr-ag-${key}">${agences.length?`<option value="">Choisir…</option>`:""}${agences.map(a=>`<option value="${esc(a.code)}">${esc(a.code)}${a.name?` – ${esc(a.name)}`:""}</option>`).join("")}</select>
+        ${agencesErr?`<div class="bad">${esc(agencesErr)}</div>`:""}</div>
+      <div class="field"><label for="tr-cl-${key}">Client (donneur d’ordre)</label><input id="tr-cl-${key}" value="Ma Maison Plaisir"></div>
+      <div class="field span-2"><label for="tr-rq-${key}">Remarque pour le dépôt</label><input id="tr-rq-${key}" placeholder="Facultatif"></div>
+    </div>
+    <div class="muted" style="margin:6px 0">Contremarque envoyée : ${esc([contremarqueDepuisFiche(c,p).nom, contremarqueDepuisFiche(c,p).prenom].filter(Boolean).join(" ")||"(nom du client à renseigner)")}, ${esc(addrText(c.install)||"adresse à compléter")}.</div>
+    <div class="lg-actions"><button class="btn primary small" data-trans-send="${key}">Envoyer au dépôt</button><button class="btn small" data-trans-cancel>Annuler</button></div>
+  </div>`;
+}
 
 /* ---------- Rendez-vous ---------- */
 function logSuivi(c, projet, etape, note, type="Rendez-vous"){
