@@ -488,7 +488,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "3.8";
+const VERSION = "3.9";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -1822,7 +1822,7 @@ async function catLireFichier(file){
     const g=k=>map[k]?r[map[k]]:"";
     const a={ ref:String(g("ref")??"").trim(), designation:String(g("designation")??"").trim(), marque:String(g("marque")??"").trim(),
       fournisseur:String(g("fournisseur")??"").trim(), famille:String(g("famille")??"").trim(), unite:String(g("unite")??"").trim() };
-    if(!a.ref && !a.designation){ ignores++; return; }
+    if(!a.ref && !a.designation){ if(Object.values(r).some(v=>v!==""&&v!=null)) ignores++; return; }   // lignes vides de la matrice : ignorées sans les compter
     const pa=nombre(g("pa")), mg=nombre(g("marge")), pv=nombre(g("pv")), pvttc=nombre(g("pvttc"));
     if(pa!=null) a.pa=round2(pa);
     if(mg!=null) a.marge = mg<=1 && mg>0 ? round2(mg*100) : mg;
