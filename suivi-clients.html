@@ -393,6 +393,7 @@ h3.sub:first-child{margin-top:0}
 .catlist button{all:unset;box-sizing:border-box;display:flex;justify-content:space-between;gap:12px;width:100%;padding:8px 10px;border-radius:6px;cursor:pointer}
 .catlist button:hover,.catlist button:focus-visible{background:var(--surface-2);outline:none}
 .lg.wm .w-poste{width:118px}.lg.wm .w-ref{width:78px}.lg.wm .w-num{width:84px}
+.lg .w-eco{width:76px}.lg .w-eco input{text-align:right}
 .marge-devis{margin-top:10px;padding:10px 12px;border:1px dashed var(--ink-3);border-radius:8px;background:var(--surface)}
 .marge-devis .field{margin:0}
 .marge-devis .field input{width:140px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
@@ -488,7 +489,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "3.9";
+const VERSION = "4.0";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -731,23 +732,30 @@ function calcDevis(p, st){
   const r=num(p.tva)||0, rn=num(P.tvaNormal)??20, ttcMode=(st.saisie||"TTC")==="TTC";
   const rateOf=k=> k==="elec" ? rn : r;
   const conv=(a,rate)=>({ht: ttcMode ? a/(1+rate/100) : a, ttc: ttcMode ? a : a*(1+rate/100)});
-  let amounts={}, items=[], achatLignes=null;
+  // éco-participation : saisie HT par unité ; elle s'ajoute au prix de la ligne, sans marge, avec la TVA de la ligne
+  let amounts={}, items=[], achatLignes=null, ecoByK={};
   if(isLignes(p)){
     (st.lignes||[]).forEach(l=>{
       const q=num(l.qte)??1, pu=num(l.pu); if(pu==null) return;
-      const k=POSTES.some(x=>x[0]===l.poste)?l.poste:"mat", rate=rateOf(k), v=conv(q*pu,rate);
-      amounts[k]=(amounts[k]||0)+q*pu;
-      items.push({...l, k, q, pu, rate, ht:v.ht, ttc:v.ttc, total:q*pu});
+      const k=POSTES.some(x=>x[0]===l.poste)?l.poste:"mat", rate=rateOf(k);
+      const eco=num(l.eco)||0, ecoM=ttcMode ? eco*(1+rate/100) : eco, v=conv(q*(pu+ecoM),rate);
+      amounts[k]=(amounts[k]||0)+q*(pu+ecoM);
+      if(eco) ecoByK[k]=(ecoByK[k]||0)+q*eco;
+      items.push({...l, k, q, pu, rate, ht:v.ht, ttc:v.ttc, total:q*(pu+ecoM), ecoU:ecoM, ecoHT:q*eco, ecoTTC:q*eco*(1+rate/100)});
       const pa=num(l.pa); if(pa!=null && (k==="mat"||k==="elec")) achatLignes=(achatLignes||0)+q*pa;
     });
-  } else POSTES.forEach(([k])=>{ const a=num(st[k]); if(a!=null) amounts[k]=a; });
+  } else {
+    POSTES.forEach(([k])=>{ const a=num(st[k]); if(a!=null) amounts[k]=a; });
+    const e=num(st.eco); if(e) ecoByK.mat = ttcMode ? e/(1+rateOf("mat")/100) : e;   // montant global : éco-participation incluse dans la fourniture
+  }
   const lines=POSTES.map(([k,label])=>{
     const a=amounts[k], rate=rateOf(k); if(a==null) return {k,label,rate,ht:null,tva:null,ttc:null};
     const v=conv(a,rate); return {k,label,rate,ht:v.ht,tva:v.ttc-v.ht,ttc:v.ttc};
   });
   const has=lines.some(l=>l.ttc!=null), sum=k=>lines.reduce((t,l)=>t+(l[k]||0),0);
   const mat=lines.filter(l=>l.k==="mat"||l.k==="elec");
-  return {lines, items, achatLignes, lignes:isLignes(p), has, ht:sum("ht"), tva:sum("tva"), ttc:sum("ttc"),
+  const ecoHT=Object.values(ecoByK).reduce((t,x)=>t+x,0), ecoTTC=Object.entries(ecoByK).reduce((t,[k,x])=>t+x*(1+rateOf(k)/100),0);
+  return {lines, items, achatLignes, ecoByK, ecoHT, ecoTTC, lignes:isLignes(p), has, ht:sum("ht"), tva:sum("tva"), ttc:sum("ttc"),
     materielHT:mat.reduce((t,l)=>t+(l.ht||0),0), prestaTTC:(lines[2].ttc||0)+(lines[3].ttc||0),
     htOf:k=>lines.find(l=>l.k===k)?.ht||0};
 }
@@ -794,11 +802,12 @@ function commission(c,p){
 function calcMarge(c,p){
   const d=devisRetenu(p), k=p.couts||{}, n=x=>num(x)||0, com=commission(c,p);
   const rows=[
-    {k:"produits", poste:"Produits (fourniture + électroménager)", vente:d.htOf("mat")+d.htOf("elec"), cout:d.achatLignes!=null?d.achatLignes:n(k.achat)},
+    {k:"produits", poste:"Produits (fourniture + électroménager)", vente:d.htOf("mat")+d.htOf("elec")-(d.ecoByK.mat||0)-(d.ecoByK.elec||0), cout:d.achatLignes!=null?d.achatLignes:n(k.achat)},
     {k:"annexes",  poste:"Coûts annexes (transport d’approche, divers)", vente:0, cout:n(k.approche)+n(k.divers)},
-    {k:"livraison",poste:"Livraison", vente:d.htOf("livr"), cout:n(k.livraison)},
-    {k:"pose",     poste:"Installation (sous-traitance pose)", vente:d.htOf("presta"), cout:n(k.pose)}
+    {k:"livraison",poste:"Livraison", vente:d.htOf("livr")-(d.ecoByK.livr||0), cout:n(k.livraison)},
+    {k:"pose",     poste:"Installation (sous-traitance pose)", vente:d.htOf("presta")-(d.ecoByK.presta||0), cout:n(k.pose)}
   ];
+  if(d.ecoHT) rows.push({k:"eco", poste:"Éco-participation (reversée à l’identique)", vente:d.ecoHT, cout:d.ecoHT});
   if(c.parrain) rows.push({k:"commission", poste:"Commission parrain", vente:0, cout:com?com.montant:0});
   rows.forEach(r=>{ r.marge=r.vente-r.cout; r.taux=r.vente?r.marge/r.vente*100:null; });
   const vente=rows.reduce((s,r)=>s+r.vente,0), cout=rows.reduce((s,r)=>s+r.cout,0);
@@ -1140,15 +1149,16 @@ function lignesTable(c,p,sid,d){
         <td class="w-qte">${margeGlobaleOn(st)
           ? `<span class="muted" title="Marge globale du devis">${num(st.margeGlobale)!=null?pctTxt(num(st.margeGlobale)):"–"}</span>`
           : inp(i,"marge",{type:"number",kind:"num",label:"Marge en % du prix de vente",attrs:'step="0.1" max="99" inputmode="decimal"'})}</td>`:""}
-      <td class="w-num">${inp(i,"pu",{type:"number",kind:"num",label:`Prix unitaire ${mode}`,attrs:nAttr})}</td>
+      <td class="w-num">${inp(i,"pu",{type:"number",kind:"num",label:`Prix unitaire ${mode} hors éco-participation`,attrs:nAttr})}</td>
+      <td class="w-eco">${inp(i,"eco",{type:"number",kind:"num",label:"Éco-participation HT par unité",attrs:nAttr})}</td>
       <td class="w-tot">${it?eur(it.total):"–"}</td>
       <td class="w-x"><button class="btn ghost danger small" data-delline="${p.id}|${sid}|${i}" aria-label="Supprimer la ligne">✕</button></td></tr>`;
   }).join("");
   const copy = sid==="s4" && !st.lignes.length && (p.steps.s2.lignes||[]).length
     ? `<button class="btn small" data-copylines="${p.id}">Reprendre les lignes du devis prévu</button>` : "";
   return `<div class="dv-wrap"><table class="lg ${showMarge?"wm":""}">
-    <thead><tr><th>Désignation</th><th class="w-ref">Réf.</th><th class="w-poste">Poste</th><th class="w-qte">Qté</th>${showMarge?`<th class="w-num" title="Prix d’achat unitaire HT, usage interne">PA HT</th><th class="w-qte" title="Marge en % du prix de vente HT">Marge</th>`:""}<th class="w-num">PU ${mode}</th><th class="w-tot">Total ${mode}</th><th class="w-x"></th></tr></thead>
-    <tbody>${rows||`<tr><td colspan="${showMarge?9:7}" class="muted" style="padding:10px">Aucune ligne : ajoutez les produits du devis.</td></tr>`}</tbody></table></div>
+    <thead><tr><th>Désignation</th><th class="w-ref">Réf.</th><th class="w-poste">Poste</th><th class="w-qte">Qté</th>${showMarge?`<th class="w-num" title="Prix d’achat unitaire HT, usage interne">PA HT</th><th class="w-qte" title="Marge en % du prix de vente HT">Marge</th>`:""}<th class="w-num" title="Prix unitaire hors éco-participation">PU ${mode}</th><th class="w-eco" title="Éco-participation HT par unité, ajoutée sans marge">Éco HT</th><th class="w-tot">Total ${mode}</th><th class="w-x"></th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="${showMarge?10:8}" class="muted" style="padding:10px">Aucune ligne : ajoutez les produits du devis.</td></tr>`}</tbody></table></div>
     <div class="lg-actions"><button class="btn small" data-catpick="${p.id}|${sid}">🔎 Ajouter depuis le catalogue</button><button class="btn small" data-addline="${p.id}|${sid}">+ Ligne libre</button>${copy}
       <button class="btn ghost small" data-toggle-marge>${showMarge?"Masquer prix d’achat et marge":"Afficher prix d’achat et marge"}</button></div>
     ${catPick===`${p.id}|${sid}`?catPickHtml(p,sid):""}
@@ -1195,6 +1205,7 @@ function devisBlock(c,p,sid){
       ${fi(c,`${b}.elec`,`Électroménager ${mode}`,{...nf,hint:`Toujours à ${pctTxt(P.tvaNormal)}`})}
       ${fi(c,`${b}.livr`,`Livraison ${mode}`,{...nf,hint:"Prestation de livraison"})}
       ${fi(c,`${b}.presta`,`Installation (pose) ${mode}`,{...nf,hint:"Pose, montage, raccordements…"})}
+      ${fi(c,`${b}.eco`,`Dont éco-participation ${mode}`,{...nf,hint:"Déjà comprise dans la fourniture ; affichée au client, sans marge"})}
     </div>`;
   return `<div class="devis">
     <div class="devis-head">
@@ -1207,7 +1218,7 @@ function devisBlock(c,p,sid){
       <thead><tr><th>Poste</th><th>TVA</th><th>HT</th><th>Montant TVA</th><th>TTC</th></tr></thead>
       <tbody>${d.lines.filter(l=>l.ttc!=null).map(l=>`<tr><td>${l.label}</td><td>${pctTxt(l.rate)}</td><td>${eur(l.ht)}</td><td>${eur(l.tva)}</td><td>${eur(l.ttc)}</td></tr>`).join("")}</tbody>
       <tfoot><tr><td>Total</td><td></td><td>${eur(d.ht)}</td><td>${eur(d.tva)}</td><td>${eur(d.ttc)}</td></tr></tfoot>
-    </table></div>`:""}
+    </table></div>${d.ecoHT?`<div class="muted" style="margin-top:6px">dont éco-participation : ${eur(d.ecoTTC)} TTC (${eur(d.ecoHT)} HT)</div>`:""}`:""}
   </div>`;
 }
 function stepBody(c,p,id){
@@ -1711,7 +1722,7 @@ function exportCompta(){
 
 /* ---------- Catalogue produits ---------- */
 const XLSX_URL="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-const CAT_CHAMPS=["ref","designation","marque","fournisseur","famille","poste","unite","pa","marge","pv","notes"];
+const CAT_CHAMPS=["ref","designation","marque","fournisseur","famille","poste","unite","pa","marge","pv","eco","notes"];
 const tauxArticle = a => a.poste==="elec" ? (num(P.tvaNormal)??20) : (num(P.tvaDefaut)??10);
 function pvArticle(a){ const pv=num(a.pv); if(pv!=null) return pv; const pa=num(a.pa), m=num(a.marge)??num(P.margeDefaut); return (pa!=null && m!=null && m<100) ? round2(pa/(1-m/100)) : null; }
 function catFiltrés(){
@@ -1734,6 +1745,7 @@ function catFormHtml(){
       ${f("pa","Prix d’achat HT",{type:"number",attrs:'step="0.01" min="0"'})}
       ${f("marge","Marge (% du prix de vente)",{type:"number",attrs:`step="0.1" max="99" placeholder="${P.margeDefaut}"`,hint:`Vide : marge par défaut (${pctTxt(P.margeDefaut)})`})}
       ${f("pv","Prix de vente HT imposé",{type:"number",attrs:'step="0.01" min="0"',hint:"Facultatif : prix public conseillé"})}
+      ${f("eco","Éco-participation HT",{type:"number",attrs:'step="0.01" min="0"',hint:"Montant figurant sur le tarif ou la facture du fournisseur"})}
       ${f("notes","Notes",{cls:"span-2"})}
     </div>
     <datalist id="dl-fams">${fams.map(x=>`<option value="${esc(x)}">`).join("")}</datalist><datalist id="dl-fours">${fours.map(x=>`<option value="${esc(x)}">`).join("")}</datalist><datalist id="dl-marques">${marques.map(x=>`<option value="${esc(x)}">`).join("")}</datalist>
@@ -1750,8 +1762,8 @@ function catImportHtml(){
       <div class="field"><label for="ci-four">Fournisseur des lignes sans fournisseur</label><input id="ci-four" list="dl-fours" value="${esc(im.fournisseur||"")}"></div>
       <div class="field"><label for="ci-fam">Famille des lignes sans famille</label><input id="ci-fam" value="${esc(im.famille||"")}"></div>
     </div>
-    ${im.articles.length?`<div class="dv-wrap"><table class="dv"><thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Famille</th><th>PA HT</th><th>Marge</th></tr></thead>
-      <tbody>${im.articles.slice(0,8).map(a=>`<tr><td>${esc(a.ref||"")}</td><td>${esc(a.designation||"")}</td><td>${esc(a.marque||"")}</td><td>${esc(a.famille||"")}</td><td>${a.pa!=null?eur(a.pa):"–"}</td><td>${a.marge!=null?pctTxt(a.marge):"–"}</td></tr>`).join("")}</tbody></table></div>
+    ${im.articles.length?`<div class="dv-wrap"><table class="dv"><thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Famille</th><th>PA HT</th><th>Marge</th><th>Éco HT</th></tr></thead>
+      <tbody>${im.articles.slice(0,8).map(a=>`<tr><td>${esc(a.ref||"")}</td><td>${esc(a.designation||"")}</td><td>${esc(a.marque||"")}</td><td>${esc(a.famille||"")}</td><td>${a.pa!=null?eur(a.pa):"–"}</td><td>${a.marge!=null?pctTxt(a.marge):"–"}</td><td>${a.eco!=null?eur(a.eco):"–"}</td></tr>`).join("")}</tbody></table></div>
       ${im.articles.length>8?`<p class="muted">… et ${im.articles.length-8} autres.</p>`:""}`:""}
     <div class="lg-actions"><button class="btn primary small" data-catimport-ok ${im.articles.length?"":"disabled"}>Importer ${im.articles.length} référence${im.articles.length>1?"s":""}</button><button class="btn small" data-catimport-cancel>Annuler</button></div></section>`;
 }
@@ -1780,19 +1792,19 @@ function catTableHtml(list,MAX=300){
   if(!catalogue.length) return `<p class="journal-empty">Aucune référence. Ajoutez-les une par une, ou importez la liste de prix d’un fournisseur (Excel ou CSV).</p>`;
   if(!list.length) return `<p class="journal-empty">Aucune référence ne correspond.</p>`;
   return `<div class="dv-wrap"><table class="dv cat">
-    <thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Fournisseur</th><th>Famille</th><th>PA HT</th><th>Marge</th><th>PV HT</th><th>PV TTC</th></tr></thead>
+    <thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Fournisseur</th><th>Famille</th><th>PA HT</th><th>Marge</th><th>PV HT</th><th>Éco HT</th><th>PV TTC</th></tr></thead>
     <tbody>${list.slice(0,MAX).map(a=>{ const pv=pvArticle(a), m=num(a.pv)!=null&&num(a.pa)!=null ? (num(a.pv)-num(a.pa))/num(a.pv)*100 : (num(a.marge)??num(P.margeDefaut));
       return `<tr data-catedit="${esc(a.id)}" tabindex="0"><td>${esc(a.ref||"")}</td><td>${esc(a.designation||"")}</td><td>${esc(a.marque||"")}</td><td>${esc(a.fournisseur||"")}</td><td>${esc(a.famille||"")}</td>
-        <td>${a.pa!=null?eur(num(a.pa)):"–"}</td><td>${m!=null?pctM(m):"–"}${num(a.marge)==null&&num(a.pv)==null?" <span class='muted'>(défaut)</span>":""}</td><td>${pv!=null?eur(pv):"–"}</td><td>${pv!=null?eur(pv*(1+tauxArticle(a)/100)):"–"}</td></tr>`; }).join("")}</tbody></table></div>
+        <td>${a.pa!=null?eur(num(a.pa)):"–"}</td><td>${m!=null?pctM(m):"–"}${num(a.marge)==null&&num(a.pv)==null?" <span class='muted'>(défaut)</span>":""}</td><td>${pv!=null?eur(pv):"–"}</td><td>${num(a.eco)?eur(num(a.eco)):"–"}</td><td>${pv!=null?eur((pv+(num(a.eco)||0))*(1+tauxArticle(a)/100)):"–"}</td></tr>`; }).join("")}</tbody></table></div>
     ${list.length>MAX?`<p class="muted">${list.length-MAX} autres références : affinez la recherche.</p>`:""}
-    <p class="route-hint">Cliquez sur une ligne pour la modifier. PV TTC calculé à ${pctTxt(P.tvaDefaut)} (électroménager à ${pctTxt(P.tvaNormal)}).</p>`;
+    <p class="route-hint">Cliquez sur une ligne pour la modifier. PV TTC éco-participation comprise, calculé à ${pctTxt(P.tvaDefaut)} (électroménager à ${pctTxt(P.tvaNormal)}).</p>`;
 }
 function catInput(el){
   if(el.id==="catFiltre"){ catFiltre=el.value; $("#catTable").innerHTML=catTableHtml(catFiltrés()); }
 }
 async function catSave(){
   const v=k=>(document.getElementById("cf-"+k)?.value??"").trim();
-  const a={}; CAT_CHAMPS.forEach(k=>{ const x=v(k); a[k]= ["pa","marge","pv"].includes(k) ? num(x.replace(",",".")) : x; });
+  const a={}; CAT_CHAMPS.forEach(k=>{ const x=v(k); a[k]= ["pa","marge","pv","eco"].includes(k) ? num(x.replace(",",".")) : x; });
   if(!a.ref && !a.designation){ toast("Indiquez au moins une référence ou une désignation."); return; }
   if(a.marge!=null && a.marge>=100){ toast("La marge doit être inférieure à 100 %."); return; }
   let id = catEdit!=="new" ? catEdit : (a.ref ? slug(`${a.fournisseur||"x"}-${a.ref}`) : uid());
@@ -1807,7 +1819,9 @@ const CAT_COLS={ ref:["ref","reference","refarticle","referencearticle","codeart
   famille:["famille","categorie","gamme","rayon","type","sousfamille"],
   pa:["prixachat","pa","prixachatht","achat","achatht","prixnet","prixnetht","tarifnet","tarifnetht","paht","coutht","cout","prixdachat","prixdachatht"],
   marge:["marge","margepct","tauxmarge","marge%"], pv:["prixvente","pv","prixventeht","pvht","prixpublicht","prixdevente","prixdeventeht"],
-  pvttc:["prixventettc","pvttc","prixpublic","prixpublicttc","ttc"], unite:["unite","unit","u"], poste:["poste"] };
+  pvttc:["prixventettc","pvttc","prixpublic","prixpublicttc","ttc"], unite:["unite","unit","u"], poste:["poste"],
+  eco:["ecoparticipationht","ecoparticipation","ecopart","ecopartht","ecotaxe","ecotaxeht","ecocontribution","ecocontributionht","deee","deeeht","dea","deaht","eco","ecoht"],
+  ecottc:["ecoparticipationttc","ecotaxettc","ecopartttc","ecocontributionttc","deeettc","deattc"] };
 function nombre(v){ if(v==null||v==="") return null; if(typeof v==="number") return v; const n=parseFloat(String(v).replace(/[^0-9,.\-]/g,"").replace(/\s/g,"").replace(/\.(?=.*[.,])/g,"").replace(",",".")); return isNaN(n)?null:n; }
 async function catLireFichier(file){
   try{ if(!window.XLSX) await loadScript(XLSX_URL); }catch(e){ toast("Module Excel indisponible : vérifiez la connexion."); return; }
@@ -1827,8 +1841,13 @@ async function catLireFichier(file){
     if(pa!=null) a.pa=round2(pa);
     if(mg!=null) a.marge = mg<=1 && mg>0 ? round2(mg*100) : mg;
     if(pv!=null) a.pv=round2(pv); else if(pvttc!=null) a.pv=round2(pvttc/(1+(num(P.tvaNormal)??20)/100));
-    const pst=normH(g("poste")+" "+a.famille);
-    a.poste = /electro|lavevaisselle|refriger|four|plaque|hotte|frigo|congel|lavelinge|micro/.test(pst) ? "elec" : /livraison/.test(pst) ? "livr" : /pose|install/.test(pst) ? "presta" : "mat";
+    const eco=nombre(g("eco")), ecottc=nombre(g("ecottc"));
+    // poste : la colonne « Poste » fait foi ; sinon on le déduit de la famille et de la désignation
+    const pc=normH(g("poste")), txt=` ${a.famille} ${a.designation} `.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    a.poste = pc ? (/^electro/.test(pc) ? "elec" : /^livr/.test(pc) ? "livr" : /^(install|pose|presta)/.test(pc) ? "presta" : "mat")
+      : /electromenager|lave[- ]?vaisselle|lave[- ]?linge|seche[- ]?linge|refrigerateur|frigo|congelateur|cave a vin|micro[- ]?ondes|\bfour\b|\bplaques?\b|table de cuisson|\bhotte\b/.test(txt) ? "elec"
+      : /\blivraison\b/.test(txt) ? "livr" : /\b(pose|installation|montage)\b/.test(txt) ? "presta" : "mat";
+    if(eco!=null) a.eco=round2(eco); else if(ecottc!=null) a.eco=round2(ecottc/(1+tauxArticle(a)/100));
     articles.push(a);
   });
   catImport={nom:file.name, articles, colonnes, manque, ignores, fournisseur:"", famille:""};
@@ -1857,8 +1876,8 @@ async function catImporter(){
 }
 function catExport(){
   const q=v=>`"${String(v??"").replace(/"/g,'""')}"`, n=v=>v==null||v===""?"":Number(v).toFixed(2).replace(".",",");
-  const L=[["Référence","Désignation","Marque","Fournisseur","Famille","Poste","Unité","Prix d’achat HT","Marge %","Prix de vente HT","Notes"].map(q).join(";")];
-  catalogue.forEach(a=>L.push([a.ref,a.designation,a.marque,a.fournisseur,a.famille,(POSTES.find(x=>x[0]===a.poste)||[])[1]||"",a.unite].map(q).concat([n(a.pa),a.marge==null?"":String(a.marge).replace(".",","),n(pvArticle(a)),q(a.notes)]).join(";")));
+  const L=[["Référence","Désignation","Marque","Fournisseur","Famille","Poste","Unité","Prix d’achat HT","Marge %","Prix de vente HT","Éco-participation HT","Notes"].map(q).join(";")];
+  catalogue.forEach(a=>L.push([a.ref,a.designation,a.marque,a.fournisseur,a.famille,(POSTES.find(x=>x[0]===a.poste)||[])[1]||"",a.unite].map(q).concat([n(a.pa),a.marge==null?"":String(a.marge).replace(".",","),n(pvArticle(a)),n(a.eco),q(a.notes)]).join(";")));
   const blob=new Blob(["\ufeff"+L.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const el=document.createElement("a"); el.href=URL.createObjectURL(blob); el.download="catalogue-produits.csv"; document.body.appendChild(el); el.click(); el.remove();
 }
@@ -2153,7 +2172,7 @@ $("#main").addEventListener("click", async e=>{
   if(t.closest("[data-catclose]")){ catPick=null; rerenderKeep(); return; }
   const ca=t.closest("[data-catadd]");
   if(ca && catPick){ const [pid,sid]=catPick.split("|"), pr=c.projets[pid], st=pr.steps[sid], a=catalogue.find(x=>x.id===ca.dataset.catadd); if(!a) return;
-    const l={id:uid(), designation:a.designation||"", ref:a.ref||"", poste:a.poste||"mat", qte:1, pa:num(a.pa), marge:num(a.marge)??num(P.margeDefaut), pu:null, catId:a.id};
+    const l={id:uid(), designation:a.designation||"", ref:a.ref||"", poste:a.poste||"mat", qte:1, pa:num(a.pa), marge:num(a.marge)??num(P.margeDefaut), pu:null, eco:num(a.eco), catId:a.id};
     l.pu = puDepuisMarge(pr,st,l,margeLigne(st,l)) ?? (num(a.pv)!=null ? ((st.saisie||"TTC")==="TTC" ? round2(num(a.pv)*(1+rateLigne(pr,l.poste)/100)) : num(a.pv)) : null);
     st.lignes=[...(st.lignes||[]),l];
     flushPending(); updateFields(c.id,{[`projets.${pid}.steps.${sid}.lignes`]:clone(st.lignes)}); toast(`« ${l.designation} » ajouté`); rerenderKeep();
@@ -2516,13 +2535,13 @@ function devisMail(c,p){
     `Suite à notre rendez-vous${rdv?` du ${fmtD(rdv)}`:""}, vous trouverez ci-dessous ${s2.numero?`notre devis n° ${s2.numero}`:"notre devis"} pour votre projet ${(p.libelle||p.type).toLowerCase()}.`,""];
   if(d.lignes && d.items.length){
     L.push("Détail :");
-    d.items.forEach(it=>L.push(`– ${it.q} × ${it.designation||"Article"}${it.ref?` (réf. ${it.ref})`:""} : ${eur(it.ttc)} TTC`));
+    d.items.forEach(it=>L.push(`– ${it.q} × ${it.designation||"Article"}${it.ref?` (réf. ${it.ref})`:""} : ${eur(it.ttc)} TTC${it.ecoTTC?` dont éco-participation ${eur(it.ecoTTC)}`:""}`));
     L.push("");
   }
   if(d.has){
     L.push("Récapitulatif :");
     d.lines.filter(l=>l.ttc!=null).forEach(l=>L.push(`– ${l.label} : ${eur(l.ttc)} TTC (TVA ${pctTxt(l.rate)})`));
-    L.push(`Total : ${eur(d.ttc)} TTC, soit ${eur(d.ht)} HT`,"");
+    L.push(`Total : ${eur(d.ttc)} TTC, soit ${eur(d.ht)} HT${d.ecoHT?` – dont éco-participation ${eur(d.ecoTTC)} TTC`:""}`,"");
   }
   if(docsDevis.length){ L.push(docsDevis.length>1?"Documents :":"Devis :"); docsDevis.forEach(x=>L.push(`${x.name} : ${x.url}`)); L.push(""); }
   L.push("Nous restons à votre disposition pour toute question ou modification.","","Bien cordialement,","",
@@ -2643,11 +2662,12 @@ function buildPdf(c, version, pids){
       h3(`Devis ${useDef?"définitif":"prévu"}${st.numero?` n° ${st.numero}`:""}`);
       if(d.lignes && d.items.length){
         const md=st.saisie||"TTC";
-        table(["Désignation","Réf.","Qté","TVA",`PU ${md}`,"Total TTC"], d.items.map(it=>[it.designation||"Article",it.ref||"",String(it.q).replace(".",","),pctTxt(it.rate),peur(it.pu),peur(it.ttc)]),
-          {right:[2,3,4,5], cols:{0:{cellWidth:68}}});
+        table(["Désignation","Réf.","Qté","TVA",`PU ${md}`,"dont éco-part.","Total TTC"], d.items.map(it=>[it.designation||"Article",it.ref||"",String(it.q).replace(".",","),pctTxt(it.rate),peur(it.pu+it.ecoU),it.ecoU?peur(it.ecoU):"–",peur(it.ttc)]),
+          {right:[2,3,4,5,6], cols:{0:{cellWidth:58}}});
       }
       table(["Poste","TVA","HT","Montant TVA","TTC"], d.lines.filter(l=>l.ttc!=null).map(l=>[l.label,pctTxt(l.rate),peur(l.ht),peur(l.tva),peur(l.ttc)]),
         {foot:["Total","",peur(d.ht),peur(d.tva),peur(d.ttc)], right:[1,2,3,4]});
+      if(d.ecoHT) text(`Dont éco-participation : ${peur(d.ecoTTC)} TTC (${peur(d.ecoHT)} HT), reversée intégralement à l’éco-organisme.`, M, {size:8.5, color:grey});
       h3("Échéancier de règlement");
       table(["Échéance","Montant dû TTC","Reçu","Statut"], r.ech.map(e=>[e.label, peur(e.du), e.recu!=null?peur(e.recu):"–", e.recu!=null?`Réglé${e.le?` le ${fmtD(e.le)}`:""}${e.mode?` (${e.mode.toLowerCase()})`:""}`:"À venir"]),
         {foot:["Reste à régler","",peur(r.reste),""], right:[1,2]});
