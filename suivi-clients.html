@@ -489,7 +489,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "4.0";
+const VERSION = "4.1";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -557,7 +557,7 @@ const RDV_STEPS = ["s1","s2","s3","s4","s7","s8","s9"];
 const STEP_IDS = ["s1","s2","s3","s4","s5","s6","s7","s8","s9"];
 const DEVIS_MODES = ["Montant global","Lignes produits"];
 const LIGNES_PAR_DEFAUT = ["Literie","Meubles","Canapé","Électroménager"];
-const POSTES = [["mat","Fourniture"],["elec","Électroménager"],["livr","Livraison"],["presta","Installation (pose)"]];
+const POSTES = [["mat","Fourniture"],["elec","Électroménager"],["livr","Livraison"],["presta","Installation (pose)"],["taxe","Taxe"]];
 const defaultDevisMode = type => { const d=P.types.find(t=>t.nom===type)?.devis; return DEVIS_MODES.includes(d) ? d : (LIGNES_PAR_DEFAUT.includes(type) ? "Lignes produits" : "Montant global"); };
 const isLignes = p => p.devisMode==="Lignes produits";
 
@@ -808,6 +808,7 @@ function calcMarge(c,p){
     {k:"pose",     poste:"Installation (sous-traitance pose)", vente:d.htOf("presta")-(d.ecoByK.presta||0), cout:n(k.pose)}
   ];
   if(d.ecoHT) rows.push({k:"eco", poste:"Éco-participation (reversée à l’identique)", vente:d.ecoHT, cout:d.ecoHT});
+  if(d.htOf("taxe")) rows.push({k:"taxe", poste:"Taxes (reversées)", vente:d.htOf("taxe"), cout:d.htOf("taxe")});
   if(c.parrain) rows.push({k:"commission", poste:"Commission parrain", vente:0, cout:com?com.montant:0});
   rows.forEach(r=>{ r.marge=r.vente-r.cout; r.taux=r.vente?r.marge/r.vente*100:null; });
   const vente=rows.reduce((s,r)=>s+r.vente,0), cout=rows.reduce((s,r)=>s+r.cout,0);
@@ -1844,7 +1845,7 @@ async function catLireFichier(file){
     const eco=nombre(g("eco")), ecottc=nombre(g("ecottc"));
     // poste : la colonne « Poste » fait foi ; sinon on le déduit de la famille et de la désignation
     const pc=normH(g("poste")), txt=` ${a.famille} ${a.designation} `.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-    a.poste = pc ? (/^electro/.test(pc) ? "elec" : /^livr/.test(pc) ? "livr" : /^(install|pose|presta)/.test(pc) ? "presta" : "mat")
+    a.poste = pc ? (/^electro/.test(pc) ? "elec" : /^livr/.test(pc) ? "livr" : /^(install|pose|presta)/.test(pc) ? "presta" : /^tax/.test(pc) ? "taxe" : "mat")
       : /electromenager|lave[- ]?vaisselle|lave[- ]?linge|seche[- ]?linge|refrigerateur|frigo|congelateur|cave a vin|micro[- ]?ondes|\bfour\b|\bplaques?\b|table de cuisson|\bhotte\b/.test(txt) ? "elec"
       : /\blivraison\b/.test(txt) ? "livr" : /\b(pose|installation|montage)\b/.test(txt) ? "presta" : "mat";
     if(eco!=null) a.eco=round2(eco); else if(ecottc!=null) a.eco=round2(ecottc/(1+tauxArticle(a)/100));
