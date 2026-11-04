@@ -380,6 +380,24 @@ h3.sub:first-child{margin-top:0}
 .dv td .linkbtn{text-align:left}
 @media (max-width:900px){ .kpis{grid-template-columns:repeat(2,minmax(0,1fr))} }
 
+/* ---- v3.8 : catalogue et marge du devis ---- */
+.catform{border-color:var(--ochre)}
+.catform select,.cpt-bar select{padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
+.dv.cat tbody tr{cursor:pointer}
+.dv.cat tbody tr:hover td{background:var(--surface-2)}
+.dv.cat td,.dv.cat th{text-align:left}
+.dv.cat td:nth-child(n+6),.dv.cat th:nth-child(n+6){text-align:right}
+.catpick{margin:8px 0;padding:12px;border:1px solid var(--ochre);border-radius:8px;background:var(--surface)}
+.catpick input{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}
+.catlist{list-style:none;margin:8px 0 0;padding:0;max-height:320px;overflow-y:auto}
+.catlist button{all:unset;box-sizing:border-box;display:flex;justify-content:space-between;gap:12px;width:100%;padding:8px 10px;border-radius:6px;cursor:pointer}
+.catlist button:hover,.catlist button:focus-visible{background:var(--surface-2);outline:none}
+.lg.wm .w-poste{width:118px}.lg.wm .w-ref{width:78px}.lg.wm .w-num{width:84px}
+.marge-devis{margin-top:10px;padding:10px 12px;border:1px dashed var(--ink-3);border-radius:8px;background:var(--surface)}
+.marge-devis .field{margin:0}
+.marge-devis .field input{width:140px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
+b.neg{color:var(--danger)}
+
 [hidden]{display:none!important}
 </style>
 </head>
@@ -405,6 +423,7 @@ h3.sub:first-child{margin-top:0}
     </div>
     <ul class="list" id="list"></ul>
     <div class="side-foot">
+      <button class="btn ghost paramsBtn" id="catalogueBtn" aria-current="false">📦 Catalogue produits</button>
       <button class="btn ghost paramsBtn" id="comptaBtn" aria-current="false">📊 Récapitulatif comptable</button>
       <button class="btn ghost paramsBtn" id="paramsBtn" aria-current="false">⚙️ Paramètres</button>
       <div class="store-note who"><span id="whoEmail"></span><button class="btn ghost" id="logoutBtn">Déconnexion</button></div>
@@ -468,12 +487,13 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.7";
+const CATALOGUE_COL = "fichesSuiviCatalogue";
+const VERSION = "3.8";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove, deleteField }
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove, deleteField, writeBatch }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sref, uploadBytes, getDownloadURL, deleteObject }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
@@ -513,6 +533,7 @@ const DEFAULT_PARAMS = {
   tvaRates:[10,20], tvaDefaut:10, tvaNormal:20,
   pctAcompte:40, pctLivraison:50, pctSolde:10,          // projet avec installation
   pctAcompteSP:50, pctLivraisonSP:50,                     // projet sans installation
+  margeDefaut:35,                                         // marge par défaut des articles (% du prix de vente HT)
   types:[
     {nom:"Cuisine", rubriques:["Meubles","Plan de travail","Sanitaires","Électroménager"], visite:true},
     {nom:"Salle de bain", rubriques:["Meubles","Plan de travail","Sanitaires"], visite:true},
@@ -546,7 +567,9 @@ let clients = [];
 let selId = null;           // id de fiche, ou "__params"
 let selProj = null;         // id du projet affiché
 let addingProject = false;
-let showMarge = false;      // bloc « coûts et marge » affiché à l'écran
+let showMarge = false;
+let catalogue = [], unsubCat = null, catPick = null, catQuery = "";        // base articles
+let catEdit = null, catFiltre = "", catFamille = "", catImport = null;      // bloc « coûts et marge » affiché à l'écran
 let query = "";
 let editingEntry = null;
 let openStep = null;
@@ -979,6 +1002,7 @@ function renderList(){
   $("#count").textContent = clients.length ? `${clients.length} fiche${clients.length>1?"s":""}` : "";
   $("#paramsBtn").setAttribute("aria-current", selId==="__params");
   $("#comptaBtn")?.setAttribute("aria-current", selId==="__compta");
+  $("#catalogueBtn")?.setAttribute("aria-current", selId==="__catalogue");
   if(!clients.length){ $("#list").innerHTML=`<li class="empty-list">Aucune fiche pour l’instant. Créez la première avec « Nouvelle fiche ».</li>`; return; }
   if(!items.length){ $("#list").innerHTML=`<li class="empty-list">Aucun client ne correspond à « ${esc(query)} ».</li>`; return; }
   const defs=stepDefs();
@@ -1076,6 +1100,31 @@ function rdvBlock(c,p,id){
     <div class="rdv-actions"><button class="btn primary small" data-rdv-val="${key}">✓ Valider le RDV${others.length?" pour tous":""}</button></div>
   </div>${histHtml}`;
 }
+// Marge exprimée en % du prix de vente HT (comme dans le bloc « Coûts et marge »).
+function rateLigne(p,poste){ return poste==="elec" ? (num(P.tvaNormal)??20) : (num(p.tva)||0); }
+function puDepuisMarge(p,st,l,marge){
+  const pa=num(l.pa); if(pa==null || marge==null || marge>=100) return null;
+  const ht=pa/(1-marge/100); return round2((st.saisie||"TTC")==="TTC" ? ht*(1+rateLigne(p,l.poste)/100) : ht);
+}
+function margeDepuisPu(p,st,l){
+  const pa=num(l.pa), pu=num(l.pu); if(pa==null || pu==null || pu<=0) return null;
+  const ht=(st.saisie||"TTC")==="TTC" ? pu/(1+rateLigne(p,l.poste)/100) : pu;
+  return Math.round((ht-pa)/ht*1000)/10;
+}
+const margeGlobaleOn = st => st.margeMode==="globale";
+function margeLigne(st,l){ return margeGlobaleOn(st) ? num(st.margeGlobale) : num(l.marge); }
+// recalcule les prix de vente d'un devis (changement de marge globale, de TVA ou de mode TTC/HT)
+function recalcLignes(p,sid){
+  const st=p.steps[sid]; let n=0;
+  (st.lignes||[]).forEach(l=>{ const m=margeLigne(st,l), pu=puDepuisMarge(p,st,l,m); if(pu!=null && pu!==num(l.pu)){ l.pu=pu; n++; } });
+  return n;
+}
+function lignesMarge(p,st){
+  let pa=0, vente=0, n=0; const rTTC=(st.saisie||"TTC")==="TTC";
+  (st.lignes||[]).forEach(l=>{ const a=num(l.pa), pu=num(l.pu), q=num(l.qte)??1; if(a==null||pu==null) return; n++;
+    pa+=a*q; vente+=(rTTC ? pu/(1+rateLigne(p,l.poste)/100) : pu)*q; });
+  return {n, pa, vente, marge:vente-pa, taux:vente?(vente-pa)/vente*100:null};
+}
 function lignesTable(c,p,sid,d){
   const st=p.steps[sid], b=`projets.${p.id}.steps.${sid}.lignes`, mode=st.saisie||"TTC";
   const inp=(i,k,o={})=>`<input id="f-${b.replace(/\./g,"-")}-${i}-${k}" data-p="${b}.${i}.${k}" ${o.kind?`data-kind="${o.kind}"`:""} type="${o.type||"text"}" value="${esc(st.lignes[i][k]??"")}" ${o.attrs||""} aria-label="${o.label}">`;
@@ -1087,17 +1136,56 @@ function lignesTable(c,p,sid,d){
       <td class="w-ref">${inp(i,"ref",{label:"Référence"})}</td>
       <td class="w-poste"><select data-p="${b}.${i}.poste" aria-label="Poste">${POSTES.map(([k,lb])=>`<option value="${k}" ${(l.poste||"mat")===k?"selected":""}>${lb}</option>`).join("")}</select></td>
       <td class="w-qte">${inp(i,"qte",{type:"number",kind:"num",label:"Quantité",attrs:'step="1" min="0" inputmode="decimal"'})}</td>
+      ${showMarge?`<td class="w-num">${inp(i,"pa",{type:"number",kind:"num",label:"Prix d’achat unitaire HT",attrs:nAttr})}</td>
+        <td class="w-qte">${margeGlobaleOn(st)
+          ? `<span class="muted" title="Marge globale du devis">${num(st.margeGlobale)!=null?pctTxt(num(st.margeGlobale)):"–"}</span>`
+          : inp(i,"marge",{type:"number",kind:"num",label:"Marge en % du prix de vente",attrs:'step="0.1" max="99" inputmode="decimal"'})}</td>`:""}
       <td class="w-num">${inp(i,"pu",{type:"number",kind:"num",label:`Prix unitaire ${mode}`,attrs:nAttr})}</td>
-      ${showMarge?`<td class="w-num">${inp(i,"pa",{type:"number",kind:"num",label:"Prix d’achat unitaire HT",attrs:nAttr})}</td>`:""}
       <td class="w-tot">${it?eur(it.total):"–"}</td>
       <td class="w-x"><button class="btn ghost danger small" data-delline="${p.id}|${sid}|${i}" aria-label="Supprimer la ligne">✕</button></td></tr>`;
   }).join("");
   const copy = sid==="s4" && !st.lignes.length && (p.steps.s2.lignes||[]).length
     ? `<button class="btn small" data-copylines="${p.id}">Reprendre les lignes du devis prévu</button>` : "";
-  return `<div class="dv-wrap"><table class="lg">
-    <thead><tr><th>Désignation</th><th class="w-ref">Réf.</th><th class="w-poste">Poste</th><th class="w-qte">Qté</th><th class="w-num">PU ${mode}</th>${showMarge?`<th class="w-num" title="Prix d’achat unitaire HT, usage interne">PA HT</th>`:""}<th class="w-tot">Total ${mode}</th><th class="w-x"></th></tr></thead>
-    <tbody>${rows||`<tr><td colspan="${showMarge?8:7}" class="muted" style="padding:10px">Aucune ligne : ajoutez les produits du devis.</td></tr>`}</tbody></table></div>
-    <div class="lg-actions"><button class="btn small" data-addline="${p.id}|${sid}">+ Ajouter une ligne</button>${copy}</div>`;
+  return `<div class="dv-wrap"><table class="lg ${showMarge?"wm":""}">
+    <thead><tr><th>Désignation</th><th class="w-ref">Réf.</th><th class="w-poste">Poste</th><th class="w-qte">Qté</th>${showMarge?`<th class="w-num" title="Prix d’achat unitaire HT, usage interne">PA HT</th><th class="w-qte" title="Marge en % du prix de vente HT">Marge</th>`:""}<th class="w-num">PU ${mode}</th><th class="w-tot">Total ${mode}</th><th class="w-x"></th></tr></thead>
+    <tbody>${rows||`<tr><td colspan="${showMarge?9:7}" class="muted" style="padding:10px">Aucune ligne : ajoutez les produits du devis.</td></tr>`}</tbody></table></div>
+    <div class="lg-actions"><button class="btn small" data-catpick="${p.id}|${sid}">🔎 Ajouter depuis le catalogue</button><button class="btn small" data-addline="${p.id}|${sid}">+ Ligne libre</button>${copy}
+      <button class="btn ghost small" data-toggle-marge>${showMarge?"Masquer prix d’achat et marge":"Afficher prix d’achat et marge"}</button></div>
+    ${catPick===`${p.id}|${sid}`?catPickHtml(p,sid):""}
+    ${showMarge?margeDevisHtml(c,p,sid):""}`;
+}
+function margeDevisHtml(c,p,sid){
+  const st=p.steps[sid], b=`projets.${p.id}.steps.${sid}`, lm=lignesMarge(p,st);
+  return `<div class="marge-devis">
+    <div class="devis-head" style="margin-bottom:6px">
+      <div class="field"><label>Marge appliquée</label><div class="seg" role="group" aria-label="Marge appliquée">
+        <button type="button" data-set="${b}.margeMode" data-v="ligne" data-req aria-pressed="${!margeGlobaleOn(st)}">À la ligne</button>
+        <button type="button" data-set="${b}.margeMode" data-v="globale" data-req aria-pressed="${margeGlobaleOn(st)}">Globale</button></div></div>
+      ${margeGlobaleOn(st)?`<div class="field"><label for="f-${b.replace(/\./g,"-")}-margeGlobale">Marge globale (% du prix de vente HT)</label>
+        <input id="f-${b.replace(/\./g,"-")}-margeGlobale" data-p="${b}.margeGlobale" data-kind="num" type="number" step="0.1" max="99" value="${esc(st.margeGlobale??P.margeDefaut)}"></div>`:""}
+    </div>
+    ${lm.n?`<div class="muted">${lm.n} ligne${lm.n>1?"s":""} avec prix d’achat : achat ${eur(lm.pa)} HT – vente ${eur(lm.vente)} HT – <b class="${lm.marge<0?"neg":""}">marge ${eur(lm.marge)} (${pctM(lm.taux)})</b></div>`
+      :`<div class="muted">Renseignez le prix d’achat des lignes (ou ajoutez-les depuis le catalogue) pour calculer la marge.</div>`}
+  </div>`;
+}
+function catPickHtml(p,sid){
+  return `<div class="catpick">
+    <input id="catq" placeholder="Rechercher une référence, une désignation, une marque…" value="${esc(catQuery)}" autocomplete="off">
+    <div id="catres">${catResultsHtml()}</div>
+    <div class="lg-actions"><button class="btn small" data-catclose>Fermer</button></div></div>`;
+}
+function catSearch(q){
+  const t=q.trim().toLowerCase(); if(!t) return catalogue.slice(0,12);
+  const words=t.split(/\s+/);
+  return catalogue.filter(a=>{ const h=[a.ref,a.designation,a.marque,a.fournisseur,a.famille].join(" ").toLowerCase(); return words.every(w=>h.includes(w)); }).slice(0,15);
+}
+function catResultsHtml(){
+  if(!catalogue.length) return `<p class="muted" style="margin:8px 0">Le catalogue est vide : ajoutez vos références dans « 📦 Catalogue produits ».</p>`;
+  const r=catSearch(catQuery);
+  if(!r.length) return `<p class="muted" style="margin:8px 0">Aucune référence trouvée.</p>`;
+  return `<ul class="catlist">${r.map(a=>`<li><button type="button" data-catadd="${esc(a.id)}">
+    <span><b>${esc(a.designation||"(sans désignation)")}</b><br><span class="muted">${esc([a.ref,a.marque,a.fournisseur].filter(Boolean).join(" · "))}</span></span>
+    <span class="muted">${a.pa!=null?`PA ${eur(a.pa)} HT`:""}</span></button></li>`).join("")}</ul>`;
 }
 function devisBlock(c,p,sid){
   const b=`projets.${p.id}.steps.${sid}`, s=p.steps[sid], d=calcDevis(p,s), mode=s.saisie||"TTC";
@@ -1507,6 +1595,7 @@ function renderMain(){
   const app=$("#app"), main=$("#main");
   if(selId==="__params"){ app.classList.add("has-sel"); main.innerHTML=renderParams(); return; }
   if(selId==="__compta"){ app.classList.add("has-sel"); main.innerHTML=renderCompta(); return; }
+  if(selId==="__catalogue"){ app.classList.add("has-sel"); main.innerHTML=renderCatalogue(); return; }
   const c=current();
   app.classList.toggle("has-sel", !!c);
   if(!c){ main.innerHTML=`<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`; return; }
@@ -1620,6 +1709,173 @@ function exportCompta(){
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 
+/* ---------- Catalogue produits ---------- */
+const XLSX_URL="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+const CAT_CHAMPS=["ref","designation","marque","fournisseur","famille","poste","unite","pa","marge","pv","notes"];
+const tauxArticle = a => a.poste==="elec" ? (num(P.tvaNormal)??20) : (num(P.tvaDefaut)??10);
+function pvArticle(a){ const pv=num(a.pv); if(pv!=null) return pv; const pa=num(a.pa), m=num(a.marge)??num(P.margeDefaut); return (pa!=null && m!=null && m<100) ? round2(pa/(1-m/100)) : null; }
+function catFiltrés(){
+  const words=catFiltre.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return catalogue.filter(a=>(!catFamille || a.famille===catFamille) && words.every(w=>[a.ref,a.designation,a.marque,a.fournisseur,a.famille].join(" ").toLowerCase().includes(w)));
+}
+function catFormHtml(){
+  const a = catEdit==="new" ? {poste:"mat"} : (catalogue.find(x=>x.id===catEdit)||{});
+  const f=(k,l,o={})=>`<div class="field ${o.cls||""}"><label for="cf-${k}">${l}</label><input id="cf-${k}" ${o.type?`type="${o.type}"`:""} ${o.attrs||""} value="${esc(a[k]??"")}" ${o.list?`list="${o.list}"`:""}>${o.hint?`<div class="hint">${o.hint}</div>`:""}</div>`;
+  const fams=[...new Set(catalogue.map(x=>x.famille).filter(Boolean))].sort(), fours=[...new Set(catalogue.map(x=>x.fournisseur).filter(Boolean))].sort(), marques=[...new Set(catalogue.map(x=>x.marque).filter(Boolean))].sort();
+  return `<section class="block catform"><h2>${catEdit==="new"?"Nouvelle référence":"Modifier la référence"}</h2>
+    <div class="grid-4">
+      ${f("ref","Référence")}
+      ${f("designation","Désignation",{cls:"span-2"})}
+      ${f("marque","Marque",{list:"dl-marques"})}
+      ${f("fournisseur","Fournisseur",{list:"dl-fours"})}
+      ${f("famille","Famille",{list:"dl-fams",hint:"Literie, Canapé, Lave-vaisselle…"})}
+      <div class="field"><label for="cf-poste">Poste du devis</label><select id="cf-poste">${POSTES.map(([k,l])=>`<option value="${k}" ${(a.poste||"mat")===k?"selected":""}>${l}</option>`).join("")}</select></div>
+      ${f("unite","Unité",{attrs:'placeholder="pièce, m², ml…"'})}
+      ${f("pa","Prix d’achat HT",{type:"number",attrs:'step="0.01" min="0"'})}
+      ${f("marge","Marge (% du prix de vente)",{type:"number",attrs:`step="0.1" max="99" placeholder="${P.margeDefaut}"`,hint:`Vide : marge par défaut (${pctTxt(P.margeDefaut)})`})}
+      ${f("pv","Prix de vente HT imposé",{type:"number",attrs:'step="0.01" min="0"',hint:"Facultatif : prix public conseillé"})}
+      ${f("notes","Notes",{cls:"span-2"})}
+    </div>
+    <datalist id="dl-fams">${fams.map(x=>`<option value="${esc(x)}">`).join("")}</datalist><datalist id="dl-fours">${fours.map(x=>`<option value="${esc(x)}">`).join("")}</datalist><datalist id="dl-marques">${marques.map(x=>`<option value="${esc(x)}">`).join("")}</datalist>
+    <div class="lg-actions"><button class="btn primary small" data-catsave>Enregistrer</button><button class="btn small" data-catcancel>Annuler</button>
+      ${catEdit!=="new"?`<button class="btn ghost danger small" data-catdel="${esc(catEdit)}">Supprimer la référence</button>`:""}</div></section>`;
+}
+function catImportHtml(){
+  const im=catImport; if(!im) return "";
+  return `<section class="block catform"><h2>Import de « ${esc(im.nom)} »</h2>
+    <p>${im.articles.length} référence${im.articles.length>1?"s":""} reconnue${im.articles.length>1?"s":""} : <b>${im.nouveaux}</b> nouvelle${im.nouveaux>1?"s":""}, <b>${im.maj}</b> mise${im.maj>1?"s":""} à jour${im.ignores?`, ${im.ignores} ligne${im.ignores>1?"s":""} ignorée${im.ignores>1?"s":""} (sans référence ni désignation)`:""}.</p>
+    <p class="muted">Colonnes reconnues : ${esc(Object.entries(im.colonnes).map(([k,v])=>`${v} → ${k}`).join(", ")||"aucune")}</p>
+    ${im.manque.length?`<div class="dlg-warn">Colonnes non trouvées : ${esc(im.manque.join(", "))}. Les colonnes attendues : Référence, Désignation, Marque, Fournisseur, Famille, Prix d’achat HT, Marge, Prix de vente HT.</div>`:""}
+    <div class="grid-4">
+      <div class="field"><label for="ci-four">Fournisseur des lignes sans fournisseur</label><input id="ci-four" list="dl-fours" value="${esc(im.fournisseur||"")}"></div>
+      <div class="field"><label for="ci-fam">Famille des lignes sans famille</label><input id="ci-fam" value="${esc(im.famille||"")}"></div>
+    </div>
+    ${im.articles.length?`<div class="dv-wrap"><table class="dv"><thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Famille</th><th>PA HT</th><th>Marge</th></tr></thead>
+      <tbody>${im.articles.slice(0,8).map(a=>`<tr><td>${esc(a.ref||"")}</td><td>${esc(a.designation||"")}</td><td>${esc(a.marque||"")}</td><td>${esc(a.famille||"")}</td><td>${a.pa!=null?eur(a.pa):"–"}</td><td>${a.marge!=null?pctTxt(a.marge):"–"}</td></tr>`).join("")}</tbody></table></div>
+      ${im.articles.length>8?`<p class="muted">… et ${im.articles.length-8} autres.</p>`:""}`:""}
+    <div class="lg-actions"><button class="btn primary small" data-catimport-ok ${im.articles.length?"":"disabled"}>Importer ${im.articles.length} référence${im.articles.length>1?"s":""}</button><button class="btn small" data-catimport-cancel>Annuler</button></div></section>`;
+}
+function renderCatalogue(){
+  const list=catFiltrés(), fams=[...new Set(catalogue.map(x=>x.famille).filter(Boolean))].sort(), MAX=300;
+  return `<div class="sheet">
+    <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
+    <div class="top"><div class="top-left"><h1 style="font-size:32px">Catalogue produits</h1>
+      <div class="quick"><span>${catalogue.length} référence${catalogue.length>1?"s":""} – usage interne (prix d’achat)</span><span class="saved" id="saved"></span></div></div>
+      <div class="top-actions">
+        <button class="btn primary" data-catnew>+ Nouvelle référence</button>
+        <label class="btn">Importer Excel / CSV<input type="file" id="catFile" accept=".xlsx,.xls,.csv" hidden></label>
+        <button class="btn" data-catexport>Exporter</button>
+      </div></div>
+    ${catImportHtml()}
+    ${catEdit?catFormHtml():""}
+    <section class="block">
+      <div class="cpt-bar">
+        <input id="catFiltre" type="search" placeholder="Rechercher : référence, désignation, marque, fournisseur…" value="${esc(catFiltre)}" style="flex:1;min-width:220px">
+        <select id="catFamille"><option value="">Toutes les familles</option>${fams.map(x=>`<option ${x===catFamille?"selected":""}>${esc(x)}</option>`).join("")}</select>
+      </div>
+      <div id="catTable">${catTableHtml(list,MAX)}</div>
+    </section></div>`;
+}
+function catTableHtml(list,MAX=300){
+  if(!catalogue.length) return `<p class="journal-empty">Aucune référence. Ajoutez-les une par une, ou importez la liste de prix d’un fournisseur (Excel ou CSV).</p>`;
+  if(!list.length) return `<p class="journal-empty">Aucune référence ne correspond.</p>`;
+  return `<div class="dv-wrap"><table class="dv cat">
+    <thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Fournisseur</th><th>Famille</th><th>PA HT</th><th>Marge</th><th>PV HT</th><th>PV TTC</th></tr></thead>
+    <tbody>${list.slice(0,MAX).map(a=>{ const pv=pvArticle(a), m=num(a.pv)!=null&&num(a.pa)!=null ? (num(a.pv)-num(a.pa))/num(a.pv)*100 : (num(a.marge)??num(P.margeDefaut));
+      return `<tr data-catedit="${esc(a.id)}" tabindex="0"><td>${esc(a.ref||"")}</td><td>${esc(a.designation||"")}</td><td>${esc(a.marque||"")}</td><td>${esc(a.fournisseur||"")}</td><td>${esc(a.famille||"")}</td>
+        <td>${a.pa!=null?eur(num(a.pa)):"–"}</td><td>${m!=null?pctM(m):"–"}${num(a.marge)==null&&num(a.pv)==null?" <span class='muted'>(défaut)</span>":""}</td><td>${pv!=null?eur(pv):"–"}</td><td>${pv!=null?eur(pv*(1+tauxArticle(a)/100)):"–"}</td></tr>`; }).join("")}</tbody></table></div>
+    ${list.length>MAX?`<p class="muted">${list.length-MAX} autres références : affinez la recherche.</p>`:""}
+    <p class="route-hint">Cliquez sur une ligne pour la modifier. PV TTC calculé à ${pctTxt(P.tvaDefaut)} (électroménager à ${pctTxt(P.tvaNormal)}).</p>`;
+}
+function catInput(el){
+  if(el.id==="catFiltre"){ catFiltre=el.value; $("#catTable").innerHTML=catTableHtml(catFiltrés()); }
+}
+async function catSave(){
+  const v=k=>(document.getElementById("cf-"+k)?.value??"").trim();
+  const a={}; CAT_CHAMPS.forEach(k=>{ const x=v(k); a[k]= ["pa","marge","pv"].includes(k) ? num(x.replace(",",".")) : x; });
+  if(!a.ref && !a.designation){ toast("Indiquez au moins une référence ou une désignation."); return; }
+  if(a.marge!=null && a.marge>=100){ toast("La marge doit être inférieure à 100 %."); return; }
+  let id = catEdit!=="new" ? catEdit : (a.ref ? slug(`${a.fournisseur||"x"}-${a.ref}`) : uid());
+  if(catEdit==="new" && catalogue.some(x=>x.id===id) && !confirm(`La référence ${a.ref} (${a.fournisseur||"sans fournisseur"}) existe déjà. La remplacer ?`)) return;
+  a.updatedAt=new Date().toISOString(); a.updatedBy=me?.email||"";
+  if(await safe(setDoc(doc(db,CATALOGUE_COL,id),a,{merge:true}))){ toast("Référence enregistrée"); catEdit=null; rerenderKeep(); }
+}
+const normH = h => String(h||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+const CAT_COLS={ ref:["ref","reference","refarticle","referencearticle","codearticle","code","article","sku","refproduit"],
+  designation:["designation","libelle","description","produit","nom","intitule","libellearticle"],
+  marque:["marque","brand"], fournisseur:["fournisseur","supplier","founisseur"],
+  famille:["famille","categorie","gamme","rayon","type","sousfamille"],
+  pa:["prixachat","pa","prixachatht","achat","achatht","prixnet","prixnetht","tarifnet","tarifnetht","paht","coutht","cout","prixdachat","prixdachatht"],
+  marge:["marge","margepct","tauxmarge","marge%"], pv:["prixvente","pv","prixventeht","pvht","prixpublicht","prixdevente","prixdeventeht"],
+  pvttc:["prixventettc","pvttc","prixpublic","prixpublicttc","ttc"], unite:["unite","unit","u"], poste:["poste"] };
+function nombre(v){ if(v==null||v==="") return null; if(typeof v==="number") return v; const n=parseFloat(String(v).replace(/[^0-9,.\-]/g,"").replace(/\s/g,"").replace(/\.(?=.*[.,])/g,"").replace(",",".")); return isNaN(n)?null:n; }
+async function catLireFichier(file){
+  try{ if(!window.XLSX) await loadScript(XLSX_URL); }catch(e){ toast("Module Excel indisponible : vérifiez la connexion."); return; }
+  const wb=window.XLSX.read(await file.arrayBuffer(),{type:"array"}), ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=window.XLSX.utils.sheet_to_json(ws,{defval:"",raw:true});
+  if(!rows.length){ toast("Le fichier ne contient aucune ligne."); return; }
+  const heads=Object.keys(rows[0]), colonnes={}, map={};
+  Object.entries(CAT_COLS).forEach(([k,alias])=>{ const h=heads.find(x=>alias.includes(normH(x))); if(h){ map[k]=h; colonnes[k]=h; } });
+  const manque=["ref","designation","pa"].filter(k=>!map[k]).map(k=>({ref:"Référence",designation:"Désignation",pa:"Prix d’achat"}[k]));
+  let ignores=0; const articles=[];
+  rows.forEach(r=>{
+    const g=k=>map[k]?r[map[k]]:"";
+    const a={ ref:String(g("ref")??"").trim(), designation:String(g("designation")??"").trim(), marque:String(g("marque")??"").trim(),
+      fournisseur:String(g("fournisseur")??"").trim(), famille:String(g("famille")??"").trim(), unite:String(g("unite")??"").trim() };
+    if(!a.ref && !a.designation){ ignores++; return; }
+    const pa=nombre(g("pa")), mg=nombre(g("marge")), pv=nombre(g("pv")), pvttc=nombre(g("pvttc"));
+    if(pa!=null) a.pa=round2(pa);
+    if(mg!=null) a.marge = mg<=1 && mg>0 ? round2(mg*100) : mg;
+    if(pv!=null) a.pv=round2(pv); else if(pvttc!=null) a.pv=round2(pvttc/(1+(num(P.tvaNormal)??20)/100));
+    const pst=normH(g("poste")+" "+a.famille);
+    a.poste = /electro|lavevaisselle|refriger|four|plaque|hotte|frigo|congel|lavelinge|micro/.test(pst) ? "elec" : /livraison/.test(pst) ? "livr" : /pose|install/.test(pst) ? "presta" : "mat";
+    articles.push(a);
+  });
+  catImport={nom:file.name, articles, colonnes, manque, ignores, fournisseur:"", famille:""};
+  majImportCompte(); rerenderKeep();
+}
+function majImportCompte(){
+  const im=catImport, four=im.fournisseur||"";
+  im.nouveaux=0; im.maj=0;
+  im.articles.forEach(a=>{ const id=a.ref?slug(`${a.fournisseur||four||"x"}-${a.ref}`):null; if(id && catalogue.some(x=>x.id===id)) im.maj++; else im.nouveaux++; });
+}
+async function catImporter(){
+  const im=catImport; if(!im) return;
+  im.fournisseur=($("#ci-four")?.value||"").trim(); im.famille=($("#ci-fam")?.value||"").trim();
+  const now=new Date().toISOString(); let n=0;
+  try{
+    for(let i=0;i<im.articles.length;i+=400){
+      const b=writeBatch(db);
+      im.articles.slice(i,i+400).forEach(a0=>{ const a={...a0}; if(!a.fournisseur) a.fournisseur=im.fournisseur; if(!a.famille) a.famille=im.famille;
+        Object.keys(a).forEach(k=>{ if(a[k]==="" ) delete a[k]; });
+        a.updatedAt=now; a.updatedBy=me?.email||""; a.importe=im.nom;
+        b.set(doc(db,CATALOGUE_COL, a.ref?slug(`${a.fournisseur||"x"}-${a.ref}`):uid()), a, {merge:true}); n++; });
+      await b.commit();
+    }
+    toast(`${n} référence${n>1?"s":""} importée${n>1?"s":""}`); catImport=null; rerenderKeep();
+  }catch(e){ console.error(e); toast(e?.code==="permission-denied"?"Import refusé : ajoutez la règle Firestore du catalogue.":"Import interrompu : vérifiez la connexion.",6000); }
+}
+function catExport(){
+  const q=v=>`"${String(v??"").replace(/"/g,'""')}"`, n=v=>v==null||v===""?"":Number(v).toFixed(2).replace(".",",");
+  const L=[["Référence","Désignation","Marque","Fournisseur","Famille","Poste","Unité","Prix d’achat HT","Marge %","Prix de vente HT","Notes"].map(q).join(";")];
+  catalogue.forEach(a=>L.push([a.ref,a.designation,a.marque,a.fournisseur,a.famille,(POSTES.find(x=>x[0]===a.poste)||[])[1]||"",a.unite].map(q).concat([n(a.pa),a.marge==null?"":String(a.marge).replace(".",","),n(pvArticle(a)),q(a.notes)]).join(";")));
+  const blob=new Blob(["\ufeff"+L.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const el=document.createElement("a"); el.href=URL.createObjectURL(blob); el.download="catalogue-produits.csv"; document.body.appendChild(el); el.click(); el.remove();
+}
+function catClick(t){
+  if(t.closest("[data-catnew]")){ catEdit="new"; rerenderKeep(); setTimeout(()=>$("#cf-ref")?.focus(),0); return; }
+  if(t.closest("[data-catcancel]")){ catEdit=null; rerenderKeep(); return; }
+  if(t.closest("[data-catsave]")){ catSave(); return; }
+  if(t.closest("[data-catexport]")){ catExport(); return; }
+  if(t.closest("[data-catimport-ok]")){ catImporter(); return; }
+  if(t.closest("[data-catimport-cancel]")){ catImport=null; rerenderKeep(); return; }
+  const d=t.closest("[data-catdel]");
+  if(d){ const a=catalogue.find(x=>x.id===d.dataset.catdel); if(a && confirm(`Supprimer la référence « ${a.designation||a.ref} » du catalogue ? Les devis déjà faits ne changent pas.`)){
+    safe(deleteDoc(doc(db,CATALOGUE_COL,a.id))).then(()=>{ catEdit=null; rerenderKeep(); }); } return; }
+  const r=t.closest("[data-catedit]");
+  if(r){ catEdit=r.dataset.catedit; rerenderKeep(); $("#main").scrollTop=0; }
+}
+
 /* ---------- Paramètres ---------- */
 function renderParams(){
   const sum=(num(P.pctAcompte)||0)+(num(P.pctLivraison)||0)+(num(P.pctSolde)||0);
@@ -1654,6 +1910,12 @@ function renderParams(){
         <div class="field"><label for="p-lsp">Solde à la livraison (%)</label><input id="p-lsp" type="number" min="0" max="100" step="1" data-pp="pctLivraisonSP" value="${P.pctLivraisonSP}"></div>
       </div>
       ${sumSP!==100?`<div class="sum-warn">Le total fait ${sumSP} % au lieu de 100 %.</div>`:""}
+    </section>
+
+    <section class="block"><h2>Catalogue et devis</h2>
+      <div class="pct-row"><div class="field" style="width:260px"><label for="p-mg">Marge par défaut (% du prix de vente HT)</label>
+        <input id="p-mg" type="number" min="0" max="99" step="0.5" data-pp="margeDefaut" value="${P.margeDefaut}"></div></div>
+      <p class="route-hint" style="margin:6px 0 0">Utilisée pour les références sans marge propre et pour la marge globale d’un devis.</p>
     </section>
 
     <section class="block"><h2>Types de projet</h2>
@@ -1694,6 +1956,7 @@ $("#list").addEventListener("click", e=>{ const b=e.target.closest("button[data-
 $("#search").addEventListener("input", e=>{ query=e.target.value; renderList(); });
 $("#paramsBtn").addEventListener("click", ()=>select("__params"));
 $("#comptaBtn").addEventListener("click", ()=>select("__compta"));
+$("#catalogueBtn").addEventListener("click", ()=>{ catEdit=null; catImport=null; select("__catalogue"); });
 $("#newBtn").addEventListener("click", ()=>{
   flushPending();
   const c=blankClient(); clients.push(c); createClient(c);
@@ -1710,6 +1973,8 @@ function readVal(el){
 $("#main").addEventListener("input", e=>{
   const el=e.target;
   if(selId==="__params"){ paramInput(el); return; }
+  if(selId==="__catalogue"){ catInput(el); return; }
+  if(el.id==="catq"){ catQuery=el.value; const r=document.getElementById("catres"); if(r) r.innerHTML=catResultsHtml(); return; }
   if(selId==="__compta") return;
   const c=current(); if(!c) return;
   if(el.dataset.fmt==="siret"){ const p=el.selectionStart, before=el.value.length; el.value=fmtSiret(el.value); try{ el.setSelectionRange(p+(el.value.length-before),p+(el.value.length-before)); }catch(_){} }
@@ -1718,8 +1983,19 @@ $("#main").addEventListener("input", e=>{
   const v=readVal(el);
   const m=p.match(RDV_RE);
   if(m) setRdvField(c,m[1],m[2],m[3],v); else { setP(c,p,v); queue(c,p,v); }
+  const lm=p.match(/^projets\.([^.]+)\.steps\.(s\d)\.lignes\.(\d+)\.(pa|marge|pu)$/);
+  if(lm) syncLigne(c,lm[1],lm[2],+lm[3],lm[4]);
+  const gm=p.match(/^projets\.([^.]+)\.steps\.(s\d)\.margeGlobale$/);
+  if(gm){ const pr=c.projets[gm[1]]; if(recalcLignes(pr,gm[2])){ queue(c,`projets.${gm[1]}.steps.${gm[2]}.lignes.0.pu`); majPuDom(pr,gm[2]); } }
   if(/^c[12]\./.test(p)) renderList();
 });
+function majPuDom(p,sid){ (p.steps[sid].lignes||[]).forEach((l,i)=>{ const e=document.getElementById(`f-projets-${p.id}-steps-${sid}-lignes-${i}-pu`); if(e && document.activeElement!==e) e.value=l.pu??""; }); }
+function syncLigne(c,pid,sid,i,champ){
+  const p=c.projets[pid], st=p.steps[sid], l=st.lignes[i], idb=`f-projets-${pid}-steps-${sid}-lignes-${i}-`;
+  if(champ==="pu"){ if(!margeGlobaleOn(st)){ const m=margeDepuisPu(p,st,l); if(m!=null){ l.marge=m; const e=document.getElementById(idb+"marge"); if(e) e.value=m; } } }
+  else { const pu=puDepuisMarge(p,st,l,margeLigne(st,l)); if(pu!=null){ l.pu=pu; const e=document.getElementById(idb+"pu"); if(e) e.value=pu; } }
+  queue(c,`projets.${pid}.steps.${sid}.lignes.${i}.pu`);
+}
 const RDV_RE=/^projets\.([^.]+)\.steps\.(s\d)\.rendezvous\.(prevu|valide|lieu)$/;
 function setRdvField(c,pid,sid,field,v){
   const r=c.projets[pid].steps[sid].rendezvous; r[field]=v; queue(c,`projets.${pid}.steps.${sid}.rendezvous.${field}`,v);
@@ -1729,6 +2005,11 @@ function setRdvField(c,pid,sid,field,v){
 $("#main").addEventListener("change", e=>{
   const el=e.target;
   if(selId==="__params"){ paramChange(el); return; }
+  if(selId==="__catalogue"){
+    if(el.id==="catFile" && el.files[0]){ catLireFichier(el.files[0]); el.value=""; }
+    else if(el.id==="catFamille"){ catFamille=el.value; $("#catTable").innerHTML=catTableHtml(catFiltrés()); }
+    else if(el.id==="ci-four" && catImport){ catImport.fournisseur=el.value.trim(); majImportCompte(); rerenderKeep(); }
+    return; }
   if(selId==="__compta"){ if(el.id==="cpt-date" && el.value){ const v=el.value; comptaDate = comptaMode==="annee" ? `${v}-01-01` : comptaMode==="mois" ? `${v}-01` : v; rerenderKeep(); } return; }
   const c=current(); if(!c) return;
   const p0=curProj(c);
@@ -1756,6 +2037,10 @@ $("#main").addEventListener("change", e=>{
     rerenderKeep(); renderList(); return;
   }
   setP(c,p,v);
+  { const pm=p.match(/^projets\.([^.]+)\.steps\.(s\d)\.lignes\.(\d+)\.poste$/);
+    if(pm){ const pr=c.projets[pm[1]], st=pr.steps[pm[2]], l=st.lignes[+pm[3]], pu=puDepuisMarge(pr,st,l,margeLigne(st,l)); if(pu!=null) l.pu=pu; }
+    const tm=p.match(/^projets\.([^.]+)\.tva$/);
+    if(tm){ const pr=c.projets[tm[1]]; ["s2","s4"].forEach(sid=>{ if(recalcLignes(pr,sid)) queue(c,`projets.${pr.id}.steps.${sid}.lignes.0.pu`); }); } }
   if(p==="parrain"){
     const def=P.parrains.find(x=>x.nom===v);
     projList(c).forEach(pr=>{ if(!v) pr.commissionPct=null; else if(def?.pct!=null && pr.commissionPct==null) pr.commissionPct=def.pct; queue(c,`projets.${pr.id}.commissionPct`,pr.commissionPct); });
@@ -1789,6 +2074,7 @@ function refreshAfter(el){
 }
 function tryRefresh(){ if(needRefresh && !fieldFocused() && !dlg.open){ needRefresh=false; rerenderKeep(); } }
 $("#main").addEventListener("focusout", ()=>setTimeout(tryRefresh,60));
+$("#main").addEventListener("keydown", e=>{ const r=e.target.closest?.("[data-catedit]"); if(r && e.key==="Enter"){ catEdit=r.dataset.catedit; rerenderKeep(); } });
 
 function addFromSelect(c,p,el){
   const label = p==="typeBien" ? "Nouveau type de bien :" : "Nom du parrain :";
@@ -1823,6 +2109,7 @@ $("#main").addEventListener("click", async e=>{
   const t=e.target;
   if(t.closest("#backBtn")){ select(null); return; }
   if(selId==="__params"){ paramClick(t); return; }
+  if(selId==="__catalogue"){ catClick(t); return; }
   if(selId==="__compta"){
     const cm=t.closest("[data-cmode]"); if(cm){ comptaMode=cm.dataset.cmode; rerenderKeep(); return; }
     if(t.closest("#cptCsv")){ exportCompta(); return; }
@@ -1861,6 +2148,16 @@ $("#main").addEventListener("click", async e=>{
   if(dt){ const [pid,i]=dt.dataset.depotRetry.split("|"), pr=c.projets[pid], x=pr.commandes[+i];
     if(!confirm("Transmettre à nouveau cette commande au dépôt ?")) return;
     delete x.depot; flushPending(); await updateFields(c.id,{[`projets.${pid}.commandes`]:clone(pr.commandes)}); transOpen=`${pid}|${i}`; rerenderKeep(); return; }
+  const cp=t.closest("[data-catpick]");
+  if(cp){ catPick = catPick===cp.dataset.catpick ? null : cp.dataset.catpick; catQuery=""; rerenderKeep(); setTimeout(()=>$("#catq")?.focus(),0); return; }
+  if(t.closest("[data-catclose]")){ catPick=null; rerenderKeep(); return; }
+  const ca=t.closest("[data-catadd]");
+  if(ca && catPick){ const [pid,sid]=catPick.split("|"), pr=c.projets[pid], st=pr.steps[sid], a=catalogue.find(x=>x.id===ca.dataset.catadd); if(!a) return;
+    const l={id:uid(), designation:a.designation||"", ref:a.ref||"", poste:a.poste||"mat", qte:1, pa:num(a.pa), marge:num(a.marge)??num(P.margeDefaut), pu:null, catId:a.id};
+    l.pu = puDepuisMarge(pr,st,l,margeLigne(st,l)) ?? (num(a.pv)!=null ? ((st.saisie||"TTC")==="TTC" ? round2(num(a.pv)*(1+rateLigne(pr,l.poste)/100)) : num(a.pv)) : null);
+    st.lignes=[...(st.lignes||[]),l];
+    flushPending(); updateFields(c.id,{[`projets.${pid}.steps.${sid}.lignes`]:clone(st.lignes)}); toast(`« ${l.designation} » ajouté`); rerenderKeep();
+    setTimeout(()=>$("#catq")?.focus(),0); return; }
   const al=t.closest("[data-addline]");
   if(al){ const [pid,sid]=al.dataset.addline.split("|"), st=c.projets[pid].steps[sid];
     st.lignes=[...(st.lignes||[]),{id:uid(),designation:"",ref:"",poste:c.projets[pid].type==="Électroménager"?"elec":"mat",qte:1,pu:null,pa:null}];
@@ -1900,7 +2197,12 @@ $("#main").addEventListener("click", async e=>{
   const sg=t.closest("[data-set]");
   if(sg){ const path=sg.dataset.set, cur=getP(c,path)||"";
     const v = (cur===sg.dataset.v && sg.dataset.req===undefined) ? "" : sg.dataset.v;
-    setP(c,path,v); queue(c,path,v); flushPending();
+    setP(c,path,v); queue(c,path,v);
+    const sm=path.match(/^projets\.([^.]+)\.steps\.(s\d)\.(saisie|margeMode)$/);
+    if(sm){ const pr=c.projets[sm[1]], st=pr.steps[sm[2]];
+      if(sm[3]==="margeMode" && v==="globale" && num(st.margeGlobale)==null){ st.margeGlobale=P.margeDefaut; queue(c,`projets.${pr.id}.steps.${sm[2]}.margeGlobale`,st.margeGlobale); }
+      if(recalcLignes(pr,sm[2])) queue(c,`projets.${pr.id}.steps.${sm[2]}.lignes.0.pu`); }
+    flushPending();
     if(/^projets\.[^.]+\.installPrevue$/.test(path)){ const pr=c.projets[path.split(".")[1]], k=pcts(pr);
       logSuivi(c,pr.id,"g", v==="Non"?`Pas d’installation prévue : règlement ${k.a} % à la commande et ${k.l} % à la livraison.`:`Installation prévue : règlement ${k.a} % / ${k.l} % / ${k.s} %.`,"Autre"); }
     if(/\.steps\.s3\.necessaire$/.test(path)){ const pr=c.projets[path.split(".")[1]];
@@ -2493,10 +2795,15 @@ $("#logoutBtn").addEventListener("click", ()=>{ flushPending(); signOut(auth); }
 
 onAuthStateChanged(auth, user=>{
   me=user;
-  if(unsub){ unsub(); unsub=null; } if(unsubP){ unsubP(); unsubP=null; }
+  if(unsub){ unsub(); unsub=null; } if(unsubP){ unsubP(); unsubP=null; } if(unsubCat){ unsubCat(); unsubCat=null; }
   if(!user){ clients=[]; selId=null; selProj=null; $("#login").hidden=false; $("#app").hidden=true; setTimeout(()=>$("#lg-email").focus(),0); return; }
   $("#login").hidden=true; $("#app").hidden=false; $("#whoEmail").textContent=user.email;
   renderMain();
+  unsubCat = onSnapshot(collection(db,CATALOGUE_COL), snap=>{
+    catalogue = snap.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>String(a.designation||a.ref||"").localeCompare(String(b.designation||b.ref||""),"fr"));
+    if(selId==="__catalogue" && !fieldFocused()) rerenderKeep();
+    else if(catPick){ const r=document.getElementById("catres"); if(r) r.innerHTML=catResultsHtml(); }
+  }, err=>{ console.error(err); if(err.code==="permission-denied") toast("Catalogue inaccessible : ajoutez la règle « fichesSuiviCatalogue ».",6000); });
   unsubP = onSnapshot(doc(db,PARAMS_COL,"config"), snap=>{
     paramsExist=snap.exists();
     P = {...structuredClone(DEFAULT_PARAMS), ...(snap.exists()?snap.data():{})};
