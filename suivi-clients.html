@@ -365,6 +365,21 @@ h3.sub:first-child{margin-top:0}
 .depot-form .field input,.depot-form .field select{background:var(--surface)}
 .tag-bad{background:transparent;border-color:var(--danger);color:var(--danger)}
 
+/* ---- v3.7 : règlements reçus, récapitulatif comptable ---- */
+.recu{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface-2)}
+.recu .field input{background:var(--surface)}
+.recu .linkbtn{margin:6px 0 0}
+.cpt-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.cpt-bar input{padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface-2);display:flex;flex-direction:column;gap:2px}
+.kpi b{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-size:22px}
+.kpi small{color:var(--ink-3);font-size:12.5px}
+.kpi b.neg{color:var(--danger)}
+.dv tr.late td{color:var(--danger)}
+.dv td .linkbtn{text-align:left}
+@media (max-width:900px){ .kpis{grid-template-columns:repeat(2,minmax(0,1fr))} }
+
 [hidden]{display:none!important}
 </style>
 </head>
@@ -390,6 +405,7 @@ h3.sub:first-child{margin-top:0}
     </div>
     <ul class="list" id="list"></ul>
     <div class="side-foot">
+      <button class="btn ghost paramsBtn" id="comptaBtn" aria-current="false">📊 Récapitulatif comptable</button>
       <button class="btn ghost paramsBtn" id="paramsBtn" aria-current="false">⚙️ Paramètres</button>
       <div class="store-note who"><span id="whoEmail"></span><button class="btn ghost" id="logoutBtn">Déconnexion</button></div>
     </div>
@@ -452,7 +468,7 @@ const firebaseConfig = {
 };
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
-const VERSION = "3.6";
+const VERSION = "3.7";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -713,11 +729,38 @@ function calcDevis(p, st){
     htOf:k=>lines.find(l=>l.k===k)?.ht||0};
 }
 function devisRetenu(p){ const d4=calcDevis(p,p.steps.s4); return d4.has ? d4 : calcDevis(p,p.steps.s2); }
+// Règlements : l'acompte attendu suit le pourcentage ; dès qu'un montant réellement reçu est saisi,
+// les échéances suivantes sont recalculées pour que le total reste juste.
+const round2 = n => Math.round(n*100)/100;
+function recuDe(st, attendu){ const v=num(st.recu); return v!=null ? v : (st.done ? attendu : null); }
 function reglements(p){
-  const m=devisRetenu(p).ttc;
-  const k=pcts(p), a=m*k.a/100, l=m*k.l/100, s=m*k.s/100;
-  const recu=(p.steps.s4.done?a:0)+(p.steps.s8.done?l:0)+(p.steps.s9.done&&!sansPose(p)?s:0);
-  return {m,a,l,s,k,recu,reste:Math.max(0,m-recu)};
+  const m=devisRetenu(p).ttc, k=pcts(p), sp=sansPose(p), S=p.steps;
+  const a=round2(m*k.a/100);
+  const ra=recuDe(S.s4,a);
+  const sTheo = sp ? 0 : round2(m*k.s/100);
+  const l = round2(Math.max(0, sp ? m-(ra??a) : m-(ra??a)-sTheo));
+  const rl=recuDe(S.s8,l);
+  const s = sp ? 0 : round2(Math.max(0, m-(ra??a)-(rl??l)));
+  const rs = sp ? null : recuDe(S.s9,s);
+  const recu=(ra||0)+(rl||0)+(rs||0);
+  const ech=[
+    {key:"s4", label:"Acompte à la commande", du:a, recu:ra, le:S.s4.recuLe||(ra!=null?S.s4.date:""), mode:S.s4.methode||"", prevu:S.s4.date||""},
+    {key:"s8", label:sp?"Solde à la livraison":"Règlement à la livraison", du:l, recu:rl, le:S.s8.recuLe||(rl!=null?S.s8.date:""), mode:S.s8.methode||"", prevu:S.s8.dateLivraison||(sp?p.installation.prevue:"")||p.commandes.map(x=>x.dateLivPrevue).filter(Boolean).sort().pop()||""},
+  ];
+  if(!sp) ech.push({key:"s9", label:"Solde à l’installation", du:s, recu:rs, le:S.s9.recuLe||(rs!=null?S.s9.date:""), mode:S.s9.methode||"", prevu:S.s9.datePose||p.installation.prevue||""});
+  return {m,a,l,s,k,ra,rl,rs,recu,reste:round2(Math.max(0,m-recu)),ech};
+}
+function recuBlock(c,p,sid,du,label){
+  const b=`projets.${p.id}.steps.${sid}`, st=p.steps[sid], v=num(st.recu);
+  const ecart = v!=null && Math.abs(v-du)>0.009 ? `<div class="hint">${v>du?"Reçu en plus":"Reçu en moins"} : ${eur(Math.abs(v-du))}. Les échéances suivantes sont recalculées.</div>` : "";
+  return `<div class="recu">
+    <div class="grid-4">
+      ${fi(c,`${b}.recu`,`${label} reçu (TTC)`,{type:"number",kind:"num",attrs:`step="0.01" min="0" inputmode="decimal" placeholder="${du.toFixed(2)}"`,hint:`Attendu : ${eur(du)}`})}
+      ${fi(c,`${b}.recuLe`,"Reçu le",{type:"date"})}
+      ${seg(c,`${b}.methode`,"Mode de règlement",["Chèque","Virement","CB","Espèces"])}
+    </div>${ecart}
+    ${v==null?`<button type="button" class="linkbtn" data-recu-plein="${p.id}|${sid}">Reçu en totalité (${eur(du)})</button>`:""}
+  </div>`;
 }
 function commission(c,p){
   const pct=num(p.commissionPct); if(!c.parrain || pct==null) return null;
@@ -935,6 +978,7 @@ function renderList(){
     .sort((a,b)=>String(lastSuivi(b)?.date||b.updatedAt).localeCompare(String(lastSuivi(a)?.date||a.updatedAt)));
   $("#count").textContent = clients.length ? `${clients.length} fiche${clients.length>1?"s":""}` : "";
   $("#paramsBtn").setAttribute("aria-current", selId==="__params");
+  $("#comptaBtn")?.setAttribute("aria-current", selId==="__compta");
   if(!clients.length){ $("#list").innerHTML=`<li class="empty-list">Aucune fiche pour l’instant. Créez la première avec « Nouvelle fiche ».</li>`; return; }
   if(!items.length){ $("#list").innerHTML=`<li class="empty-list">Aucun client ne correspond à « ${esc(query)} ».</li>`; return; }
   const defs=stepDefs();
@@ -1136,7 +1180,6 @@ function stepBody0(c,p,id){
     const d2=calcDevis(p,p.steps.s2);
     return `<div class="grid-2" style="margin-top:12px">
         ${fi(c,`${b}.numero`,"N° du devis définitif",{ph:p.steps.s2.numero||""})}
-        ${seg(c,`${b}.methode`,"Méthode de versement",["Chèque","Virement"])}
       </div>
       <h3 class="sub">Montant définitif${d2.has?` <span class="muted" style="text-transform:none;letter-spacing:0">(devis prévu : ${eur(d2.ttc)} TTC)</span>`:""}</h3>
       ${devisBlock(c,p,"s4")}
@@ -1145,6 +1188,11 @@ function stepBody0(c,p,id){
           <small>Calculé sur ${eur(r.m)} TTC${calcDevis(p,s).has?"":" (devis prévu, faute de montant définitif)"}</small></div>
         ${contactSel(c,`${b}.contact`)}
       </div>
+      <h3 class="sub">Acompte reçu</h3>
+      ${recuBlock(c,p,"s4",r.a,"Acompte")}
+      <div class="calc" style="margin-top:10px"><small>Restent dus</small>
+        ${r.ech.slice(1).map(e=>`<div>${e.label} : <b>${eur(e.du)}</b></div>`).join("")}
+        <small>Total ${eur(r.m)} – déjà reçu ${eur(r.recu)} = reste ${eur(r.reste)}</small></div>
       ${docs(c,`${b}.docsDevis`,"Devis définitif")}
       ${docs(c,`${b}.docsPlan`,"Plan validé (technique OK)")}
       ${docs(c,`${b}.docsAcompte`,"Devis signé et versement de l’acompte")}`;
@@ -1187,17 +1235,19 @@ function stepBody0(c,p,id){
       : `<p class="journal-empty" style="margin-top:12px">Cochez l’étape et indiquez la date quand la marchandise est reçue.</p>`;
   case "s8":
     return `<div class="grid-2" style="margin-top:12px">
-        <div class="calc"><small>Règlement de ${r.k.l} % à la livraison${sansPose(p)?" (solde, pas d’installation)":""}</small><span class="money">${eur(r.l)}</span>
-          <small>Calculé sur ${eur(r.m)} TTC</small></div>
+        <div class="calc"><small>${sansPose(p)?"Solde dû à la livraison":"Règlement dû à la livraison"}</small><span class="money">${eur(r.l)}</span>
+          <small>${r.ra!=null?`Recalculé d’après l’acompte reçu (${eur(r.ra)})`:`${r.k.l} % de ${eur(r.m)} TTC`}</small></div>
         ${fi(c,`${b}.dateLivraison`,"Date de la livraison",{type:"date"})}
-      </div>`;
+      </div>
+      <h3 class="sub">Règlement reçu</h3>${recuBlock(c,p,"s8",r.l,"Montant")}`;
   case "s9":
     return `<div class="grid-2" style="margin-top:12px">
         ${fi(c,`${b}.poseur`,"Nom du poseur",{list:"dl-poseurs"})}
         ${fi(c,`${b}.datePose`,"Date de la pose",{type:"date"})}
-        <div class="calc"><small>Solde de ${r.k.s} % à l’installation</small><span class="money">${eur(r.s)}</span>
-          <small>Calculé sur ${eur(r.m)} TTC</small></div>
+        <div class="calc"><small>Solde dû à l’installation</small><span class="money">${eur(r.s)}</span>
+          <small>Total ${eur(r.m)} moins les règlements reçus et attendus avant</small></div>
       </div>
+      <h3 class="sub">Solde reçu</h3>${recuBlock(c,p,"s9",r.s,"Solde")}
       <datalist id="dl-poseurs">${P.poseurs.map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
   }
   return "";
@@ -1456,6 +1506,7 @@ function renderFiche(c){
 function renderMain(){
   const app=$("#app"), main=$("#main");
   if(selId==="__params"){ app.classList.add("has-sel"); main.innerHTML=renderParams(); return; }
+  if(selId==="__compta"){ app.classList.add("has-sel"); main.innerHTML=renderCompta(); return; }
   const c=current();
   app.classList.toggle("has-sel", !!c);
   if(!c){ main.innerHTML=`<div class="welcome"><div><h2>Sélectionnez une fiche</h2><p>Ou créez-en une nouvelle pour démarrer le suivi d’un client.</p></div></div>`; return; }
@@ -1468,6 +1519,107 @@ function rerenderKeep(){
   if(id){ const el=document.getElementById(id); if(el){ el.focus({preventScroll:true}); try{ if(pos!=null) el.setSelectionRange(pos,pos);}catch(_){} } }
 }
 function select(id){ flushPending(); selId=id; selProj=null; addingProject=false; editingEntry=null; openStep=null; suiviFilter="all"; renderList(); renderMain(); $("#main").scrollTop=0; }
+/* ---------- Récapitulatif comptable ---------- */
+let comptaMode="mois", comptaDate=null;
+function periode(){
+  const d=comptaDate||today(), y=d.slice(0,4), m=d.slice(0,7);
+  if(comptaMode==="jour") return {de:d, a:d, label:`le ${fmtD(d)}`};
+  if(comptaMode==="mois"){ const last=new Date(+y, +d.slice(5,7), 0).getDate();
+    return {de:`${m}-01`, a:`${m}-${pad(last)}`, label:new Date(`${m}-01T00:00:00`).toLocaleDateString("fr-FR",{month:"long",year:"numeric"})}; }
+  if(comptaMode==="annee") return {de:`${y}-01-01`, a:`${y}-12-31`, label:`année ${y}`};
+  return {de:"0000-01-01", a:"9999-12-31", label:"depuis le début"};
+}
+const dansPeriode = (d,pr) => !!d && d.slice(0,10)>=pr.de && d.slice(0,10)<=pr.a;
+function donneesCompta(){
+  const pr=periode(), enc=[], proj=[], avenir=[];
+  clients.forEach(c=>projList(c).forEach(p=>{
+    const r=reglements(p), mg=calcMarge(c,p), d=devisRetenu(p), valide=p.steps.s4.done, nom=nomFiche(c)||c.raisonSociale||"Sans nom";
+    r.ech.forEach(e=>{
+      if(e.recu!=null && e.recu>0 && dansPeriode(e.le,pr)) enc.push({date:e.le, c, p, nom, projet:projLabel(c,p), label:e.label, mode:e.mode, montant:e.recu});
+      if(valide && e.recu==null && e.du>0.009) avenir.push({date:e.prevu, c, p, nom, projet:projLabel(c,p), label:e.label, montant:e.du});
+    });
+    if(valide && dansPeriode(p.steps.s4.date||"",pr)) proj.push({c,p,nom,projet:projLabel(c,p), le:p.steps.s4.date, ttc:r.m, ht:d.ht, recu:r.recu, reste:r.reste, mg});
+  }));
+  enc.sort((a,b)=>a.date.localeCompare(b.date)); proj.sort((a,b)=>String(a.le).localeCompare(String(b.le)));
+  avenir.sort((a,b)=>(a.date||"9999").localeCompare(b.date||"9999"));
+  const sum=(arr,f)=>arr.reduce((t,x)=>t+(f(x)||0),0);
+  const resteGlobal=sum(clients.flatMap(c=>projList(c).filter(p=>p.steps.s4.done).map(p=>reglements(p))),r=>r.reste);
+  return {pr, enc, proj, avenir, totEnc:sum(enc,x=>x.montant), caTTC:sum(proj,x=>x.ttc), caHT:sum(proj,x=>x.ht),
+    margeV:sum(proj,x=>x.mg.vente), margeC:sum(proj,x=>x.mg.cout), resteGlobal, avenirPeriode:sum(avenir.filter(x=>dansPeriode(x.date,pr)),x=>x.montant)};
+}
+function renderCompta(){
+  const D=donneesCompta(), pr=D.pr, marge=D.margeV-D.margeC;
+  const input = comptaMode==="jour" ? `<input type="date" id="cpt-date" value="${comptaDate||today()}">`
+    : comptaMode==="mois" ? `<input type="month" id="cpt-date" value="${(comptaDate||today()).slice(0,7)}">`
+    : comptaMode==="annee" ? `<input type="number" id="cpt-date" min="2020" max="2100" value="${(comptaDate||today()).slice(0,4)}">` : "";
+  const lien=(x)=>`<button type="button" class="linkbtn" style="margin:0" data-open-fiche="${x.c.id}|${x.p.id}">${esc(x.nom)}</button>`;
+  return `<div class="sheet">
+    <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
+    <div class="top"><div class="top-left"><h1 style="font-size:32px">Récapitulatif comptable</h1>
+      <div class="quick"><span>Usage interne – ${esc(pr.label)}</span></div></div>
+      <div class="top-actions"><button class="btn" id="cptCsv">Exporter (Excel)</button></div></div>
+
+    <section class="block">
+      <div class="cpt-bar">
+        <div class="seg" role="group" aria-label="Période">${[["jour","Jour"],["mois","Mois"],["annee","Année"],["tout","Tout"]].map(([k,l])=>`<button type="button" data-cmode="${k}" aria-pressed="${comptaMode===k}">${l}</button>`).join("")}</div>
+        ${input}
+      </div>
+      <div class="kpis">
+        <div class="kpi"><small>Encaissé sur la période</small><b>${eur(D.totEnc)}</b><small>${D.enc.length} règlement${D.enc.length>1?"s":""}</small></div>
+        <div class="kpi"><small>Projets validés sur la période</small><b>${eur(D.caTTC)}</b><small>${eur(D.caHT)} HT – ${D.proj.length} projet${D.proj.length>1?"s":""}</small></div>
+        <div class="kpi"><small>Marge des projets validés</small><b class="${marge<0?"neg":""}">${eur(marge)}</b><small>${D.margeV?pctM(marge/D.margeV*100):"–"} du prix de vente HT</small></div>
+        <div class="kpi"><small>Reste à encaisser (tous projets)</small><b>${eur(D.resteGlobal)}</b><small>dont ${eur(D.avenirPeriode)} prévu sur la période</small></div>
+      </div>
+    </section>
+
+    <section class="block"><h2>Encaissements</h2>
+      ${D.enc.length?`<div class="dv-wrap"><table class="dv">
+        <thead><tr><th>Date</th><th>Client</th><th>Projet</th><th>Échéance</th><th>Mode</th><th>Montant TTC</th></tr></thead>
+        <tbody>${D.enc.map(x=>`<tr><td>${fmtD(x.date)}</td><td>${lien(x)}</td><td>${esc(x.projet)}</td><td>${esc(x.label)}</td><td>${esc(x.mode||"–")}</td><td>${eur(x.montant)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="5">Total encaissé</td><td>${eur(D.totEnc)}</td></tr></tfoot></table></div>`
+        :`<p class="journal-empty">Aucun règlement reçu sur la période.</p>`}
+    </section>
+
+    <section class="block"><h2>Commandes clients validées sur la période</h2>
+      ${D.proj.length?`<div class="dv-wrap"><table class="dv">
+        <thead><tr><th>Validé le</th><th>Client</th><th>Projet</th><th>Total TTC</th><th>Encaissé</th><th>Reste dû</th><th>Marge HT</th><th>%</th></tr></thead>
+        <tbody>${D.proj.map(x=>`<tr><td>${fmtD(x.le)}</td><td>${lien(x)}</td><td>${esc(x.projet)}</td><td>${eur(x.ttc)}</td><td>${eur(x.recu)}</td><td>${eur(x.reste)}</td>
+          <td class="${x.mg.marge<0?"neg":""}">${x.mg.saisis?eur(x.mg.marge):"<span class='muted'>coûts à saisir</span>"}</td><td>${x.mg.saisis?pctM(x.mg.taux):"–"}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="3">Total</td><td>${eur(D.caTTC)}</td><td>${eur(D.proj.reduce((t,x)=>t+x.recu,0))}</td><td>${eur(D.proj.reduce((t,x)=>t+x.reste,0))}</td>
+          <td class="${marge<0?"neg":""}">${eur(marge)}</td><td>${D.margeV?pctM(marge/D.margeV*100):"–"}</td></tr></tfoot></table></div>
+        <p class="route-hint">Un projet compte dans la période de sa validation (étape 4 réalisée). La marge reprend le bloc « Coûts et marge » de chaque projet ; sans coûts saisis, elle est égale au prix de vente.</p>`
+        :`<p class="journal-empty">Aucun projet validé sur la période.</p>`}
+    </section>
+
+    <section class="block"><h2>À encaisser (tous projets validés)</h2>
+      ${D.avenir.length?`<div class="dv-wrap"><table class="dv">
+        <thead><tr><th>Date prévue</th><th>Client</th><th>Projet</th><th>Échéance</th><th>Montant TTC</th></tr></thead>
+        <tbody>${D.avenir.map(x=>`<tr class="${x.date&&x.date.slice(0,10)<today()?"late":""}"><td>${x.date?fmtD(x.date):"<span class='muted'>à fixer</span>"}</td><td>${lien(x)}</td><td>${esc(x.projet)}</td><td>${esc(x.label)}</td><td>${eur(x.montant)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><td colspan="4">Total à encaisser</td><td>${eur(D.avenir.reduce((t,x)=>t+x.montant,0))}</td></tr></tfoot></table></div>
+        <p class="route-hint">Les dates en rouge sont dépassées. La date prévue vient de la livraison ou de l’installation planifiée.</p>`
+        :`<p class="journal-empty">Rien à encaisser.</p>`}
+    </section>
+  </div>`;
+}
+function exportCompta(){
+  const D=donneesCompta(), n=v=>(v==null?"":Number(v).toFixed(2).replace(".",",")), q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const L=[];
+  L.push(q(`Récapitulatif comptable – ${D.pr.label}`),"");
+  L.push(["Encaissements"].map(q).join(";"));
+  L.push(["Date","Client","Projet","Échéance","Mode","Montant TTC"].map(q).join(";"));
+  D.enc.forEach(x=>L.push([fmtD(x.date),x.nom,x.projet,x.label,x.mode].map(q).concat(n(x.montant)).join(";")));
+  L.push(["","","","","Total"].map(q).concat(n(D.totEnc)).join(";"),"");
+  L.push(q("Commandes clients validées"));
+  L.push(["Validé le","Client","Projet","Total TTC","Total HT","Encaissé","Reste dû","Vente HT (marge)","Coûts HT","Marge HT","Taux %"].map(q).join(";"));
+  D.proj.forEach(x=>L.push([fmtD(x.le),x.nom,x.projet].map(q).concat([n(x.ttc),n(x.ht),n(x.recu),n(x.reste),n(x.mg.vente),n(x.mg.cout),n(x.mg.marge),x.mg.taux==null?"":n(x.mg.taux)]).join(";")));
+  L.push("",q("À encaisser"));
+  L.push(["Date prévue","Client","Projet","Échéance","Montant TTC"].map(q).join(";"));
+  D.avenir.forEach(x=>L.push([x.date?fmtD(x.date):"",x.nom,x.projet,x.label].map(q).concat(n(x.montant)).join(";")));
+  const blob=new Blob(["\ufeff"+L.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`recap-comptable-${slug(D.pr.label)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
 /* ---------- Paramètres ---------- */
 function renderParams(){
   const sum=(num(P.pctAcompte)||0)+(num(P.pctLivraison)||0)+(num(P.pctSolde)||0);
@@ -1541,6 +1693,7 @@ function renderParams(){
 $("#list").addEventListener("click", e=>{ const b=e.target.closest("button[data-id]"); if(b) select(b.dataset.id); });
 $("#search").addEventListener("input", e=>{ query=e.target.value; renderList(); });
 $("#paramsBtn").addEventListener("click", ()=>select("__params"));
+$("#comptaBtn").addEventListener("click", ()=>select("__compta"));
 $("#newBtn").addEventListener("click", ()=>{
   flushPending();
   const c=blankClient(); clients.push(c); createClient(c);
@@ -1557,6 +1710,7 @@ function readVal(el){
 $("#main").addEventListener("input", e=>{
   const el=e.target;
   if(selId==="__params"){ paramInput(el); return; }
+  if(selId==="__compta") return;
   const c=current(); if(!c) return;
   if(el.dataset.fmt==="siret"){ const p=el.selectionStart, before=el.value.length; el.value=fmtSiret(el.value); try{ el.setSelectionRange(p+(el.value.length-before),p+(el.value.length-before)); }catch(_){} }
   if(el.dataset.fmt==="tva"){ el.value=fmtTva(el.value); }
@@ -1575,6 +1729,7 @@ function setRdvField(c,pid,sid,field,v){
 $("#main").addEventListener("change", e=>{
   const el=e.target;
   if(selId==="__params"){ paramChange(el); return; }
+  if(selId==="__compta"){ if(el.id==="cpt-date" && el.value){ const v=el.value; comptaDate = comptaMode==="annee" ? `${v}-01-01` : comptaMode==="mois" ? `${v}-01` : v; rerenderKeep(); } return; }
   const c=current(); if(!c) return;
   const p0=curProj(c);
   if(el.dataset.up){ uploadDocs(c, el.dataset.up, [...el.files]); el.value=""; return; }
@@ -1668,6 +1823,11 @@ $("#main").addEventListener("click", async e=>{
   const t=e.target;
   if(t.closest("#backBtn")){ select(null); return; }
   if(selId==="__params"){ paramClick(t); return; }
+  if(selId==="__compta"){
+    const cm=t.closest("[data-cmode]"); if(cm){ comptaMode=cm.dataset.cmode; rerenderKeep(); return; }
+    if(t.closest("#cptCsv")){ exportCompta(); return; }
+    const of=t.closest("[data-open-fiche]"); if(of){ const [cid,pid]=of.dataset.openFiche.split("|"); select(cid); selProj=pid; renderMain(); }
+    return; }
   const c=current(); if(!c) return;
   const p=curProj(c);
 
@@ -1683,6 +1843,11 @@ $("#main").addEventListener("click", async e=>{
 
   // projets
   if(t.closest("[data-toggle-marge]")){ showMarge=!showMarge; rerenderKeep(); return; }
+  const rp=t.closest("[data-recu-plein]");
+  if(rp){ const [pid,sid]=rp.dataset.recuPlein.split("|"), pr=c.projets[pid], r=reglements(pr), e=r.ech.find(x=>x.key===sid);
+    const st=pr.steps[sid]; st.recu=e.du; if(!st.recuLe) st.recuLe=today();
+    flushPending(); updateFields(c.id,{[`projets.${pid}.steps.${sid}.recu`]:st.recu,[`projets.${pid}.steps.${sid}.recuLe`]:st.recuLe});
+    logSuivi(c,pid,sid,`${e.label} reçu : ${eur(e.du)}.`,"Autre"); rerenderKeep(); renderList(); return; }
   const to=t.closest("[data-trans-open]");
   if(to){ flushPending(); transOpen=to.dataset.transOpen; rerenderKeep(); return; }
   if(t.closest("[data-trans-cancel]")){ transOpen=null; rerenderKeep(); return; }
@@ -2182,8 +2347,7 @@ function buildPdf(c, version, pids){
       table(["Poste","TVA","HT","Montant TVA","TTC"], d.lines.filter(l=>l.ttc!=null).map(l=>[l.label,pctTxt(l.rate),peur(l.ht),peur(l.tva),peur(l.ttc)]),
         {foot:["Total","",peur(d.ht),peur(d.tva),peur(d.ttc)], right:[1,2,3,4]});
       h3("Échéancier de règlement");
-      const ech=[["Acompte à la commande",r.k.a,r.a,p.steps.s4],[sansPose(p)?"Solde à la livraison":"À la livraison",r.k.l,r.l,p.steps.s8],["Solde à l’installation",r.k.s,r.s,p.steps.s9]].filter(x=>x[1]>0);
-      table(["Échéance","%","Montant TTC","Statut"], ech.map(([l,pc,m,stp])=>[l,`${pc} %`,peur(m),stp.done?`Réglé${stp.date?` le ${fmtD(stp.date)}`:""}`:"À venir"]),
+      table(["Échéance","Montant dû TTC","Reçu","Statut"], r.ech.map(e=>[e.label, peur(e.du), e.recu!=null?peur(e.recu):"–", e.recu!=null?`Réglé${e.le?` le ${fmtD(e.le)}`:""}${e.mode?` (${e.mode.toLowerCase()})`:""}`:"À venir"]),
         {foot:["Reste à régler","",peur(r.reste),""], right:[1,2]});
     }
     const rdvs=RDV_STEPS.filter(sid=>!skipped(p,sid)).map(sid=>{ const rv=p.steps[sid].rendezvous, dt=rv.valide||rv.prevu; if(!dt) return null;
