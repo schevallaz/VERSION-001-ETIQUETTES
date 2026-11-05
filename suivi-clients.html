@@ -425,6 +425,7 @@ b.neg{color:var(--danger)}
     </div>
     <ul class="list" id="list"></ul>
     <div class="side-foot">
+      <button class="btn ghost paramsBtn" id="tmsBtn" title="Ouvre le TMS dans un nouvel onglet">🚚 Ouvrir le TMS</button>
       <button class="btn ghost paramsBtn" id="catalogueBtn" aria-current="false">📦 Catalogue produits</button>
       <button class="btn ghost paramsBtn" id="comptaBtn" aria-current="false">📊 Récapitulatif comptable</button>
       <button class="btn ghost paramsBtn" id="paramsBtn" aria-current="false">⚙️ Paramètres</button>
@@ -490,7 +491,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "4.2";
+const VERSION = "4.3";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -535,7 +536,8 @@ const DEFAULT_PARAMS = {
   tvaRates:[10,20], tvaDefaut:10, tvaNormal:20,
   pctAcompte:40, pctLivraison:50, pctSolde:10,          // projet avec installation
   pctAcompteSP:50, pctLivraisonSP:50,                     // projet sans installation
-  margeDefaut:35,                                         // marge par défaut des articles (% du prix de vente HT)
+  margeDefaut:35,
+  urlTms:"",                                              // adresse du TMS (Gestion Dépôt) ouverte par le bouton du menu                                         // marge par défaut des articles (% du prix de vente HT)
   types:[
     {nom:"Cuisine", rubriques:["Meubles","Plan de travail","Sanitaires","Électroménager"], visite:true},
     {nom:"Salle de bain", rubriques:["Meubles","Plan de travail","Sanitaires"], visite:true},
@@ -1933,6 +1935,11 @@ function renderParams(){
       ${sumSP!==100?`<div class="sum-warn">Le total fait ${sumSP} % au lieu de 100 %.</div>`:""}
     </section>
 
+    <section class="block"><h2>Liens</h2>
+      <div class="field" style="max-width:560px"><label for="p-tms">Adresse du TMS (bouton « Ouvrir le TMS » du menu)</label>
+        <input id="p-tms" type="url" data-pp="urlTms" placeholder="https://toncompte.github.io/tms/" value="${esc(P.urlTms||"")}"></div>
+    </section>
+
     <section class="block"><h2>Catalogue et devis</h2>
       <div class="pct-row"><div class="field" style="width:260px"><label for="p-mg">Marge par défaut (% du prix de vente HT)</label>
         <input id="p-mg" type="number" min="0" max="99" step="0.5" data-pp="margeDefaut" value="${P.margeDefaut}"></div></div>
@@ -1974,6 +1981,16 @@ function renderParams(){
 
 /* ---------- Événements : liste ---------- */
 $("#appVer").textContent = `v${VERSION}`;
+$("#tmsBtn").addEventListener("click", ()=>{
+  let url=(P.urlTms||"").trim();
+  if(!url){
+    const v=(prompt("Adresse du TMS (Gestion Dépôt) à ouvrir, par exemple https://toncompte.github.io/tms/ :","")||"").trim();
+    if(!v) return;
+    url = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+    P.urlTms=url; saveParams(true); toast("Adresse du TMS enregistrée dans Paramètres");
+  }
+  window.open(url,"_blank","noopener");
+});
 $("#list").addEventListener("click", e=>{ const b=e.target.closest("button[data-id]"); if(b) select(b.dataset.id); });
 $("#search").addEventListener("input", e=>{ query=e.target.value; renderList(); });
 $("#paramsBtn").addEventListener("click", ()=>select("__params"));
@@ -2765,6 +2782,7 @@ function paramInput(el){
     saveParams(); return;
   }
   if(el.dataset.pp && el.type==="number"){ P[el.dataset.pp]=num(el.value)??0; saveParams(); }
+  else if(el.dataset.pp && el.type==="url"){ P[el.dataset.pp]=el.value.trim(); saveParams(); }
 }
 function paramChange(el){
   if(el.dataset.ptype!==undefined && el.dataset.k==="visite"){ P.types[+el.dataset.ptype].visite=el.checked; saveParams(true); return; }
