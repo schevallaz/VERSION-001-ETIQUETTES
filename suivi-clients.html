@@ -491,7 +491,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "4.3";
+const VERSION = "4.4";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -612,9 +612,15 @@ const pctTxt = v => `${String(v).replace(".",",")} %`;
 /* ---------- Modèle ---------- */
 // Pourcentages de règlement selon que l'installation est prévue ou non.
 const sansPose = p => p && p.installPrevue==="Non";
+// Pourcentages de règlement : ceux des Paramètres, sauf si le projet a son propre % d'acompte
+// (la livraison prend alors la différence ; le solde à l'installation reste celui des Paramètres).
+function pctAcompteDefaut(p){ return sansPose(p) ? (num(P.pctAcompteSP)??50) : (num(P.pctAcompte)??40); }
 function pcts(p){
-  return sansPose(p) ? {a:num(P.pctAcompteSP)??50, l:num(P.pctLivraisonSP)??50, s:0}
-                     : {a:num(P.pctAcompte)??40, l:num(P.pctLivraison)??50, s:num(P.pctSolde)??10};
+  const k = sansPose(p) ? {a:num(P.pctAcompteSP)??50, l:num(P.pctLivraisonSP)??50, s:0}
+                        : {a:num(P.pctAcompte)??40, l:num(P.pctLivraison)??50, s:num(P.pctSolde)??10};
+  const o = p ? num(p.pctAcompte) : null;
+  if(o!=null && o>=0 && o<=100){ k.a=o; k.l=Math.max(0, Math.round((100-o-k.s)*100)/100); if(o+k.s>100) k.s=Math.max(0,100-o); }
+  return k;
 }
 function stepDefs(p){
   const k=pcts(p);
@@ -640,7 +646,7 @@ function blankClient(){
     c1:{civ:"Madame",nom:"",prenom:"",tel:"",mail:""},
     c2:{civ:"Monsieur",nom:"",prenom:"",tel:"",mail:""},
     typeBien:"", install:blankAddr(), factDiff:false, fact:blankAddr(),
-    entreprise:false, raisonSociale:"", siret:"", tvaIntra:"",
+    typeClient:"Particulier", entreprise:false, raisonSociale:"", siret:"", tvaIntra:"",
     parrain:"", notes:"", projets:{}, suivis:[],
     createdAt:now, updatedAt:now, createdBy:me?.email||"", updatedBy:me?.email||""};
 }
@@ -703,6 +709,7 @@ function normalize(c){
   }
   for(const k of Object.keys(b)) if(c[k]===undefined) c[k]=b[k];
   c.c1={...b.c1,...c.c1}; c.c2={...b.c2,...c.c2};
+  if(!["Particulier","Entreprise","Administration"].includes(c.typeClient)) c.typeClient = c.entreprise ? "Entreprise" : "Particulier";
   c.install={...b.install,...c.install}; c.fact={...b.fact,...c.fact};
   Object.keys(c.projets).forEach(k=>{ c.projets[k].id=k; normProjet(c.projets[k]); });
   c.suivis=Array.isArray(c.suivis)?c.suivis:[];
@@ -721,7 +728,9 @@ const curProj = c => c.projets[selProj] || projList(c)[0] || null;
 /* ---------- Calculs ---------- */
 const civAbbr = v => v==="Monsieur" ? "M." : "Mme";
 function personne(p){ return [civAbbr(p.civ), p.prenom, p.nom].filter(Boolean).join(" "); }
-function nomFiche(c){
+const isPro = c => c.typeClient==="Entreprise" || c.typeClient==="Administration";
+function nomFiche(c){ return (isPro(c) && c.raisonSociale) ? c.raisonSociale : nomContacts(c); }
+function nomContacts(c){
   const ps=[c.c1,c.c2].filter(p=>p.nom||p.prenom);
   if(!ps.length) return "";
   if(ps.length===2 && ps[0].nom && ps[0].nom.toLowerCase()===ps[1].nom.toLowerCase())
@@ -1023,7 +1032,8 @@ function renderList(){
     const ls=lastSuivi(c), ps=projList(c);
     const lines=ps.map(p=>{ const i=currentStep(p); return `${esc(projLabel(c,p))} : ${i===-1?"terminé":`${i+1}. ${esc(defs[i].t)}`}`; });
     return `<li><button data-id="${c.id}" aria-current="${c.id===selId}">
-      <div class="li-name">${esc(nomFiche(c)||c.raisonSociale||"Sans nom")}</div>
+      <div class="li-name">${esc(nomFiche(c)||"Sans nom")}</div>
+      ${isPro(c)&&c.raisonSociale&&nomContacts(c)?`<div class="li-meta">${esc(nomContacts(c))}</div>`:""}
       ${c.install.ville?`<div class="li-meta">${esc(c.install.ville)}</div>`:""}
       ${lines.length?`<div class="li-step">${lines.join("<br>")}</div>`:`<div class="li-step">Aucun projet</div>`}
       ${ls?`<div class="li-step">Dernier contact ${fmtD(ls.date)}</div>`:""}
@@ -1291,6 +1301,10 @@ function stepBody0(c,p,id){
           <small>Calculé sur ${eur(r.m)} TTC${calcDevis(p,s).has?"":" (devis prévu, faute de montant définitif)"}</small></div>
         ${contactSel(c,`${b}.contact`)}
       </div>
+      <div class="grid-4" style="margin-top:12px">
+        ${fi(c,`projets.${p.id}.pctAcompte`,"Acompte de ce projet (%)",{type:"number",kind:"num",attrs:`step="1" min="0" max="100" placeholder="${pctAcompteDefaut(p)}"`,
+          hint: num(p.pctAcompte)!=null ? `Modifié pour ce projet (Paramètres : ${pctAcompteDefaut(p)} %). Videz le champ pour revenir au taux par défaut.` : `Taux des Paramètres : ${pctAcompteDefaut(p)} %. Modifiable pour ce projet.`})}
+      </div>
       <h3 class="sub">Acompte reçu</h3>
       ${recuBlock(c,p,"s4",r.a,"Acompte")}
       <div class="calc" style="margin-top:10px"><small>Restent dus</small>
@@ -1542,7 +1556,8 @@ function renderFiche(c){
     <button class="btn ghost back" id="backBtn">‹ Toutes les fiches</button>
     <div class="top">
       <div class="top-left">
-        <h1 style="font-size:32px">${esc(nomFiche(c)||c.raisonSociale||"Nouvelle fiche")}</h1>
+        <h1 style="font-size:32px">${esc(nomFiche(c)||"Nouvelle fiche")}</h1>
+        ${isPro(c)&&c.raisonSociale&&nomContacts(c)?`<div class="muted">${esc(c.typeClient)} – contact : ${esc(nomContacts(c))}</div>`:""}
         <div class="quick">${tels}${c.install.ville?`<span>${esc(c.install.ville)}</span>`:""}<span class="saved" id="saved"></span></div>
       </div>
       <div class="top-actions">
@@ -1554,8 +1569,19 @@ function renderFiche(c){
 
     <section class="block">
       <h2>Coordonnées</h2>
-      ${contactRow(c,"c1","Contact 1")}
-      ${contactRow(c,"c2","Contact 2")}
+      ${seg(c,"typeClient","Client à facturer",["Particulier","Entreprise","Administration"],{req:true,def:"Particulier"})}
+      ${c.typeClient==="Entreprise"?`<div class="grid-4" style="margin-top:12px">
+        ${fi(c,"raisonSociale","Nom de l’entreprise",{cls:"span-2"})}
+        ${fi(c,"siret","N° de SIRET",{ph:"123 456 789 00012",attrs:`inputmode="numeric" data-fmt="siret"`,bad:c.siret&&c.siret.replace(/\D/g,"").length!==14?"14 chiffres attendus":""})}
+        ${fi(c,"tvaIntra","N° de TVA intracommunautaire",{ph:"FR 12345678901",attrs:`data-fmt="tva"`,
+          hint:!c.tvaIntra&&tvaFromSiret(c.siret)?`<button type="button" class="linkbtn" style="margin:0" data-tvasug>Proposer ${tvaFromSiret(c.siret)}</button>`:""})}
+      </div>`:""}
+      ${c.typeClient==="Administration"?`<div class="grid-4" style="margin-top:12px">
+        ${fi(c,"raisonSociale","Nom de l’administration",{cls:"span-2",ph:"Mairie de…, Conseil départemental…"})}
+      </div>`:""}
+      ${isPro(c)?`<h3 class="sub">Contact à joindre</h3>`:`<div style="height:12px"></div>`}
+      ${contactRow(c,"c1",isPro(c)?"Contact principal":"Contact 1")}
+      ${contactRow(c,"c2",isPro(c)?"Autre contact":"Contact 2")}
     </section>
 
     <section class="block">
@@ -1569,13 +1595,7 @@ function renderFiche(c){
       <h3 class="sub">Facturation</h3>
       <label class="toggle"><input type="checkbox" data-p="factDiff" data-kind="bool" ${c.factDiff?"checked":""}> Adresse de facturation différente de l’installation</label>
       ${c.factDiff?addrBlock(c,"fact"):""}
-      <label class="toggle" style="margin-top:12px"><input type="checkbox" data-p="entreprise" data-kind="bool" ${c.entreprise?"checked":""}> Le client est une entreprise</label>
-      ${c.entreprise?`<div class="grid-4">
-        ${fi(c,"raisonSociale","Raison sociale",{cls:"span-2"})}
-        ${fi(c,"siret","N° de SIRET",{ph:"123 456 789 00012",attrs:`inputmode="numeric" data-fmt="siret"`,bad:c.siret&&c.siret.replace(/\D/g,"").length!==14?"14 chiffres attendus":""})}
-        ${fi(c,"tvaIntra","N° de TVA intracommunautaire",{ph:"FR 12345678901",attrs:`data-fmt="tva"`,
-          hint:!c.tvaIntra&&tvaFromSiret(c.siret)?`<button type="button" class="linkbtn" style="margin:0" data-tvasug>Proposer ${tvaFromSiret(c.siret)}</button>`:""})}
-      </div>`:""}
+
       <div class="field" style="margin-top:14px"><label for="f-notes">Notes</label>
         <textarea id="f-notes" data-p="notes" placeholder="Informations générales…">${esc(c.notes)}</textarea></div>
     </section>
@@ -2237,6 +2257,7 @@ $("#main").addEventListener("click", async e=>{
   if(sg){ const path=sg.dataset.set, cur=getP(c,path)||"";
     const v = (cur===sg.dataset.v && sg.dataset.req===undefined) ? "" : sg.dataset.v;
     setP(c,path,v); queue(c,path,v);
+    if(path==="typeClient"){ c.entreprise = v==="Entreprise"; queue(c,"entreprise",c.entreprise); }
     const sm=path.match(/^projets\.([^.]+)\.steps\.(s\d)\.(saisie|margeMode)$/);
     if(sm){ const pr=c.projets[sm[1]], st=pr.steps[sm[2]];
       if(sm[3]==="margeMode" && v==="globale" && num(st.margeGlobale)==null){ st.margeGlobale=P.margeDefaut; queue(c,`projets.${pr.id}.steps.${sm[2]}.margeGlobale`,st.margeGlobale); }
@@ -2316,7 +2337,8 @@ const agenceNom = code => { const a=(agences||[]).find(x=>x.code===code); return
 function paysDepot(code){ const x=PAYS.find(q=>q[0]===code); return x ? `${x[0]}-${x[1]}` : "FR-France"; }
 function contremarqueDepuisFiche(c,p){
   const a=c.install, p1=(c.c1.nom||c.c1.prenom)?c.c1:c.c2, p2=p1===c.c1?c.c2:c.c1;
-  const k={ nom:(p1.nom||"").toUpperCase(), prenom:p1.prenom||"", tel1:p1.tel||p2.tel||"", tel2:p1.tel&&p2.tel?p2.tel:"", mail:p1.mail||p2.mail||"",
+  const pro=isPro(c) && c.raisonSociale;
+  const k={ nom:pro ? c.raisonSociale.toUpperCase() : (p1.nom||"").toUpperCase(), prenom:pro ? [p1.prenom,p1.nom].filter(Boolean).join(" ") : (p1.prenom||""), tel1:p1.tel||p2.tel||"", tel2:p1.tel&&p2.tel?p2.tel:"", mail:p1.mail||p2.mail||"",
     adresse1:a.adresse||"", adresse2:"", departement:a.pays==="FR"?(a.dep||""):"", cp:a.cp||"", ville:a.ville||"", pays:paysDepot(a.pays) };
   if(!sansPose(p) && p.installation.prevue) k.datePose=p.installation.prevue;
   return k;
@@ -2495,7 +2517,8 @@ function toText(c, what="full"){
     if(addrText(c.install)) L.push(`Installation : ${addrText(c.install)}`);
     if(c.typeBien) L.push(`Type de bien : ${c.typeBien}`);
     if(c.factDiff && addrText(c.fact)) L.push(`Facturation : ${addrText(c.fact)}`);
-    if(c.entreprise) L.push(`Entreprise : ${c.raisonSociale||""}${c.siret?` – SIRET ${c.siret}`:""}${c.tvaIntra?` – TVA ${c.tvaIntra}`:""}`);
+    if(c.typeClient==="Entreprise") L.push(`Entreprise : ${c.raisonSociale||""}${c.siret?` – SIRET ${c.siret}`:""}${c.tvaIntra?` – TVA ${c.tvaIntra}`:""}`);
+    if(c.typeClient==="Administration") L.push(`Administration : ${c.raisonSociale||""}`);
     if(what==="full"){ if(c.parrain) L.push(`Parrain : ${c.parrain}`); if(c.notes) L.push(`Notes : ${c.notes}`); }
     projList(c).forEach(p=>{
       const r=reglements(p), com=commission(c,p), s1=p.steps.s1;
@@ -2657,11 +2680,12 @@ function buildPdf(c, version, pids){
   // Client
   h2(nomFiche(c)||c.raisonSociale||"Client");
   kv([
-    ...[c.c1,c.c2].filter(p=>p.nom||p.prenom).map((p,i)=>[i?"Contact 2":"Contact", [personne(p),p.tel,p.mail].filter(Boolean).join("  –  ")]),
+    ...[c.c1,c.c2].filter(p=>p.nom||p.prenom).map((p,i)=>[isPro(c)?(i?"Autre contact":"Contact à joindre"):(i?"Contact 2":"Contact"), [personne(p),p.tel,p.mail].filter(Boolean).join("  –  ")]),
     ["Adresse d’installation", addrText(c.install)],
     ["Type de bien", c.typeBien],
     ["Adresse de facturation", c.factDiff?addrText(c.fact):""],
-    ["Entreprise", c.entreprise?[c.raisonSociale, c.siret&&`SIRET ${c.siret}`, c.tvaIntra&&`TVA ${c.tvaIntra}`].filter(Boolean).join("  –  "):""],
+    ["Entreprise", c.typeClient==="Entreprise"?[c.raisonSociale, c.siret&&`SIRET ${c.siret}`, c.tvaIntra&&`TVA ${c.tvaIntra}`].filter(Boolean).join("  –  "):""],
+    ["Administration", c.typeClient==="Administration"?c.raisonSociale:""],
     ...(interne?[["Parrain", c.parrain],["Notes", c.notes]]:[])
   ]);
 
