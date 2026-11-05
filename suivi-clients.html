@@ -400,10 +400,25 @@ h3.sub:first-child{margin-top:0}
 .marge-devis .field input{width:140px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
 b.neg{color:var(--danger)}
 
+/* ---- v4.5 : barre de compte toujours visible ---- */
+body{display:flex;flex-direction:column}
+.app{flex:1 1 0;min-height:0;height:auto}
+.accountbar{flex:none;display:flex;align-items:center;gap:8px;padding:calc(6px + env(safe-area-inset-top,0px)) 12px 6px;background:var(--surface);border-bottom:1px solid var(--line);font-size:13px;color:var(--ink-2)}
+.accountbar #accText{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.accountbar .acc-dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--ink-3)}
+.accountbar[data-etat="connecte"] .acc-dot{background:var(--olive)}
+.accountbar[data-etat="deconnecte"] .acc-dot{background:var(--danger)}
+.accountbar .btn{padding:4px 12px;font-size:13px;flex:none}
+.accountbar[data-etat="deconnecte"] .btn,.accountbar[data-etat="attente"] .btn{background:var(--ochre-soft);border-color:var(--ochre);color:var(--ochre-ink);font-weight:600}
+@media print{.accountbar{display:none}}
 [hidden]{display:none!important}
 </style>
 </head>
 <body>
+<header class="accountbar" id="accountbar" data-etat="attente">
+  <span class="acc-dot" aria-hidden="true"></span><span id="accText" role="status">Connexion en cours…</span>
+  <button class="btn" id="accBtn" type="button">Se connecter</button>
+</header>
 <section class="login" id="login" hidden>
   <div class="login-card">
     <h1>Suivi clients</h1>
@@ -416,7 +431,7 @@ b.neg{color:var(--danger)}
   </div>
 </section>
 
-<div class="app" id="app">
+<div class="app" id="app" hidden>
   <aside class="side">
     <div class="side-head">
       <div class="brand"><h1>Suivi clients <span class="app-ver" id="appVer"></span></h1><small id="count"></small></div>
@@ -491,7 +506,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "4.4";
+const VERSION = "4.5";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -2858,10 +2873,20 @@ $("#lg-reset").addEventListener("click", async ()=>{
 });
 $("#logoutBtn").addEventListener("click", ()=>{ flushPending(); signOut(auth); });
 
+/* ---------- Barre de compte : toujours visible, même sur téléphone et dans une fiche ---------- */
+let authPret=false;
+function majCompte(etat, user){
+  $("#accountbar").dataset.etat=etat;
+  $("#accText").textContent = etat==="connecte" ? "Connecté : "+(user&&user.email||"") : (etat==="attente" ? "Connexion en cours…" : "Non connecté");
+  $("#accBtn").textContent = etat==="connecte" ? "Déconnexion" : "Se connecter";
+}
+function afficherConnexion(msg){ $("#login").hidden=false; if(msg) $("#lg-err").textContent=msg; setTimeout(()=>$("#lg-email").focus(),0); }
+$("#accBtn").addEventListener("click", ()=>{ if(me){ flushPending(); signOut(auth); } else afficherConnexion(); });
+setTimeout(()=>{ if(!authPret) afficherConnexion("La connexion à Firebase est lente ou impossible : vérifiez internet, puis connectez-vous."); }, 4000);   // si Firebase ne répond pas, l'écran de connexion s'ouvre quand même
 onAuthStateChanged(auth, user=>{
-  me=user;
+  authPret=true; me=user; majCompte(user ? "connecte" : "deconnecte", user);
   if(unsub){ unsub(); unsub=null; } if(unsubP){ unsubP(); unsubP=null; } if(unsubCat){ unsubCat(); unsubCat=null; }
-  if(!user){ clients=[]; selId=null; selProj=null; $("#login").hidden=false; $("#app").hidden=true; setTimeout(()=>$("#lg-email").focus(),0); return; }
+  if(!user){ clients=[]; selId=null; selProj=null; $("#lg-err").textContent=""; $("#login").hidden=false; $("#app").hidden=true; setTimeout(()=>$("#lg-email").focus(),0); return; }
   $("#login").hidden=true; $("#app").hidden=false; $("#whoEmail").textContent=user.email;
   renderMain();
   unsubCat = onSnapshot(collection(db,CATALOGUE_COL), snap=>{
