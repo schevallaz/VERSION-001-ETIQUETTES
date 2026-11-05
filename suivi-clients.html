@@ -394,6 +394,7 @@ h3.sub:first-child{margin-top:0}
 .catlist button:hover,.catlist button:focus-visible{background:var(--surface-2);outline:none}
 .lg.wm .w-poste{width:118px}.lg.wm .w-ref{width:78px}.lg.wm .w-num{width:84px}
 .lg .w-eco{width:76px}.lg .w-eco input{text-align:right}
+.app-ver{font-family:"Public Sans",system-ui,sans-serif;font-size:12px;font-weight:600;color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:1px 8px;vertical-align:middle;margin-left:4px}
 .marge-devis{margin-top:10px;padding:10px 12px;border:1px dashed var(--ink-3);border-radius:8px;background:var(--surface)}
 .marge-devis .field{margin:0}
 .marge-devis .field input{width:140px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
@@ -418,7 +419,7 @@ b.neg{color:var(--danger)}
 <div class="app" id="app">
   <aside class="side">
     <div class="side-head">
-      <div class="brand"><h1>Suivi clients</h1><small id="count"></small></div>
+      <div class="brand"><h1>Suivi clients <span class="app-ver" id="appVer"></span></h1><small id="count"></small></div>
       <input class="search" id="search" type="search" placeholder="Rechercher un nom, un téléphone…" aria-label="Rechercher un client">
       <button class="btn primary new" id="newBtn">Nouvelle fiche</button>
     </div>
@@ -489,7 +490,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "4.1";
+const VERSION = "4.2";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -1972,6 +1973,7 @@ function renderParams(){
 }
 
 /* ---------- Événements : liste ---------- */
+$("#appVer").textContent = `v${VERSION}`;
 $("#list").addEventListener("click", e=>{ const b=e.target.closest("button[data-id]"); if(b) select(b.dataset.id); });
 $("#search").addEventListener("input", e=>{ query=e.target.value; renderList(); });
 $("#paramsBtn").addEventListener("click", ()=>select("__params"));
