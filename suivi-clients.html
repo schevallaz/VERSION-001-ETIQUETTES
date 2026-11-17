@@ -497,7 +497,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "4.6";
+const VERSION = "4.7";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -567,7 +567,9 @@ const RDV_STEPS = ["s1","s2","s3","s4","s7","s8","s9"];
 const STEP_IDS = ["s1","s2","s3","s4","s5","s6","s7","s8","s9"];
 const DEVIS_MODES = ["Montant global","Lignes produits"];
 const LIGNES_PAR_DEFAUT = ["Literie","Meubles","Canapé","Électroménager"];
-const POSTES = [["mat","Fourniture"],["elec","Électroménager"],["livr","Livraison"],["presta","Installation (pose)"],["taxe","Taxe"]];
+const POSTES = [["mat","Fourniture"],["elec","Électroménager"],["livr","Livraison"],["presta","Installation (pose)"],["taxe","Taxe"],["div1","Divers 1"],["div2","Divers 2"]];
+// TVA d'un poste : électroménager et Divers 1 au taux normal, Divers 2 au taux par défaut des Paramètres, le reste au taux du projet
+function tauxPoste(k, tvaProjet){ return (k==="elec"||k==="div1") ? (num(P.tvaNormal)??20) : k==="div2" ? (num(P.tvaDefaut)??10) : (num(tvaProjet)||0); }
 const defaultDevisMode = type => { const d=P.types.find(t=>t.nom===type)?.devis; return DEVIS_MODES.includes(d) ? d : (LIGNES_PAR_DEFAUT.includes(type) ? "Lignes produits" : "Montant global"); };
 const isLignes = p => p.devisMode==="Lignes produits";
 
@@ -749,7 +751,7 @@ const currentStep = p => STEP_IDS.findIndex(s=>!p.steps[s].done && !skipped(p,s)
 // Devis : fourniture et prestations au taux du projet, électroménager toujours au taux normal.
 function calcDevis(p, st){
   const r=num(p.tva)||0, rn=num(P.tvaNormal)??20, ttcMode=(st.saisie||"TTC")==="TTC";
-  const rateOf=k=> k==="elec" ? rn : r;
+  const rateOf=k=> tauxPoste(k, p.tva);
   const conv=(a,rate)=>({ht: ttcMode ? a/(1+rate/100) : a, ttc: ttcMode ? a : a*(1+rate/100)});
   // éco-participation : saisie HT par unité ; elle s'ajoute au prix de la ligne, sans marge, avec la TVA de la ligne
   let amounts={}, items=[], achatLignes=null, ecoByK={};
@@ -833,7 +835,7 @@ function calcMarge(c,p){
   const d=devisRetenu(p), k=p.couts||{}, n=x=>num(x)||0, com=commission(c,p);
   const rows=[
     {k:"produits", poste:"Produits (fourniture + électroménager)", vente:d.htOf("mat")+d.htOf("elec")-(d.ecoByK.mat||0)-(d.ecoByK.elec||0), cout:d.achatLignes!=null?d.achatLignes:n(k.achat)},
-    {k:"annexes",  poste:"Coûts annexes (transport d’approche, divers)", vente:0, cout:n(k.approche)+n(k.divers)},
+    {k:"annexes",  poste:"Divers (ventes Divers 1 et 2 / coûts transport d’approche et divers)", vente:d.htOf("div1")+d.htOf("div2"), cout:n(k.approche)+n(k.divers)},
     {k:"livraison",poste:"Livraison", vente:d.htOf("livr")-(d.ecoByK.livr||0), cout:n(k.livraison)},
     {k:"pose",     poste:"Installation (sous-traitance pose)", vente:d.htOf("presta")-(d.ecoByK.presta||0), cout:n(k.pose)}
   ];
@@ -1142,7 +1144,7 @@ function rdvBlock(c,p,id){
   </div>${histHtml}`;
 }
 // Marge exprimée en % du prix de vente HT (comme dans le bloc « Coûts et marge »).
-function rateLigne(p,poste){ return poste==="elec" ? (num(P.tvaNormal)??20) : (num(p.tva)||0); }
+function rateLigne(p,poste){ return tauxPoste(poste, p.tva); }
 function puDepuisMarge(p,st,l,marge){
   const pa=num(l.pa); if(pa==null || marge==null || marge>=100) return null;
   const ht=pa/(1-marge/100); return round2((st.saisie||"TTC")==="TTC" ? ht*(1+rateLigne(p,l.poste)/100) : ht);
@@ -1237,6 +1239,8 @@ function devisBlock(c,p,sid){
       ${fi(c,`${b}.elec`,`Électroménager ${mode}`,{...nf,hint:`Toujours à ${pctTxt(P.tvaNormal)}`})}
       ${fi(c,`${b}.livr`,`Livraison ${mode}`,{...nf,hint:"Prestation de livraison"})}
       ${fi(c,`${b}.presta`,`Installation (pose) ${mode}`,{...nf,hint:"Pose, montage, raccordements…"})}
+      ${fi(c,`${b}.div1`,`Divers 1 ${mode}`,{...nf,hint:`TVA ${pctTxt(P.tvaNormal)} (taux normal)`})}
+      ${fi(c,`${b}.div2`,`Divers 2 ${mode}`,{...nf,hint:`TVA ${pctTxt(P.tvaDefaut)} (taux par défaut)`})}
       ${fi(c,`${b}.eco`,`Dont éco-participation ${mode}`,{...nf,hint:"Déjà comprise dans la fourniture ; affichée au client, sans marge"})}
     </div>`;
   return `<div class="devis">
@@ -1770,7 +1774,7 @@ function exportCompta(){
 /* ---------- Catalogue produits ---------- */
 const XLSX_URL="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
 const CAT_CHAMPS=["ref","designation","marque","fournisseur","famille","poste","unite","pa","marge","pv","eco","notes"];
-const tauxArticle = a => a.poste==="elec" ? (num(P.tvaNormal)??20) : (num(P.tvaDefaut)??10);
+const tauxArticle = a => tauxPoste(a.poste, P.tvaDefaut);
 function pvArticle(a){ const pv=num(a.pv); if(pv!=null) return pv; const pa=num(a.pa), m=num(a.marge)??num(P.margeDefaut); return (pa!=null && m!=null && m<100) ? round2(pa/(1-m/100)) : null; }
 function catFiltrés(){
   const words=catFiltre.trim().toLowerCase().split(/\s+/).filter(Boolean);
