@@ -398,6 +398,9 @@ h3.sub:first-child{margin-top:0}
 .bc{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
 .bc-lignes summary{cursor:pointer;font-size:14px;font-weight:600}
 .bc-lignes{margin-bottom:6px}
+.dd{margin-top:6px;font-size:13px;border-top:1px dashed var(--line);padding-top:6px}
+.dd-row{display:flex;justify-content:space-between;gap:12px}
+.dd-tot{font-weight:700;border-top:1px solid var(--line);margin-top:3px;padding-top:3px}
 .marge-devis{margin-top:10px;padding:10px 12px;border:1px dashed var(--ink-3);border-radius:8px;background:var(--surface)}
 .marge-devis .field{margin:0}
 .marge-devis .field input{width:140px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2)}
@@ -494,7 +497,7 @@ const firebaseConfig = {
 const COLLECTION = "fichesSuivi";
 const PARAMS_COL = "fichesSuiviParams";
 const CATALOGUE_COL = "fichesSuiviCatalogue";
-const VERSION = "4.5";
+const VERSION = "4.6";
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendPasswordResetEmail }
@@ -795,7 +798,18 @@ function reglements(p){
     {key:"s8", label:sp?"Solde à la livraison":"Règlement à la livraison", du:l, recu:rl, le:S.s8.recuLe||(rl!=null?S.s8.date:""), mode:S.s8.methode||"", prevu:S.s8.dateLivraison||(sp?p.installation.prevue:"")||p.commandes.map(x=>x.dateLivPrevue).filter(Boolean).sort().pop()||""},
   ];
   if(!sp) ech.push({key:"s9", label:"Solde à l’installation", du:s, recu:rs, le:S.s9.recuLe||(rs!=null?S.s9.date:""), mode:S.s9.methode||"", prevu:S.s9.datePose||p.installation.prevue||""});
-  return {m,a,l,s,k,ra,rl,rs,recu,reste:round2(Math.max(0,m-recu)),ech};
+  // détail du recalcul : montant prévu de l'échéance + reliquat (ou trop-perçu) de l'échéance précédente
+  const lPrevu = sp ? round2(m-a) : round2(m-a-sTheo), reliqA = ra!=null ? round2(a-ra) : 0;
+  const reliqL = (!sp && rl!=null) ? round2(l-rl) : 0;
+  return {m,a,l,s,k,ra,rl,rs,recu,reste:round2(Math.max(0,m-recu)),ech,lPrevu,reliqA,sPrevu:sTheo,reliqL};
+}
+// encadré « montant à encaisser » avec le détail : prévu + reste de l'échéance précédente = à encaisser
+function detailDu(titre,total,prevuLib,prevu,reliqLib,reliq){
+  const ligneReliq = Math.abs(reliq)>0.009
+    ? `<div class="dd-row"><span>${reliq>0?`+ Reste ${reliqLib}`:`− Trop-perçu ${reliqLib}`}</span><span>${eur(Math.abs(reliq))}</span></div>` : "";
+  return `<div class="calc"><small>${titre}</small><span class="money">${eur(total)}</span>
+    <div class="dd"><div class="dd-row"><span>${prevuLib}</span><span>${eur(prevu)}</span></div>${ligneReliq}
+    ${ligneReliq?`<div class="dd-row dd-tot"><span>= À encaisser</span><span>${eur(total)}</span></div>`:""}</div></div>`;
 }
 function recuBlock(c,p,sid,du,label){
   const b=`projets.${p.id}.steps.${sid}`, st=p.steps[sid], v=num(st.recu);
@@ -1312,7 +1326,7 @@ function stepBody0(c,p,id){
       <h3 class="sub">Acompte reçu</h3>
       ${recuBlock(c,p,"s4",r.a,"Acompte")}
       <div class="calc" style="margin-top:10px"><small>Restent dus</small>
-        ${r.ech.slice(1).map(e=>`<div>${e.label} : <b>${eur(e.du)}</b></div>`).join("")}
+        ${r.ech.slice(1).map(e=>`<div>${e.label} : <b>${eur(e.du)}</b>${e.key==="s8"&&Math.abs(r.reliqA)>0.009?` <span class="muted">(${eur(r.lPrevu)} prévus ${r.reliqA>0?"+":"−"} ${eur(Math.abs(r.reliqA))} ${r.reliqA>0?"reste":"trop-perçu"} de l’acompte)</span>`:""}</div>`).join("")}
         <small>Total ${eur(r.m)} – déjà reçu ${eur(r.recu)} = reste ${eur(r.reste)}</small></div>
       ${docs(c,`${b}.docsDevis`,"Devis définitif")}
       ${docs(c,`${b}.docsPlan`,"Plan validé (technique OK)")}
@@ -1361,8 +1375,8 @@ function stepBody0(c,p,id){
       : `<p class="journal-empty" style="margin-top:12px">Cochez l’étape et indiquez la date quand la marchandise est reçue.</p>`;
   case "s8":
     return `<div class="grid-2" style="margin-top:12px">
-        <div class="calc"><small>${sansPose(p)?"Solde dû à la livraison":"Règlement dû à la livraison"}</small><span class="money">${eur(r.l)}</span>
-          <small>${r.ra!=null?`Recalculé d’après l’acompte reçu (${eur(r.ra)})`:`${r.k.l} % de ${eur(r.m)} TTC`}</small></div>
+        ${detailDu(sansPose(p)?"Solde à encaisser à la livraison":"À encaisser à la livraison", r.l,
+            `Prévu à la livraison (${r.k.l} % de ${eur(r.m)})`, r.lPrevu, `de l’acompte (prévu ${eur(r.a)}, reçu ${eur(r.ra)})`, r.reliqA)}
         ${fi(c,`${b}.dateLivraison`,"Date de la livraison",{type:"date"})}
       </div>
       <h3 class="sub">Règlement reçu</h3>${recuBlock(c,p,"s8",r.l,"Montant")}`;
@@ -1370,8 +1384,8 @@ function stepBody0(c,p,id){
     return `<div class="grid-2" style="margin-top:12px">
         ${fi(c,`${b}.poseur`,"Nom du poseur",{list:"dl-poseurs"})}
         ${fi(c,`${b}.datePose`,"Date de la pose",{type:"date"})}
-        <div class="calc"><small>Solde dû à l’installation</small><span class="money">${eur(r.s)}</span>
-          <small>Total ${eur(r.m)} moins les règlements reçus et attendus avant</small></div>
+        ${detailDu("Solde à encaisser à l’installation", r.s,
+            `Prévu à l’installation (${r.k.s} % de ${eur(r.m)})`, r.sPrevu, `de la livraison (prévu ${eur(r.l)}, reçu ${eur(r.rl)})`, r.reliqL)}
       </div>
       <h3 class="sub">Solde reçu</h3>${recuBlock(c,p,"s9",r.s,"Solde")}
       <datalist id="dl-poseurs">${P.poseurs.map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
